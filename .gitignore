@@ -1,0 +1,46 @@
+# Local environment and secrets
+.env
+.env.*
+backend/.env
+backend/.env.*
+!.env.example
+!backend/.env.example
+
+# Editor and agent-local state
+.idea/
+.vscode/
+.agents/
+.learnings/
+
+# Python caches and reports
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Frontend dependencies and generated output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/harness-redraw-check.png
+
+# Local runtime data and uploaded files
+chromadb/
+uploads/
+backend/uploads/
+resume/
+backend/resume/
+doc/
+code-reviews/
+
+# Local logs and ad-hoc reports
+*.log
+*_REPORT.md
+test.md

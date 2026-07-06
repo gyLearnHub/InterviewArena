@@ -1,0 +1,20 @@
+[
+  {
+    "id": 11,
+    "user_id": 1,
+    "interview_id": 100,
+    "node_id": "round-1-question",
+    "node_type": "question_generation",
+    "status": "completed",
+    "event_write_failed": false
+  },
+  {
+    "id": 12,
+    "user_id": 1,
+    "interview_id": 100,
+    "node_id": "round-1-score",
+    "node_type": "question_evaluation",
+    "status": "failed",
+    "event_write_failed": true
+  }
+]

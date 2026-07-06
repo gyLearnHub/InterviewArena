@@ -1,0 +1,25 @@
+[project]
+name = "interview-arena"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "backend"
+packages = ["app"]
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/scripts/cleanup_test_data.py" = ["E402"]
+"backend/scripts/real_four_round_interview_test.py" = ["E501"]

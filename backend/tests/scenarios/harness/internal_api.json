@@ -1,0 +1,8 @@
+{
+  "user_id": 1,
+  "owned_interview_id": 100,
+  "foreign_interview_id": 200,
+  "trace_ids": [11, 12],
+  "expect_replay_mutates_business_data": false,
+  "expect_rerun_mutates_business_data": false
+}
