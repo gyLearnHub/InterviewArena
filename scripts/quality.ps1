@@ -81,6 +81,18 @@ function Get-ChangedBackendPythonFiles {
     }
 }
 
+function Invoke-Npm {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    & npm @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+    }
+}
+
 $requirementsPath = Join-Path $root "backend\requirements-dev.txt"
 $requiredPackages = Read-InterviewArenaPinnedRequirements -Path $requirementsPath
 
@@ -124,12 +136,12 @@ else {
 
 Push-Location frontend
 try {
-    npm run lint
-    npm run format:check
-    npm run typecheck
-    npm run build
+    Invoke-Npm -Arguments @("run", "lint")
+    Invoke-Npm -Arguments @("run", "format:check")
+    Invoke-Npm -Arguments @("run", "typecheck")
+    Invoke-Npm -Arguments @("run", "build")
     if ($E2E) {
-        npm run test:e2e
+        Invoke-Npm -Arguments @("run", "test:e2e")
     }
 }
 finally {

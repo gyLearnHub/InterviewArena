@@ -538,19 +538,23 @@ test("exit interview does not show next-question thinking state", async ({ page 
       }
     });
   });
-  await page.route("**/api/interviews/90/finish", async (route) => {
+  await page.route("**/api/interviews/90/finish-task", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     await route.fulfill({
       json: {
-        interview_id: 90,
-        score: 0,
-        weaknesses: ["面试提前结束。"],
-        suggestions: ["后续补充完整面试。"],
-        recommendation: "暂缓决定",
-        round_scores: [],
-        strengths: [],
-        reference_note: "面试提前结束，评价仅供参考。",
-        report_reliability_status: "reference_only"
+        task_id: 900,
+        status: "completed",
+        result: {
+          interview_id: 90,
+          score: 0,
+          weaknesses: ["面试提前结束。"],
+          suggestions: ["后续补充完整面试。"],
+          recommendation: "暂缓决定",
+          round_scores: [],
+          strengths: [],
+          reference_note: "面试提前结束，评价仅供参考。",
+          report_reliability_status: "reference_only"
+        }
       }
     });
   });
@@ -599,28 +603,31 @@ test("reports and history show reliability labels", async ({ page }) => {
       }
     });
   });
-  await page.route("**/api/interviews/history", async (route) => {
+  await page.route("**/api/interviews/history/page?*", async (route) => {
     await route.fulfill({
-      json: [
-        {
-          interview_id: 77,
-          target_position: "后端工程师",
-          status: "finished",
-          score: 72,
-          started_at: "2026-06-01T10:00:00",
-          ended_at: "2026-06-01T11:00:00",
-          report_reliability_status: "reference_only"
-        },
-        {
-          interview_id: 78,
-          target_position: "前端工程师",
-          status: "finished",
-          score: null,
-          started_at: "2026-06-02T10:00:00",
-          ended_at: "2026-06-02T11:00:00",
-          report_reliability_status: "unavailable"
-        }
-      ]
+      json: {
+        items: [
+          {
+            interview_id: 77,
+            target_position: "后端工程师",
+            status: "finished",
+            score: 72,
+            started_at: "2026-06-01T10:00:00",
+            ended_at: "2026-06-01T11:00:00",
+            report_reliability_status: "reference_only"
+          },
+          {
+            interview_id: 78,
+            target_position: "前端工程师",
+            status: "finished",
+            score: null,
+            started_at: "2026-06-02T10:00:00",
+            ended_at: "2026-06-02T11:00:00",
+            report_reliability_status: "unavailable"
+          }
+        ],
+        next_offset: null
+      }
     });
   });
   await page.route("**/api/interviews/77", async (route) => {

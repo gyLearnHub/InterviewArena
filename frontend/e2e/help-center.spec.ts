@@ -1,15 +1,21 @@
 import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/notifications/unread-count", async (route) => {
-    await route.fulfill({ json: { unread_count: 0 } });
-  });
-
   await page.addInitScript(() => {
     window.localStorage.setItem(
       "interview_arena_user",
       JSON.stringify({ id: 1, username: "alice", display_name: "Alice" })
     );
+  });
+
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      json: { id: 1, username: "alice", display_name: "Alice", avatar_url: null }
+    });
+  });
+
+  await page.route("**/api/notifications/unread-count", async (route) => {
+    await route.fulfill({ json: { count: 0 } });
   });
 });
 
