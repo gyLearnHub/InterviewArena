@@ -23,219 +23,276 @@
     </nav>
 
     <div class="entry-layout">
-    <div class="entry-panel">
-      <section v-show="currentStep === 1" class="role-section position-section" aria-labelledby="position-title">
-        <div class="section-heading">
-          <p class="eyebrow">基础信息</p>
-          <h2 id="position-title">选择面试方向</h2>
-        </div>
+      <div class="entry-panel">
+        <section
+          v-show="currentStep === 1"
+          class="role-section position-section"
+          aria-labelledby="position-title"
+        >
+          <div class="section-heading">
+            <p class="eyebrow">基础信息</p>
+            <h2 id="position-title">选择面试方向</h2>
+          </div>
 
-        <div class="position-select">
-          <button
-            v-if="!isCustomInputMode"
-            class="position-trigger"
-            :class="{ open: isPositionMenuOpen, placeholder: !targetPosition }"
-            type="button"
-            aria-haspopup="listbox"
-            :aria-expanded="isPositionMenuOpen"
-            @click="togglePositionMenu"
-            @keydown.escape="closePositionMenu"
-          >
-            <span class="position-field-icon" aria-hidden="true">
-              <img :src="currentPositionIcon" alt="" />
-            </span>
-            <span class="position-trigger-label">{{ targetPosition || "请选择面试方向" }}</span>
-            <span class="menu-caret" :class="{ open: isPositionMenuOpen }" aria-hidden="true">⌄</span>
-          </button>
-
-          <div v-else class="position-input-shell" :class="{ open: isPositionMenuOpen }">
-            <span class="position-field-icon" aria-hidden="true">
-              <img :src="customInputIcon" alt="" />
-            </span>
-            <input
-              ref="customPositionInput"
-              id="target-position"
-              v-model="customPosition"
-              placeholder="请输入自定义岗位名称"
-              @input="message = ''"
-              @keydown.down.prevent="openPositionMenu"
-              @keydown.escape="closePositionMenu"
-            />
+          <div class="position-select">
             <button
-              class="position-input-toggle"
+              v-if="!isCustomInputMode"
+              class="position-trigger"
+              :class="{ open: isPositionMenuOpen, placeholder: !targetPosition }"
               type="button"
-              aria-label="展开面试方向"
               aria-haspopup="listbox"
               :aria-expanded="isPositionMenuOpen"
               @click="togglePositionMenu"
+              @keydown.escape="closePositionMenu"
             >
-              <span class="menu-caret" :class="{ open: isPositionMenuOpen }" aria-hidden="true">⌄</span>
+              <span class="position-field-icon" aria-hidden="true">
+                <img :src="currentPositionIcon" alt="" />
+              </span>
+              <span class="position-trigger-label">{{ targetPosition || "请选择面试方向" }}</span>
+              <span class="menu-caret" :class="{ open: isPositionMenuOpen }" aria-hidden="true"
+                >⌄</span
+              >
             </button>
-          </div>
 
-          <div v-if="isPositionMenuOpen" class="position-menu" role="listbox" aria-label="面试方向">
-            <button
-              v-for="position in presetPositions"
-              :key="position.name"
-              class="position-option"
-              :class="{ selected: isPresetSelected(position.name) }"
-              type="button"
-              role="option"
-              :aria-selected="isPresetSelected(position.name)"
-              @click="selectPreset(position.name)"
-            >
-              <span class="position-option-icon" aria-hidden="true">
-                <img :src="position.icon" alt="" />
-              </span>
-              <span>
-                <strong>{{ position.name }}</strong>
-                <small>{{ position.note }}</small>
-              </span>
-            </button>
-            <button
-              class="position-option custom-option"
-              :class="{ selected: isCustomInputMode }"
-              type="button"
-              role="option"
-              :aria-selected="isCustomInputMode"
-              @click="activateCustomInput"
-            >
-              <span class="position-option-icon" aria-hidden="true">
+            <div v-else class="position-input-shell" :class="{ open: isPositionMenuOpen }">
+              <span class="position-field-icon" aria-hidden="true">
                 <img :src="customInputIcon" alt="" />
               </span>
-              <span>
-                <strong>自定义输入</strong>
-                <small>输入自定义岗位名称</small>
-              </span>
-            </button>
-          </div>
-        </div>
-      </section>
+              <input
+                id="target-position"
+                ref="customPositionInput"
+                v-model="customPosition"
+                placeholder="请输入自定义岗位名称"
+                @input="message = ''"
+                @keydown.down.prevent="openPositionMenu"
+                @keydown.escape="closePositionMenu"
+              />
+              <button
+                class="position-input-toggle"
+                type="button"
+                aria-label="展开面试方向"
+                aria-haspopup="listbox"
+                :aria-expanded="isPositionMenuOpen"
+                @click="togglePositionMenu"
+              >
+                <span class="menu-caret" :class="{ open: isPositionMenuOpen }" aria-hidden="true"
+                  >⌄</span
+                >
+              </button>
+            </div>
 
-      <section v-show="currentStep === 2 || currentStep === 3 || currentStep === 4" class="role-section multi-settings" aria-labelledby="multi-title">
-        <div class="section-heading compact">
-          <p class="eyebrow">{{ currentStep === 2 ? "简历与岗位" : currentStep === 3 ? "轮次与题量" : "面试偏好" }}</p>
-          <h2 id="multi-title">{{ currentStep === 2 ? "上传或复用简历" : currentStep === 3 ? "选择轮次" : "补充岗位 JD" }}</h2>
-        </div>
-
-        <div v-show="currentStep === 3" class="round-grid" aria-label="面试轮次">
-          <label v-for="round in roundOptions" :key="round.value" class="round-option">
-            <input v-model="selectedRounds" :value="round.value" type="checkbox" />
-            <span>
-              <strong>{{ round.label }}</strong>
-              <small>{{ round.note }}</small>
-            </span>
-          </label>
-        </div>
-
-        <label v-show="currentStep === 4" for="job-description">JD 文本</label>
-        <textarea
-          v-show="currentStep === 4"
-          id="job-description"
-          v-model.trim="jobDescription"
-          placeholder="可选：粘贴岗位 JD，系统会保存为本次面试快照。"
-          rows="4"
-        />
-
-        <div v-show="currentStep === 2" class="resume-upload-row">
-          <div class="resume-picker">
-            <button
-              class="upload-card resume-menu-trigger"
-              :class="{ disabled: isResumeBusy }"
-              type="button"
-              :aria-expanded="isResumeMenuOpen"
-              aria-haspopup="menu"
-              @click="toggleResumeMenu"
+            <div
+              v-if="isPositionMenuOpen"
+              class="position-menu"
+              role="listbox"
+              aria-label="面试方向"
             >
-              <span class="upload-icon file-icon" aria-hidden="true"></span>
-              <span>
-                <strong>{{ resumeName || "选择简历" }}</strong>
-                <small>{{ resumeStatusHint }}</small>
-              </span>
-              <span class="menu-caret" :class="{ open: isResumeMenuOpen }" aria-hidden="true">⌄</span>
-            </button>
-            <input
-              ref="resumeInput"
-              class="resume-file-input"
-              accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              :disabled="isResumeBusy"
-              type="file"
-              @change="handleResumeUpload"
-            />
-            <div v-if="isResumeMenuOpen" class="resume-menu" role="menu">
-              <button type="button" role="menuitem" @click="chooseNewResume">
-                <span class="resume-option-icon upload-option-icon" aria-hidden="true"></span>
+              <button
+                v-for="position in presetPositions"
+                :key="position.name"
+                class="position-option"
+                :class="{ selected: isPresetSelected(position.name) }"
+                type="button"
+                role="option"
+                :aria-selected="isPresetSelected(position.name)"
+                @click="selectPreset(position.name)"
+              >
+                <span class="position-option-icon" aria-hidden="true">
+                  <img :src="position.icon" alt="" />
+                </span>
                 <span>
-                  <strong>上传新简历</strong>
-                  <small>从本地选择 DOC / DOCX 文件</small>
+                  <strong>{{ position.name }}</strong>
+                  <small>{{ position.note }}</small>
                 </span>
               </button>
-              <button type="button" role="menuitem" @click="openResumeHistory">
-                <span class="resume-option-icon history-option-icon" aria-hidden="true"></span>
+              <button
+                class="position-option custom-option"
+                :class="{ selected: isCustomInputMode }"
+                type="button"
+                role="option"
+                :aria-selected="isCustomInputMode"
+                @click="activateCustomInput"
+              >
+                <span class="position-option-icon" aria-hidden="true">
+                  <img :src="customInputIcon" alt="" />
+                </span>
                 <span>
-                  <strong>复用已有简历</strong>
-                  <small>直接选择已上传的简历</small>
+                  <strong>自定义输入</strong>
+                  <small>输入自定义岗位名称</small>
                 </span>
               </button>
             </div>
           </div>
+        </section>
 
-          <div v-if="resumeId" class="resume-actions">
-            <button type="button" :disabled="isResumeBusy" @click="toggleResumeMenu">重新选择</button>
-            <button class="danger" type="button" :disabled="isResumeBusy" @click="removeResume">
-              移除简历
-            </button>
+        <section
+          v-show="currentStep === 2 || currentStep === 3 || currentStep === 4"
+          class="role-section multi-settings"
+          aria-labelledby="multi-title"
+        >
+          <div class="section-heading compact">
+            <p class="eyebrow">
+              {{ currentStep === 2 ? "简历与岗位" : currentStep === 3 ? "轮次与题量" : "面试偏好" }}
+            </p>
+            <h2 id="multi-title">
+              {{
+                currentStep === 2
+                  ? "上传或复用简历"
+                  : currentStep === 3
+                    ? "选择轮次"
+                    : "补充岗位 JD"
+              }}
+            </h2>
+          </div>
+
+          <div v-show="currentStep === 3" class="round-grid" aria-label="面试轮次">
+            <label v-for="round in roundOptions" :key="round.value" class="round-option">
+              <input v-model="selectedRounds" :value="round.value" type="checkbox" />
+              <span>
+                <strong>{{ round.label }}</strong>
+                <small>{{ round.note }}</small>
+              </span>
+            </label>
+          </div>
+
+          <label v-show="currentStep === 4" for="job-description">JD 文本</label>
+          <textarea
+            v-show="currentStep === 4"
+            id="job-description"
+            v-model.trim="jobDescription"
+            placeholder="可选：粘贴岗位 JD，系统会保存为本次面试快照。"
+            rows="4"
+          />
+
+          <div v-show="currentStep === 2" class="resume-upload-row">
+            <div class="resume-picker">
+              <button
+                class="upload-card resume-menu-trigger"
+                :class="{ disabled: isResumeBusy }"
+                type="button"
+                :aria-expanded="isResumeMenuOpen"
+                aria-haspopup="menu"
+                @click="toggleResumeMenu"
+              >
+                <span class="upload-icon file-icon" aria-hidden="true"></span>
+                <span>
+                  <strong>{{ resumeName || "选择简历" }}</strong>
+                  <small>{{ resumeStatusHint }}</small>
+                </span>
+                <span class="menu-caret" :class="{ open: isResumeMenuOpen }" aria-hidden="true"
+                  >⌄</span
+                >
+              </button>
+              <input
+                ref="resumeInput"
+                class="resume-file-input"
+                accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                :disabled="isResumeBusy"
+                type="file"
+                @change="handleResumeUpload"
+              />
+              <div v-if="isResumeMenuOpen" class="resume-menu" role="menu">
+                <button type="button" role="menuitem" @click="chooseNewResume">
+                  <span class="resume-option-icon upload-option-icon" aria-hidden="true"></span>
+                  <span>
+                    <strong>上传新简历</strong>
+                    <small>从本地选择 DOC / DOCX 文件</small>
+                  </span>
+                </button>
+                <button type="button" role="menuitem" @click="openResumeHistory">
+                  <span class="resume-option-icon history-option-icon" aria-hidden="true"></span>
+                  <span>
+                    <strong>复用已有简历</strong>
+                    <small>直接选择已上传的简历</small>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="resumeId" class="resume-actions">
+              <button type="button" :disabled="isResumeBusy" @click="toggleResumeMenu">
+                重新选择
+              </button>
+              <button class="danger" type="button" :disabled="isResumeBusy" @click="removeResume">
+                移除简历
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="currentStep === 5" class="confirm-panel">
+          <p class="eyebrow">确认并开始</p>
+          <h2>{{ selectedPosition || "未选择岗位" }}</h2>
+          <p>{{ selectionHint }}</p>
+          <div class="confirm-rounds">
+            <span v-for="label in selectedRoundLabels" :key="label">{{ label }}</span>
+          </div>
+        </section>
+
+        <div class="selection-bar">
+          <button
+            class="ghost-button"
+            type="button"
+            :disabled="currentStep === 1 || isResumeBusy"
+            @click="previousStep"
+          >
+            上一步
+          </button>
+          <div>
+            <p class="eyebrow">当前选择</p>
+            <strong>{{ selectedPosition || "未选择" }}</strong>
+            <span>{{ selectionHint }}</span>
+          </div>
+          <button
+            class="ghost-button"
+            type="button"
+            :disabled="isResumeBusy"
+            @click="saveDraft(true)"
+          >
+            保存草稿
+          </button>
+          <button
+            class="primary"
+            type="button"
+            :disabled="isResumeBusy"
+            @click="handlePrimaryAction"
+          >
+            {{ currentStep === 5 ? submitLabel : "下一步" }}
+          </button>
+        </div>
+
+        <p v-if="message" class="message error">{{ message }}</p>
+      </div>
+
+      <aside class="summary-card" aria-label="实时配置摘要">
+        <h2>实时预览</h2>
+        <div class="summary-target">
+          <span>目标岗位</span>
+          <strong>{{ selectedPosition || "待选择" }}</strong>
+        </div>
+        <div class="summary-flow">
+          <div
+            v-for="round in roundOptions"
+            :key="round.value"
+            :class="{ muted: !selectedRounds.includes(round.value) }"
+          >
+            <span>{{ round.label }}</span>
+            <small>{{
+              selectedRounds.includes(round.value) ? "预计 25 题 · 约 35 分钟" : "未启用"
+            }}</small>
           </div>
         </div>
-      </section>
-
-      <section v-show="currentStep === 5" class="confirm-panel">
-        <p class="eyebrow">确认并开始</p>
-        <h2>{{ selectedPosition || "未选择岗位" }}</h2>
-        <p>{{ selectionHint }}</p>
-        <div class="confirm-rounds">
-          <span v-for="label in selectedRoundLabels" :key="label">{{ label }}</span>
-        </div>
-      </section>
-
-      <div class="selection-bar">
-        <button class="ghost-button" type="button" :disabled="currentStep === 1 || isResumeBusy" @click="previousStep">
-          上一步
-        </button>
-        <div>
-          <p class="eyebrow">当前选择</p>
-          <strong>{{ selectedPosition || "未选择" }}</strong>
-          <span>{{ selectionHint }}</span>
-        </div>
-        <button class="ghost-button" type="button" :disabled="isResumeBusy" @click="saveDraft(true)">
-          保存草稿
-        </button>
-        <button class="primary" type="button" :disabled="isResumeBusy" @click="handlePrimaryAction">
-          {{ currentStep === 5 ? submitLabel : "下一步" }}
-        </button>
-      </div>
-
-      <p v-if="message" class="message error">{{ message }}</p>
-    </div>
-
-    <aside class="summary-card" aria-label="实时配置摘要">
-      <h2>实时预览</h2>
-      <div class="summary-target">
-        <span>目标岗位</span>
-        <strong>{{ selectedPosition || "待选择" }}</strong>
-      </div>
-      <div class="summary-flow">
-        <div v-for="round in roundOptions" :key="round.value" :class="{ muted: !selectedRounds.includes(round.value) }">
-          <span>{{ round.label }}</span>
-          <small>{{ selectedRounds.includes(round.value) ? "预计 25 题 · 约 35 分钟" : "未启用" }}</small>
-        </div>
-      </div>
-      <p>{{ resumeName || "还没有选择简历" }}</p>
-    </aside>
+        <p>{{ resumeName || "还没有选择简历" }}</p>
+      </aside>
     </div>
 
     <div v-if="isResumeHistoryOpen" class="resume-modal-backdrop" @click.self="closeResumeHistory">
-      <section class="resume-modal" role="dialog" aria-modal="true" aria-labelledby="resume-history-title">
+      <section
+        class="resume-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resume-history-title"
+      >
         <header class="resume-modal-header">
           <h3 id="resume-history-title">历史简历</h3>
           <button type="button" aria-label="关闭" @click="closeResumeHistory">×</button>
@@ -274,10 +331,18 @@
                 @keydown.enter.prevent="saveResumeRename(resume)"
                 @keydown.escape.prevent="cancelResumeRename"
               />
-              <button type="button" :disabled="savingRenameId === resume.id" @click="saveResumeRename(resume)">
+              <button
+                type="button"
+                :disabled="savingRenameId === resume.id"
+                @click="saveResumeRename(resume)"
+              >
                 保存
               </button>
-              <button type="button" :disabled="savingRenameId === resume.id" @click="cancelResumeRename">
+              <button
+                type="button"
+                :disabled="savingRenameId === resume.id"
+                @click="cancelResumeRename"
+              >
                 取消
               </button>
             </div>
@@ -309,12 +374,18 @@
     </div>
 
     <div v-if="isResumeDetailOpen" class="resume-modal-backdrop" @click.self="closeResumeDetail">
-      <section class="resume-modal resume-detail-modal" role="dialog" aria-modal="true" aria-labelledby="resume-detail-title">
+      <section
+        class="resume-modal resume-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="resume-detail-title"
+      >
         <header class="resume-modal-header">
           <div>
             <h3 id="resume-detail-title">{{ resumeDetail?.name || "简历解析结果" }}</h3>
             <p v-if="resumeDetail" class="resume-detail-meta">
-              {{ formatParseStatus(resumeDetail.parse_status) }} · 上传于 {{ formatDateTime(resumeDetail.uploaded_at) }}
+              {{ formatParseStatus(resumeDetail.parse_status) }} · 上传于
+              {{ formatDateTime(resumeDetail.uploaded_at) }}
             </p>
           </div>
           <button type="button" aria-label="关闭" @click="closeResumeDetail">×</button>
@@ -322,7 +393,11 @@
         <p v-if="resumeDetailMessage" class="message error">{{ resumeDetailMessage }}</p>
         <p v-if="isLoadingResumeDetail" class="resume-state">加载中...</p>
         <div v-else-if="resumeDetail" class="resume-detail-content">
-          <section v-for="section in resumeDetailSections" :key="section.title" class="resume-detail-section">
+          <section
+            v-for="section in resumeDetailSections"
+            :key="section.title"
+            class="resume-detail-section"
+          >
             <h4>{{ section.title }}</h4>
             <p v-if="!section.items.length" class="resume-empty-text">暂无内容</p>
             <ul v-else>
@@ -414,13 +489,18 @@ const currentPositionIcon = computed(() => {
   if (isCustomInputMode.value) {
     return customInputIcon;
   }
-  return presetPositions.find((position) => position.name === targetPosition.value)?.icon || selectDirectionIcon;
+  return (
+    presetPositions.find((position) => position.name === targetPosition.value)?.icon ||
+    selectDirectionIcon
+  );
 });
 const selectionHint = computed(() => {
   return `${selectedRounds.value.length} 个轮次${resumeId.value ? "，简历已就绪" : "，待上传简历"}`;
 });
 const selectedRoundLabels = computed(() =>
-  roundOptions.filter((round) => selectedRounds.value.includes(round.value)).map((round) => round.label)
+  roundOptions
+    .filter((round) => selectedRounds.value.includes(round.value))
+    .map((round) => round.label)
 );
 const submitLabel = computed(() => {
   if (isUploadingResume.value) {
@@ -431,8 +511,12 @@ const submitLabel = computed(() => {
   }
   return "开始面试";
 });
-const isResumeBusy = computed(() => isUploadingResume.value || isCreating.value || isLoadingResumes.value);
-const resumeDetailSections = computed(() => buildResumeDetailSections(resumeDetail.value?.structured_data));
+const isResumeBusy = computed(
+  () => isUploadingResume.value || isCreating.value || isLoadingResumes.value
+);
+const resumeDetailSections = computed(() =>
+  buildResumeDetailSections(resumeDetail.value?.structured_data)
+);
 const resumeStatusHint = computed(() => {
   if (isUploadingResume.value) {
     return "正在上传并解析";
@@ -579,7 +663,8 @@ async function saveResumeRename(resume: ResumeListItem) {
     }
     cancelResumeRename();
   } catch (error) {
-    resumeHistoryMessage.value = error instanceof ApiError ? error.message : "简历重命名失败，请稍后重试。";
+    resumeHistoryMessage.value =
+      error instanceof ApiError ? error.message : "简历重命名失败，请稍后重试。";
   } finally {
     savingRenameId.value = null;
   }
@@ -595,7 +680,8 @@ async function makeResumeDefault(resume: ResumeListItem) {
       is_default: item.id === updated.id
     }));
   } catch (error) {
-    resumeHistoryMessage.value = error instanceof ApiError ? error.message : "默认简历设置失败，请稍后重试。";
+    resumeHistoryMessage.value =
+      error instanceof ApiError ? error.message : "默认简历设置失败，请稍后重试。";
   } finally {
     settingDefaultResumeId.value = null;
   }
@@ -615,7 +701,8 @@ async function deleteResumeOption(resume: ResumeListItem) {
       removeResume();
     }
   } catch (error) {
-    resumeHistoryMessage.value = error instanceof ApiError ? error.message : "简历删除失败，请稍后重试。";
+    resumeHistoryMessage.value =
+      error instanceof ApiError ? error.message : "简历删除失败，请稍后重试。";
   } finally {
     deletingResumeId.value = null;
   }
@@ -849,9 +936,10 @@ function loadDraft() {
     targetPosition.value = draft.targetPosition || "";
     customPosition.value = draft.customPosition || "";
     isCustomInputMode.value = Boolean(draft.isCustomInputMode);
-    selectedRounds.value = Array.isArray(draft.selectedRounds) && draft.selectedRounds.length
-      ? draft.selectedRounds
-      : selectedRounds.value;
+    selectedRounds.value =
+      Array.isArray(draft.selectedRounds) && draft.selectedRounds.length
+        ? draft.selectedRounds
+        : selectedRounds.value;
     jobDescription.value = draft.jobDescription || "";
     resumeId.value = typeof draft.resumeId === "number" ? draft.resumeId : null;
     resumeName.value = draft.resumeName || "";
@@ -863,7 +951,15 @@ function loadDraft() {
 onMounted(loadDraft);
 
 watch(
-  [targetPosition, customPosition, isCustomInputMode, selectedRounds, jobDescription, resumeId, resumeName],
+  [
+    targetPosition,
+    customPosition,
+    isCustomInputMode,
+    selectedRounds,
+    jobDescription,
+    resumeId,
+    resumeName
+  ],
   () => saveDraft(false),
   { deep: true }
 );

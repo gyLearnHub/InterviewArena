@@ -1,6 +1,9 @@
 {
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "lint": "eslint .",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
@@ -13,8 +16,15 @@
     "vue-router": "4.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.51.0",
+    "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.9.2",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.63.0",
     "vue-tsc": "^3.3.6"
   }
 }

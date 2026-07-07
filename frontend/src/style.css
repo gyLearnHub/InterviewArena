@@ -33,13 +33,14 @@
   --info: #3b82f6;
   --brand-gradient: linear-gradient(135deg, #3b9cff 0%, #7c6cff 100%);
   --font-sans: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", Inter, system-ui, sans-serif;
-  --font-display: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", Inter, system-ui, sans-serif;
+  --font-display:
+    "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", Inter, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --shadow-sm: 0 4px 12px rgb(31 68 120 / 6%);
   --shadow-md: 0 10px 30px rgb(31 68 120 / 10%);
   --shadow-lg: 0 20px 50px rgb(31 68 120 / 14%);
-  --ease-standard: cubic-bezier(.2, .8, .2, 1);
-  --ease-emphasized: cubic-bezier(.2, .9, .2, 1.1);
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0.9, 0.2, 1.1);
 }
 
 html {
@@ -53,10 +54,8 @@ body {
   min-width: 320px;
   color: var(--gray-900);
   background:
-    radial-gradient(circle at 12% 0%, rgb(59 156 255 / 10%), transparent 30%),
-    var(--gray-50);
-  font-family:
-    var(--font-sans);
+    radial-gradient(circle at 12% 0%, rgb(59 156 255 / 10%), transparent 30%), var(--gray-50);
+  font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;

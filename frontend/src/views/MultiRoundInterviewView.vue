@@ -87,7 +87,12 @@
             class="message-row"
             :class="item.role"
           >
-            <img v-if="item.role === 'assistant'" :src="activeRound.avatar" alt="" aria-hidden="true" />
+            <img
+              v-if="item.role === 'assistant'"
+              :src="activeRound.avatar"
+              alt=""
+              aria-hidden="true"
+            />
             <div class="bubble" :class="item.role">
               <small v-if="item.roundLabel">{{ item.roundLabel }}</small>
               <p>{{ item.text }}</p>
@@ -105,20 +110,23 @@
             </div>
           </article>
 
-          <div v-if="activeRound.messages.length === 0 && busyRoundType !== activeRound.type" class="message-empty">
+          <div
+            v-if="activeRound.messages.length === 0 && busyRoundType !== activeRound.type"
+            class="message-empty"
+          >
             {{ emptyMessage(activeRound) }}
           </div>
         </div>
 
-        <div v-if="operationFailed && busyErrorRoundType === activeRound.type" class="failure-strip">
+        <div
+          v-if="operationFailed && busyErrorRoundType === activeRound.type"
+          class="failure-strip"
+        >
           <span>{{ roundFailureMessage }}</span>
           <button type="button" :disabled="isBusy" @click.stop="retryLastAction">重试</button>
         </div>
 
-        <section
-          v-if="activeRoundSummary"
-          class="summary-panel"
-        >
+        <section v-if="activeRoundSummary" class="summary-panel">
           <div class="summary-score">
             <span>本轮评估</span>
             <strong>{{ activeRoundSummary.score ?? "-" }} 分</strong>
@@ -195,12 +203,7 @@
             >
               跳过当前问题
             </button>
-            <button
-              class="danger-item"
-              type="button"
-              :disabled="isBusy"
-              @click="exitInterview"
-            >
+            <button class="danger-item" type="button" :disabled="isBusy" @click="exitInterview">
               退出面试
             </button>
           </div>
@@ -233,7 +236,9 @@
         <header class="info-head">
           <div>
             <span>面试进度</span>
-            <strong>{{ currentTimerRound ? `${currentTimerRound.label} · ${currentTimerLabel}` : "等待开始" }}</strong>
+            <strong>{{
+              currentTimerRound ? `${currentTimerRound.label} · ${currentTimerLabel}` : "等待开始"
+            }}</strong>
           </div>
           <button type="button" @click.stop="toggleInfoPanel">收起</button>
         </header>
@@ -284,9 +289,15 @@
       <span>正在读取当前轮次、问题和历史回答。</span>
     </section>
 
-    <div v-if="canFinishOverall" class="overall-bar" :class="{ 'is-generating': isGeneratingOverall }">
+    <div
+      v-if="canFinishOverall"
+      class="overall-bar"
+      :class="{ 'is-generating': isGeneratingOverall }"
+    >
       <div class="overall-copy">
-        <span>{{ isGeneratingOverall ? "正在生成总评报告" : "已完成所有选择的轮次，可以生成总评报告。" }}</span>
+        <span>{{
+          isGeneratingOverall ? "正在生成总评报告" : "已完成所有选择的轮次，可以生成总评报告。"
+        }}</span>
         <div
           v-if="isGeneratingOverall"
           class="overall-progress"
@@ -298,7 +309,12 @@
           <span></span>
         </div>
       </div>
-      <button class="primary" type="button" :disabled="isBusy || isGeneratingOverall" @click="finishOverall">
+      <button
+        class="primary"
+        type="button"
+        :disabled="isBusy || isGeneratingOverall"
+        @click="finishOverall"
+      >
         {{ isGeneratingOverall ? "生成中" : "生成总评" }}
       </button>
     </div>
@@ -414,10 +430,12 @@ let thinkingTimer: number | null = null;
 let roundSwitchTimer: number | null = null;
 let roundAnimationReady = false;
 
-const inProgressRound = computed(() =>
-  state.value?.rounds.find((round) => round.status === "in_progress") || null
+const inProgressRound = computed(
+  () => state.value?.rounds.find((round) => round.status === "in_progress") || null
 );
-const currentRoundType = computed<RoundType | null>(() => inProgressRound.value?.round_type || null);
+const currentRoundType = computed<RoundType | null>(
+  () => inProgressRound.value?.round_type || null
+);
 const displayRounds = computed(() =>
   orderedRoundTypes.map((type) => {
     const round = state.value?.rounds.find((item) => item.round_type === type);
@@ -435,11 +453,11 @@ const displayRounds = computed(() =>
     } satisfies RoundCard;
   })
 );
-const nextStartableRound = computed(() =>
-  state.value?.rounds.find((round) => round.status === "pending") || null
+const nextStartableRound = computed(
+  () => state.value?.rounds.find((round) => round.status === "pending") || null
 );
-const selectedRounds = computed(() =>
-  state.value?.rounds.filter((round) => round.status !== "skipped") || []
+const selectedRounds = computed(
+  () => state.value?.rounds.filter((round) => round.status !== "skipped") || []
 );
 const activeRoundType = computed<RoundType | null>(
   () =>
@@ -449,15 +467,17 @@ const activeRoundType = computed<RoundType | null>(
     selectedRounds.value[0]?.round_type ||
     null
 );
-const activeRound = computed(() =>
-  displayRounds.value.find((round) => round.type === activeRoundType.value) || null
+const activeRound = computed(
+  () => displayRounds.value.find((round) => round.type === activeRoundType.value) || null
 );
 const currentActionRound = computed(() => {
   const type = currentRoundType.value;
   return type ? displayRounds.value.find((round) => round.type === type) || null : null;
 });
 const isBusy = computed(() => busyRoundType.value !== null || streamingRoundType.value !== null);
-const roundFailureMessage = computed(() => message.value || "问题生成失败，可以重试或先结束当前轮。");
+const roundFailureMessage = computed(
+  () => message.value || "问题生成失败，可以重试或先结束当前轮。"
+);
 const isInterviewPaused = computed(() => state.value?.overall_status === "paused");
 const isInteractionPaused = computed(() => isInterviewPaused.value || isFlowPaused.value);
 const canToggleInterviewPause = computed(() => {
@@ -580,7 +600,9 @@ const userFlowNotice = computed<UserFlowNotice | null>(() => {
   if (degraded) {
     return {
       title: "已使用备用流程",
-      text: recovered ? "面试已恢复并可继续，报告会标注需要参考的内容。" : "面试可继续，报告会标注需要参考的内容。",
+      text: recovered
+        ? "面试已恢复并可继续，报告会标注需要参考的内容。"
+        : "面试可继续，报告会标注需要参考的内容。",
       tone: "warning"
     };
   }
@@ -673,17 +695,22 @@ async function submitRoundAnswer(round: RoundCard) {
   resizeTextareaAfterRender(round.type);
   clearDraft(question.id);
 
-  await runRoundAction(round.type, async () => {
-    const payload = await submitRoundAnswerApi(
-      interviewId.value,
-      round.id!,
-      question.id,
-      submittedAnswer
-    );
-    await applyActionPayload(payload, round.type);
-  }, undefined, {
-    retryAction: () => refreshAfterSubmitFailure(round.type)
-  });
+  await runRoundAction(
+    round.type,
+    async () => {
+      const payload = await submitRoundAnswerApi(
+        interviewId.value,
+        round.id!,
+        question.id,
+        submittedAnswer
+      );
+      await applyActionPayload(payload, round.type);
+    },
+    undefined,
+    {
+      retryAction: () => refreshAfterSubmitFailure(round.type)
+    }
+  );
 }
 
 function handleComposerKeydown(event: KeyboardEvent, round: RoundCard) {
@@ -742,11 +769,7 @@ async function regenerateQuestionFromMenu(round: RoundCard) {
   await runRoundAction(
     round.type,
     async () => {
-      const payload = await regenerateRoundQuestion(
-        interviewId.value,
-        round.id!,
-        oldQuestion.id,
-      );
+      const payload = await regenerateRoundQuestion(interviewId.value, round.id!, oldQuestion.id);
       await loadState();
       await applyActionPayload(payload, round.type);
     },
@@ -770,11 +793,7 @@ async function skipQuestionFromMenu(round: RoundCard) {
   await runRoundAction(
     round.type,
     async () => {
-      const payload = await skipRoundQuestion(
-        interviewId.value,
-        round.id!,
-        oldQuestion.id,
-      );
+      const payload = await skipRoundQuestion(interviewId.value, round.id!, oldQuestion.id);
       await loadState();
       await applyActionPayload(payload, round.type);
     },
@@ -901,7 +920,10 @@ async function refreshAfterSubmitFailure(roundType: RoundType) {
     : roundType;
 }
 
-async function applyActionPayload(payload: RoundAnswerResponse | MultiRoundState, fallbackType: RoundType) {
+async function applyActionPayload(
+  payload: RoundAnswerResponse | MultiRoundState,
+  fallbackType: RoundType
+) {
   if (isStatePayload(payload)) {
     applyState(payload);
     return;
@@ -950,9 +972,7 @@ function markRoundInProgress(roundId: number, roundType: RoundType) {
   }
 
   const nextRounds = state.value.rounds.map((item) =>
-    item.id === roundId
-      ? { ...item, status: "in_progress" as const, elapsed_seconds: 0 }
-      : item
+    item.id === roundId ? { ...item, status: "in_progress" as const, elapsed_seconds: 0 } : item
   );
   state.value = {
     ...state.value,
@@ -970,9 +990,7 @@ function markRoundFinished(roundId: number, status: "completed" | "finished_earl
   }
 
   const nextRounds = state.value.rounds.map((item) =>
-    item.id === roundId
-      ? { ...item, status }
-      : item
+    item.id === roundId ? { ...item, status } : item
   );
   state.value = {
     ...state.value,
@@ -997,7 +1015,8 @@ function hydrateMessages(source: MultiRoundState) {
     if (!question) {
       continue;
     }
-    const roundType = entry.round_type || (entry.round_id ? roundTypeById(source, entry.round_id) : null);
+    const roundType =
+      entry.round_type || (entry.round_id ? roundTypeById(source, entry.round_id) : null);
     if (!roundType) {
       continue;
     }
@@ -1027,7 +1046,8 @@ function hydrateMessages(source: MultiRoundState) {
 }
 
 async function pushQuestion(question: MultiRoundQuestion, append = true) {
-  const type = roundTypeById(state.value, question.round_id) || state.value?.current_round || "resume";
+  const type =
+    roundTypeById(state.value, question.round_id) || state.value?.current_round || "resume";
   const nextMessage = {
     id: `current-${question.id}`,
     role: "assistant" as const,
@@ -1141,14 +1161,16 @@ function roundOrderIndex(type: RoundType) {
 }
 
 function canFinishRound(round: RoundCard) {
-  return !isBusy.value && !isInteractionPaused.value && round.id !== null && round.status === "in_progress";
+  return (
+    !isBusy.value &&
+    !isInteractionPaused.value &&
+    round.id !== null &&
+    round.status === "in_progress"
+  );
 }
 
 function canRegenerateQuestion(round: RoundCard) {
-  return (
-    canTypeInRound(round) &&
-    Boolean(currentQuestion.value)
-  );
+  return canTypeInRound(round) && Boolean(currentQuestion.value);
 }
 
 function canSkipQuestion(round: RoundCard) {
@@ -1296,7 +1318,9 @@ function formatDuration(totalSeconds: number) {
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 }
 
-function isStatePayload(payload: RoundAnswerResponse | MultiRoundState): payload is MultiRoundState {
+function isStatePayload(
+  payload: RoundAnswerResponse | MultiRoundState
+): payload is MultiRoundState {
   return Boolean((payload as MultiRoundState).rounds && (payload as MultiRoundState).interview_id);
 }
 
@@ -1325,7 +1349,10 @@ function clearDraft(questionId: number) {
 
 function onDraftInput(type: RoundType) {
   resizeTextarea(type);
-  if (!currentQuestion.value || roundTypeById(state.value, currentQuestion.value.round_id) !== type) {
+  if (
+    !currentQuestion.value ||
+    roundTypeById(state.value, currentQuestion.value.round_id) !== type
+  ) {
     return;
   }
 

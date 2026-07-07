@@ -7,7 +7,9 @@
       <RouterLink class="brand-pill" to="/login" aria-label="InterviewArena 登录页">
         <span class="brand-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
-            <path d="M6.8 15.4 4 18V7.8C4 5.7 5.7 4 7.8 4h8.4C18.3 4 20 5.7 20 7.8v4.4c0 2.1-1.7 3.8-3.8 3.8H9.4l-2.6 2.4v-3z" />
+            <path
+              d="M6.8 15.4 4 18V7.8C4 5.7 5.7 4 7.8 4h8.4C18.3 4 20 5.7 20 7.8v4.4c0 2.1-1.7 3.8-3.8 3.8H9.4l-2.6 2.4v-3z"
+            />
             <circle cx="9" cy="10" r="1" />
             <circle cx="12" cy="10" r="1" />
             <circle cx="15" cy="10" r="1" />
@@ -65,7 +67,9 @@
         <div class="form-heading">
           <p>{{ mode === "login" ? "欢迎回来 👋" : "开始训练" }}</p>
           <h2>{{ mode === "login" ? "登录继续你的面试训练" : "创建你的训练账号" }}</h2>
-          <span>{{ mode === "login" ? "在 InterviewArena，成就更好的自己" : "注册后即可进入面试工作台" }}</span>
+          <span>{{
+            mode === "login" ? "在 InterviewArena，成就更好的自己" : "注册后即可进入面试工作台"
+          }}</span>
         </div>
 
         <label class="field-group" for="username">
@@ -384,8 +388,7 @@ function getRedirectTarget(): string {
   background:
     radial-gradient(circle at 38% 54%, #172033 0 2px, transparent 3px),
     radial-gradient(circle at 62% 54%, #172033 0 2px, transparent 3px),
-    linear-gradient(#172033 0 34%, transparent 35%),
-    #ffd6c7;
+    linear-gradient(#172033 0 34%, transparent 35%), #ffd6c7;
   box-shadow: inset 0 -12px 0 var(--agent, #3b9cff);
 }
 
@@ -509,7 +512,11 @@ function getRedirectTarget(): string {
   outline: 0;
   background: #fbfdff;
   color: #172033;
-  font: 500 15px/1.2 Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font:
+    500 15px/1.2 Inter,
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -785,7 +792,12 @@ function getRedirectTarget(): string {
   width: 70vw;
   height: 34vw;
   border-radius: 100% 0 0 0;
-  background: linear-gradient(150deg, rgba(76, 135, 255, 0.22), rgba(157, 122, 255, 0.08) 50%, transparent 70%);
+  background: linear-gradient(
+    150deg,
+    rgba(76, 135, 255, 0.22),
+    rgba(157, 122, 255, 0.08) 50%,
+    transparent 70%
+  );
   transform: rotate(-7deg);
 }
 
@@ -947,8 +959,17 @@ function getRedirectTarget(): string {
   border-radius: inherit;
   background:
     radial-gradient(circle at 18% 18%, #fff 0 4px, transparent 5px),
-    radial-gradient(circle at 82% 28%, color-mix(in srgb, var(--agent, #3b9cff) 70%, white) 0 3px, transparent 4px),
-    conic-gradient(from 35deg, transparent, color-mix(in srgb, var(--agent, #3b9cff) 38%, white), transparent 46%);
+    radial-gradient(
+      circle at 82% 28%,
+      color-mix(in srgb, var(--agent, #3b9cff) 70%, white) 0 3px,
+      transparent 4px
+    ),
+    conic-gradient(
+      from 35deg,
+      transparent,
+      color-mix(in srgb, var(--agent, #3b9cff) 38%, white),
+      transparent 46%
+    );
   content: "";
   animation: orbit-spark 7s linear infinite;
 }
@@ -1010,7 +1031,9 @@ function getRedirectTarget(): string {
   height: 4px;
   border-radius: 99px;
   background: #507cff;
-  box-shadow: 0 9px 0 #7f8fff, 0 18px 0 #a6b1ff;
+  box-shadow:
+    0 9px 0 #7f8fff,
+    0 18px 0 #a6b1ff;
 }
 
 .feature-chart::before {
@@ -1020,7 +1043,9 @@ function getRedirectTarget(): string {
   height: 15px;
   border-radius: 3px 3px 0 0;
   background: #6aa7ff;
-  box-shadow: 12px -8px 0 #7c6cff, 24px -20px 0 #9c74ff;
+  box-shadow:
+    12px -8px 0 #7c6cff,
+    24px -20px 0 #9c74ff;
 }
 
 .feature-chart::after,

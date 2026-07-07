@@ -86,11 +86,12 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
-  const currentUser = to.meta.requiresAuth || to.path === "/login"
-    ? await ensureAuthenticated()
-    : isLoggedIn()
-      ? await hydrateCurrentSession()
-      : null;
+  const currentUser =
+    to.meta.requiresAuth || to.path === "/login"
+      ? await ensureAuthenticated()
+      : isLoggedIn()
+        ? await hydrateCurrentSession()
+        : null;
 
   if (to.meta.requiresAuth && !currentUser) {
     return {

@@ -41,13 +41,18 @@
         </div>
         <label>
           <span>切换记录</span>
-          <select v-model.number="selectedInterviewId" :disabled="loading" @change="handleSelectedInterviewChange">
+          <select
+            v-model.number="selectedInterviewId"
+            :disabled="loading"
+            @change="handleSelectedInterviewChange"
+          >
             <option
               v-for="item in sortedHistory"
               :key="item.interview_id"
               :value="item.interview_id"
             >
-              #{{ item.interview_id }} {{ item.target_position }} · {{ statusLabel(item.overall_status || item.status) }}
+              #{{ item.interview_id }} {{ item.target_position }} ·
+              {{ statusLabel(item.overall_status || item.status) }}
             </option>
           </select>
         </label>
@@ -68,7 +73,9 @@
           </div>
           <i class="metric-dot"></i>
           <svg class="metric-wave" viewBox="0 0 220 42" aria-hidden="true">
-            <path d="M0 32 C28 31 42 32 58 31 C77 30 74 22 94 24 C116 27 116 17 136 18 C158 20 164 32 188 30 C204 29 208 24 220 23" />
+            <path
+              d="M0 32 C28 31 42 32 58 31 C77 30 74 22 94 24 C116 27 116 17 136 18 C158 20 164 32 188 30 C204 29 208 24 220 23"
+            />
           </svg>
         </article>
         <article class="metric-card">
@@ -126,7 +133,12 @@
             </div>
           </div>
           <div v-else class="illustrated-empty">
-            <img class="empty-asset rules-empty-asset" :src="harnessAssets.rulesEmpty" alt="" aria-hidden="true" />
+            <img
+              class="empty-asset rules-empty-asset"
+              :src="harnessAssets.rulesEmpty"
+              alt=""
+              aria-hidden="true"
+            />
             <strong>暂无规则校验结果</strong>
             <p>后端尚未生成这场面试的规则评测结果</p>
             <div class="rule-chips">
@@ -158,7 +170,9 @@
                 <strong>{{ totalRuns }}</strong>
                 <span>总运行数</span>
               </div>
-              <p><i></i> 已完成 <strong>{{ completionPercent }}%</strong></p>
+              <p>
+                <i></i> 已完成 <strong>{{ completionPercent }}%</strong>
+              </p>
             </div>
           </div>
         </section>
@@ -212,7 +226,9 @@
               <strong>{{ checkpointName(checkpoint.checkpoint_type) }}</strong>
               <span>{{ checkpoint.node_id }}</span>
               <small>{{ formatDate(checkpoint.created_at) }}</small>
-              <em :class="statusClass(checkpoint.status)">{{ checkpointStatusLabel(checkpoint.status) }}</em>
+              <em :class="statusClass(checkpoint.status)">{{
+                checkpointStatusLabel(checkpoint.status)
+              }}</em>
             </article>
           </div>
           <div v-else class="checkpoint-empty">
@@ -338,7 +354,9 @@ const harnessAssets = {
   health: healthIconAsset
 };
 
-const sortedHistory = computed(() => [...history.value].sort((a, b) => latestTime(b) - latestTime(a)));
+const sortedHistory = computed(() =>
+  [...history.value].sort((a, b) => latestTime(b) - latestTime(a))
+);
 const latestInterview = computed(() => sortedHistory.value[0] || null);
 const selectedInterview = computed(() => {
   return (
@@ -363,9 +381,10 @@ const harnessStatusLabel = computed(() => statusLabel(currentHarnessStatus.value
 const retryCount = computed(() =>
   traces.value.reduce((total, trace) => total + (trace.retry_records?.length || 0), 0)
 );
-const degradationCount = computed(() =>
-  traces.value.reduce((total, trace) => total + (trace.degradation_records?.length || 0), 0) +
-  (harnessStatus.value?.had_degradation ? 1 : 0)
+const degradationCount = computed(
+  () =>
+    traces.value.reduce((total, trace) => total + (trace.degradation_records?.length || 0), 0) +
+    (harnessStatus.value?.had_degradation ? 1 : 0)
 );
 const recoveryText = computed(() => {
   const count = harnessStatus.value?.recovery_count || 0;
@@ -378,10 +397,14 @@ const lastRunText = computed(() => {
 const latestInterviewTimeText = computed(() =>
   selectedInterviewActivityAt.value ? formatDate(selectedInterviewActivityAt.value) : "-"
 );
-const passedRuleCount = computed(() =>
-  evaluations.value.filter((item) => ["passed", "pass"].includes(item.status.toLowerCase())).length
+const passedRuleCount = computed(
+  () =>
+    evaluations.value.filter((item) => ["passed", "pass"].includes(item.status.toLowerCase()))
+      .length
 );
-const displayedRulePassCount = computed(() => ruleRows.value.filter((item) => item.tone === "ok").length);
+const displayedRulePassCount = computed(
+  () => ruleRows.value.filter((item) => item.tone === "ok").length
+);
 const rulePassText = computed(() => {
   if (evaluations.value.length) {
     return `${passedRuleCount.value} / ${evaluations.value.length}`;
@@ -402,17 +425,37 @@ const ruleRows = computed<RuleRow[]>(() => {
   if (evaluations.value.length) {
     return evaluations.value.slice(0, 5).map((item) => ({
       name: ruleName(item.rule_name),
-      percent: item.status.toLowerCase() === "failed" ? 44 : item.status.toLowerCase() === "warning" ? 72 : 100,
+      percent:
+        item.status.toLowerCase() === "failed"
+          ? 44
+          : item.status.toLowerCase() === "warning"
+            ? 72
+            : 100,
       label: evaluationStatusLabel(item.status),
-      tone: item.status.toLowerCase() === "failed" ? "danger" : item.status.toLowerCase() === "warning" ? "warning" : "ok"
+      tone:
+        item.status.toLowerCase() === "failed"
+          ? "danger"
+          : item.status.toLowerCase() === "warning"
+            ? "warning"
+            : "ok"
     }));
   }
   if (traces.value.length) {
     return traces.value.slice(0, 5).map((trace) => ({
       name: ruleName(trace.validation_status),
-      percent: trace.validation_status === "failed" ? 48 : trace.validation_status === "warning" ? 76 : 100,
+      percent:
+        trace.validation_status === "failed"
+          ? 48
+          : trace.validation_status === "warning"
+            ? 76
+            : 100,
       label: validationStatusLabel(trace.validation_status),
-      tone: trace.validation_status === "failed" ? "danger" : trace.validation_status === "warning" ? "warning" : "ok"
+      tone:
+        trace.validation_status === "failed"
+          ? "danger"
+          : trace.validation_status === "warning"
+            ? "warning"
+            : "ok"
     }));
   }
   return [];
@@ -443,13 +486,16 @@ const totalRuns = computed(() => {
   return total;
 });
 const completedRunCount = computed(
-  () => (distributionCounts.value.get("completed") || 0) + (distributionCounts.value.get("succeeded") || 0)
+  () =>
+    (distributionCounts.value.get("completed") || 0) +
+    (distributionCounts.value.get("succeeded") || 0)
 );
 const completionPercent = computed(() =>
   totalRuns.value > 0 ? Math.round((completedRunCount.value / totalRuns.value) * 100) : 0
 );
 const pendingCount = computed(
-  () => (distributionCounts.value.get("pending") || 0) + (distributionCounts.value.get("running") || 0)
+  () =>
+    (distributionCounts.value.get("pending") || 0) + (distributionCounts.value.get("running") || 0)
 );
 const serviceAvailability = computed(() => {
   if (totalRuns.value === 0) {
@@ -558,7 +604,9 @@ function ensureSelectedInterview(): HistoryItem | null {
     selectedInterviewId.value = null;
     return null;
   }
-  const current = sortedHistory.value.find((item) => item.interview_id === selectedInterviewId.value);
+  const current = sortedHistory.value.find(
+    (item) => item.interview_id === selectedInterviewId.value
+  );
   if (current) {
     return current;
   }
@@ -1111,7 +1159,12 @@ onMounted(() => {
   border: 1px solid rgb(215 224 242 / 72%);
   border-radius: 8px;
   background:
-    linear-gradient(100deg, rgb(255 255 255 / 96%) 0%, rgb(248 251 255 / 94%) 48%, rgb(238 242 255 / 88%) 100%),
+    linear-gradient(
+      100deg,
+      rgb(255 255 255 / 96%) 0%,
+      rgb(248 251 255 / 94%) 48%,
+      rgb(238 242 255 / 88%) 100%
+    ),
     radial-gradient(circle at 76% 10%, rgb(124 108 255 / 18%), transparent 30%);
   box-shadow: 0 22px 48px rgb(50 67 109 / 8%);
 }
@@ -1601,8 +1654,14 @@ onMounted(() => {
   align-items: end;
   overflow: hidden;
   border-bottom: 1px solid #dbe4ef;
-  background:
-    linear-gradient(180deg, transparent 0 32%, #edf2f7 32% 33%, transparent 33% 65%, #edf2f7 65% 66%, transparent 66%);
+  background: linear-gradient(
+    180deg,
+    transparent 0 32%,
+    #edf2f7 32% 33%,
+    transparent 33% 65%,
+    #edf2f7 65% 66%,
+    transparent 66%
+  );
 }
 
 .status-bar i {

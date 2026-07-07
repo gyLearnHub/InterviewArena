@@ -38,7 +38,11 @@
           <span>{{ resultHint }}</span>
         </div>
 
-        <section v-if="isFeedbackNavActive" class="feedback-status" aria-labelledby="feedback-status-title">
+        <section
+          v-if="isFeedbackNavActive"
+          class="feedback-status"
+          aria-labelledby="feedback-status-title"
+        >
           <div class="feedback-status-mark" aria-hidden="true">!</div>
           <div>
             <p>反馈提交</p>
@@ -47,11 +51,7 @@
         </section>
 
         <div v-else-if="filteredArticles.length" class="article-list">
-          <article
-            v-for="article in filteredArticles"
-            :key="article.id"
-            class="help-article"
-          >
+          <article v-for="article in filteredArticles" :key="article.id" class="help-article">
             <header>
               <span>{{ article.category }}</span>
               <h2>{{ article.title }}</h2>
@@ -204,14 +204,17 @@ const filteredArticles = computed(() => {
   const query = normalizedSearchText.value;
 
   return articles.filter((article) => {
-    const matchesCategory = activeCategory.value === ALL_CATEGORY || article.category === activeCategory.value;
+    const matchesCategory =
+      activeCategory.value === ALL_CATEGORY || article.category === activeCategory.value;
     const searchableText = [
       article.title,
       article.summary,
       article.category,
       ...article.keywords,
       ...article.steps
-    ].join(" ").toLowerCase();
+    ]
+      .join(" ")
+      .toLowerCase();
     const matchesSearch = !query || searchableText.includes(query);
     return matchesCategory && matchesSearch;
   });
@@ -237,8 +240,8 @@ const resultHint = computed(() =>
   isFeedbackNavActive.value
     ? "当前状态"
     : searchText.value
-    ? `当前关键词：${searchText.value}`
-    : "选择分类或输入关键词，可快速定位问题。"
+      ? `当前关键词：${searchText.value}`
+      : "选择分类或输入关键词，可快速定位问题。"
 );
 </script>
 
@@ -260,8 +263,7 @@ const resultHint = computed(() =>
   border: 1px solid rgb(207 216 235 / 82%);
   border-radius: 8px;
   background:
-    linear-gradient(135deg, rgb(255 255 255 / 94%), rgb(242 248 255 / 88%)),
-    var(--gray-0, #fff);
+    linear-gradient(135deg, rgb(255 255 255 / 94%), rgb(242 248 255 / 88%)), var(--gray-0, #fff);
   box-shadow: var(--shadow-sm, 0 4px 12px rgb(31 68 120 / 6%));
 }
 

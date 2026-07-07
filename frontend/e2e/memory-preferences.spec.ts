@@ -36,7 +36,9 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("dashboard shows accumulated memory when memories exist before report reuse", async ({ page }) => {
+test("dashboard shows accumulated memory when memories exist before report reuse", async ({
+  page
+}) => {
   await page.unroute("**/api/dashboard/summary");
   await page.route("**/api/dashboard/summary", async (route) => {
     await route.fulfill({

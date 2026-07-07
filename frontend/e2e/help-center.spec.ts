@@ -44,7 +44,9 @@ test("help center keeps documents and search reachable from sidebar", async ({ p
   await expect(page.getByRole("heading", { name: "如何开始一次多轮模拟面试？" })).toHaveCount(0);
 });
 
-test("feedback submit is below system status in help navigation and shows update state", async ({ page }) => {
+test("feedback submit is below system status in help navigation and shows update state", async ({
+  page
+}) => {
   await page.route("**/api/dashboard/summary", async (route) => {
     await route.fulfill({
       json: {

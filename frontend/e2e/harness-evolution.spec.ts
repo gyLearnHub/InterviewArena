@@ -68,7 +68,10 @@ test("harness status keeps self-evolution out of the frontend page", async ({ pa
   const evolutionRequests: string[] = [];
   await page.route("**/api/internal/evolution/**", async (route) => {
     evolutionRequests.push(route.request().url());
-    await route.fulfill({ status: 404, json: { error: { code: "NOT_FOUND", message: "资源不存在。" } } });
+    await route.fulfill({
+      status: 404,
+      json: { error: { code: "NOT_FOUND", message: "资源不存在。" } }
+    });
   });
 
   await page.goto("/harness");
@@ -86,7 +89,10 @@ test("harness status does not expose candidate action controls", async ({ page }
   const actions: string[] = [];
   await page.route("**/api/internal/evolution/**", async (route) => {
     actions.push(route.request().method());
-    await route.fulfill({ status: 404, json: { error: { code: "NOT_FOUND", message: "资源不存在。" } } });
+    await route.fulfill({
+      status: 404,
+      json: { error: { code: "NOT_FOUND", message: "资源不存在。" } }
+    });
   });
 
   await page.goto("/harness");

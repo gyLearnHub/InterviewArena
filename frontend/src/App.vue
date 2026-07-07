@@ -1,11 +1,7 @@
 <template>
   <RouterView v-if="!showWorkspaceShell" />
 
-  <div
-    v-else
-    class="app-shell"
-    :class="{ 'nav-collapsed': navCollapsed }"
-  >
+  <div v-else class="app-shell" :class="{ 'nav-collapsed': navCollapsed }">
     <aside class="side-nav" aria-label="主导航">
       <div class="side-nav-head">
         <RouterLink class="brand" to="/dashboard" aria-label="InterviewArena 工作台">
@@ -172,7 +168,12 @@
       >
         <template v-if="activeDialog === 'settings'">
           <aside class="settings-sidebar">
-            <button class="icon-button close-in-sidebar" type="button" aria-label="关闭" @click="closeDialog">
+            <button
+              class="icon-button close-in-sidebar"
+              type="button"
+              aria-label="关闭"
+              @click="closeDialog"
+            >
               ×
             </button>
             <button
@@ -191,10 +192,7 @@
             </button>
           </aside>
 
-          <div
-            v-if="activeSettingsPanel === 'personalization'"
-            class="settings-content"
-          >
+          <div v-if="activeSettingsPanel === 'personalization'" class="settings-content">
             <p v-if="settingsMessage" class="dialog-message" :class="{ error: settingsHasError }">
               {{ settingsMessage }}
             </p>
@@ -237,7 +235,11 @@
                 </button>
               </div>
 
-              <div v-if="clearStatus" class="clear-status" :class="{ error: clearStatus.status === 'failed' }">
+              <div
+                v-if="clearStatus"
+                class="clear-status"
+                :class="{ error: clearStatus.status === 'failed' }"
+              >
                 <strong>{{ clearStatusText }}</strong>
                 <span v-if="clearStatus.task_id">任务编号：#{{ clearStatus.task_id }}</span>
                 <span v-if="shouldShowDeletedCount">
@@ -252,14 +254,14 @@
             </section>
           </div>
 
-          <div v-else class="settings-empty" :id="`${activeDialog}-dialog-title`">
-            设置暂无内容
-          </div>
+          <div v-else :id="`${activeDialog}-dialog-title`" class="settings-empty">设置暂无内容</div>
         </template>
 
         <header v-else class="dialog-header">
           <h2 :id="`${activeDialog}-dialog-title`">{{ dialogTitle }}</h2>
-          <button class="icon-button" type="button" aria-label="关闭" @click="closeDialog">×</button>
+          <button class="icon-button" type="button" aria-label="关闭" @click="closeDialog">
+            ×
+          </button>
         </header>
 
         <div v-if="activeDialog === 'profile'" class="dialog-body">
@@ -326,7 +328,10 @@
           </div>
         </div>
 
-        <div v-else-if="activeDialog === 'notifications'" class="dialog-body notification-dialog-body">
+        <div
+          v-else-if="activeDialog === 'notifications'"
+          class="dialog-body notification-dialog-body"
+        >
           <template v-if="notificationDetail">
             <button class="text-button back-button" type="button" @click="backToNotificationList">
               返回列表
@@ -339,7 +344,9 @@
               {{ notificationMessage }}
             </p>
             <article class="notification-detail">
-              <span class="notification-type">{{ notificationTypeLabel(notificationDetail.notification_type) }}</span>
+              <span class="notification-type">{{
+                notificationTypeLabel(notificationDetail.notification_type)
+              }}</span>
               <h3>{{ notificationDetail.title }}</h3>
               <p>{{ notificationDetail.content }}</p>
               <time :datetime="notificationDetail.created_at">
@@ -507,28 +514,27 @@ let notificationPollTimer: ReturnType<typeof window.setInterval> | null = null;
 
 const activeClearStatuses = new Set(["pending", "processing", "retry_wait"]);
 
-const loggedIn = computed(() => {
-  route.fullPath;
-  authVersion.value;
-  return isLoggedIn();
-});
-const currentUser = computed(() => {
-  route.fullPath;
-  authVersion.value;
-  return getUser();
-});
+const loggedIn = ref(isLoggedIn());
+const currentUser = ref(getUser());
+
+function refreshAuthState(): void {
+  loggedIn.value = isLoggedIn();
+  currentUser.value = getUser();
+}
+
+watch(() => [route.fullPath, authVersion.value], refreshAuthState, { flush: "sync" });
 const showWorkspaceShell = computed(() => loggedIn.value && route.name !== "login");
 const isDashboardShell = computed(() => route.name === "dashboard");
 const isInterviewRoute = computed(() =>
   ["interview-entry", "multi-round-interview"].includes(String(route.name))
 );
-const isHistoryRoute = computed(() =>
-  ["history", "history-detail"].includes(String(route.name))
-);
+const isHistoryRoute = computed(() => ["history", "history-detail"].includes(String(route.name)));
 const isHarnessRoute = computed(() => route.name === "harness-status");
 const isHelpRoute = computed(() => route.name === "help-center");
 const showTopToolbar = computed(
-  () => !["multi-round-interview", "harness-status"].includes(String(route.name)) && !isDashboardShell.value
+  () =>
+    !["multi-round-interview", "harness-status"].includes(String(route.name)) &&
+    !isDashboardShell.value
 );
 const workspaceClass = computed(() => ({
   "interview-workspace": route.name === "multi-round-interview",
@@ -552,9 +558,13 @@ const displayName = computed(() => {
   return user?.display_name || user?.username || "已登录用户";
 });
 const userInitial = computed(() => displayName.value.slice(0, 1).toUpperCase());
-const profileInitial = computed(() => (profileForm.displayName || displayName.value).slice(0, 1).toUpperCase());
+const profileInitial = computed(() =>
+  (profileForm.displayName || displayName.value).slice(0, 1).toUpperCase()
+);
 const accountAvatarUrl = computed(() => currentUser.value?.avatar_url || "");
-const profileAvatarUrl = computed(() => profileForm.avatarUrl || currentUser.value?.avatar_url || "");
+const profileAvatarUrl = computed(
+  () => profileForm.avatarUrl || currentUser.value?.avatar_url || ""
+);
 const unreadNotificationBadge = computed(() =>
   unreadNotificationCount.value > 99 ? "99+" : String(unreadNotificationCount.value)
 );
@@ -799,16 +809,17 @@ async function uploadProfileAvatar(event: Event) {
   }
 }
 
-function hydrateProfileForm(user: { username?: string; display_name?: string; avatar_url?: string | null } | null) {
+function hydrateProfileForm(
+  user: { username?: string; display_name?: string; avatar_url?: string | null } | null
+) {
   profileForm.displayName = user?.display_name || user?.username || "";
   profileForm.username = user?.username || "";
   profileForm.avatarUrl = user?.avatar_url || "";
 }
 
-function normalizeProfile<T extends { username: string; display_name?: string; avatar_url?: string | null }>(
-  profile: T,
-  fallbackDisplayName: string
-) {
+function normalizeProfile<
+  T extends { username: string; display_name?: string; avatar_url?: string | null }
+>(profile: T, fallbackDisplayName: string) {
   return {
     ...profile,
     display_name: profile.display_name || fallbackDisplayName || profile.username,
@@ -843,9 +854,7 @@ async function toggleMemory() {
 }
 
 async function confirmClearMemories() {
-  const confirmed = window.confirm(
-    "将永久删除个人长期记忆，但不会删除历史面试记录。确认继续吗？"
-  );
+  const confirmed = window.confirm("将永久删除个人长期记忆，但不会删除历史面试记录。确认继续吗？");
   if (!confirmed) {
     return;
   }
@@ -975,7 +984,9 @@ async function loadNotifications(options: { reset?: boolean; silent?: boolean } 
     });
     unreadNotificationCount.value = response.unread_count;
     notificationNextCursor.value = response.next_cursor;
-    notificationItems.value = reset ? response.items : [...notificationItems.value, ...response.items];
+    notificationItems.value = reset
+      ? response.items
+      : [...notificationItems.value, ...response.items];
     if (!options.silent) {
       clearNotificationMessage();
     }
@@ -1065,10 +1076,7 @@ function applyNotificationReadState(notificationId: number, isRead: boolean) {
     return;
   }
   target.is_read = isRead;
-  unreadNotificationCount.value = Math.max(
-    0,
-    unreadNotificationCount.value + (isRead ? -1 : 1)
-  );
+  unreadNotificationCount.value = Math.max(0, unreadNotificationCount.value + (isRead ? -1 : 1));
 }
 
 function backToNotificationList() {
@@ -2150,8 +2158,7 @@ async function logout() {
 .nav-action.active {
   border-color: rgb(59 156 255 / 22%);
   background:
-    linear-gradient(135deg, rgb(59 156 255 / 14%), rgb(124 108 255 / 12%)),
-    var(--gray-0, #fff);
+    linear-gradient(135deg, rgb(59 156 255 / 14%), rgb(124 108 255 / 12%)), var(--gray-0, #fff);
   color: var(--brand-800, #214f96);
   box-shadow: var(--shadow-sm, 0 4px 12px rgb(31 68 120 / 6%));
 }

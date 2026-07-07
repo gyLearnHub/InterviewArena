@@ -19,7 +19,11 @@
       </div>
     </header>
 
-    <section class="history-toolbar" :class="{ 'report-toolbar': isReportsMode }" aria-label="历史筛选">
+    <section
+      class="history-toolbar"
+      :class="{ 'report-toolbar': isReportsMode }"
+      aria-label="历史筛选"
+    >
       <label class="search-box">
         <span aria-hidden="true">⌕</span>
         <input v-model.trim="searchText" :placeholder="pageCopy.searchPlaceholder" />
@@ -41,8 +45,12 @@
         <option v-if="isReportsMode" value="score-asc">评分从低到高</option>
       </select>
       <div class="view-toggle" role="group" aria-label="视图切换">
-        <button type="button" :class="{ active: viewMode === 'card' }" @click="setViewMode('card')">▦</button>
-        <button type="button" :class="{ active: viewMode === 'list' }" @click="setViewMode('list')">☷</button>
+        <button type="button" :class="{ active: viewMode === 'card' }" @click="setViewMode('card')">
+          ▦
+        </button>
+        <button type="button" :class="{ active: viewMode === 'list' }" @click="setViewMode('list')">
+          ☷
+        </button>
       </div>
     </section>
 
@@ -61,13 +69,11 @@
           <header>
             <div>
               <h2>{{ item.target_position }}</h2>
-              <time>{{ formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at) }}</time>
+              <time>{{
+                formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at)
+              }}</time>
             </div>
-            <span
-              v-if="!isReportsMode"
-              class="status-pill"
-              :class="`status-${item.status}`"
-            >
+            <span v-if="!isReportsMode" class="status-pill" :class="`status-${item.status}`">
               {{ statusText(item.status) }}
             </span>
             <span
@@ -79,7 +85,11 @@
             </span>
           </header>
           <div v-if="!isReportsMode" class="round-preview" aria-label="四轮状态预览">
-            <span v-for="round in roundPreview(item)" :key="round.label" :class="{ done: round.done }">
+            <span
+              v-for="round in roundPreview(item)"
+              :key="round.label"
+              :class="{ done: round.done }"
+            >
               {{ round.label }}
             </span>
           </div>
@@ -87,7 +97,9 @@
             <div>
               <span>{{ isReportsMode ? "总评分" : "更新时间" }}</span>
               <strong v-if="isReportsMode">{{ formatScore(item.score) }}</strong>
-              <strong v-else class="time-value">{{ formatDate(item.updated_at || item.created_at) }}</strong>
+              <strong v-else class="time-value">{{
+                formatDate(item.updated_at || item.created_at)
+              }}</strong>
             </div>
             <div class="row-actions">
               <button
@@ -99,7 +111,11 @@
               >
                 {{ deletingId === item.interview_id ? "删除中" : "删除" }}
               </button>
-              <RouterLink v-if="isReportsMode" class="table-action" :to="`/history/${item.interview_id}`">
+              <RouterLink
+                v-if="isReportsMode"
+                class="table-action"
+                :to="`/history/${item.interview_id}`"
+              >
                 查看报告
               </RouterLink>
               <RouterLink v-else class="table-action" :to="`/history/${item.interview_id}`">
@@ -155,7 +171,11 @@
                 </span>
                 <span v-else>{{ formatDate(item.created_at) }}</span>
               </td>
-              <td>{{ formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at) }}</td>
+              <td>
+                {{
+                  formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at)
+                }}
+              </td>
               <td>
                 <div class="row-actions">
                   <RouterLink class="table-action" :to="`/history/${item.interview_id}`">
@@ -232,7 +252,9 @@ const searchText = ref("");
 const statusFilter = ref("");
 const scoreFilter = ref("");
 const sortMode = ref("recent");
-const viewMode = ref<"card" | "list">((localStorage.getItem("interview_arena_history_view") as "card" | "list") || "card");
+const viewMode = ref<"card" | "list">(
+  (localStorage.getItem("interview_arena_history_view") as "card" | "list") || "card"
+);
 const PAGE_SIZE = 20;
 const historyNextOffset = ref<number | null>(null);
 const reportsNextOffset = ref<number | null>(null);
@@ -292,13 +314,17 @@ const filteredItems = computed(() => {
         !keyword ||
         item.target_position.toLowerCase().includes(keyword) ||
         String(item.interview_id).includes(keyword);
-      const matchesStatus = isReportsMode.value || !statusFilter.value || item.status === statusFilter.value;
+      const matchesStatus =
+        isReportsMode.value || !statusFilter.value || item.status === statusFilter.value;
       const matchesScore =
         !isReportsMode.value ||
         !scoreFilter.value ||
         (scoreFilter.value === "empty" && item.score === null) ||
         (scoreFilter.value === "high" && typeof item.score === "number" && item.score >= 80) ||
-        (scoreFilter.value === "middle" && typeof item.score === "number" && item.score >= 60 && item.score < 80);
+        (scoreFilter.value === "middle" &&
+          typeof item.score === "number" &&
+          item.score >= 60 &&
+          item.score < 80);
       return matchesKeyword && matchesStatus && matchesScore;
     })
     .sort((left, right) => {
@@ -308,7 +334,10 @@ const filteredItems = computed(() => {
       if (sortMode.value === "score-asc") {
         return scoreSortValue(left.score) - scoreSortValue(right.score);
       }
-      return dateSortValue(right.updated_at || right.created_at) - dateSortValue(left.updated_at || left.created_at);
+      return (
+        dateSortValue(right.updated_at || right.created_at) -
+        dateSortValue(left.updated_at || left.created_at)
+      );
     });
 });
 const sortSummary = computed(() => {
@@ -374,7 +403,10 @@ async function loadMore() {
 }
 
 async function deleteItem(interviewId: number) {
-  if (deletingId.value !== null || !confirmDeleteReminder("确认删除这条面试记录吗？删除后不可恢复。")) {
+  if (
+    deletingId.value !== null ||
+    !confirmDeleteReminder("确认删除这条面试记录吗？删除后不可恢复。")
+  ) {
     return;
   }
 

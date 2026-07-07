@@ -1,6 +1,6 @@
 import { clearAuth, saveAuth } from "./auth";
 
-const API_BASE = ((import.meta as any).env?.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 15000;
 const RESUME_UPLOAD_TIMEOUT_MS = 220000;
 const RESUME_PARSE_POLL_INTERVAL_MS = 1500;
@@ -306,7 +306,15 @@ export type DashboardSummary = {
   interview_count: number;
   report_count: number;
   personalized_feedback_used: boolean;
-  memory_status?: "disabled" | "accumulating" | "summarizing" | "ready" | "enabled" | "failed" | "unavailable" | string;
+  memory_status?:
+    | "disabled"
+    | "accumulating"
+    | "summarizing"
+    | "ready"
+    | "enabled"
+    | "failed"
+    | "unavailable"
+    | string;
   candidate_memory_count?: number;
   latest_interview: DashboardInterviewSummary | null;
   latest_report: DashboardReportSummary | null;
@@ -317,24 +325,13 @@ export type DashboardSummary = {
 };
 
 export type HarnessStatus =
-  | "pending"
-  | "running"
-  | "retrying"
-  | "degraded"
-  | "paused"
-  | "failed"
-  | "completed";
+  "pending" | "running" | "retrying" | "degraded" | "paused" | "failed" | "completed";
 
 export type ReportReliabilityStatus = "normal" | "reference_only" | "unavailable";
 
 export type RoundType = "resume" | "technical" | "manager" | "hr";
 export type RoundStatus =
-  | "pending"
-  | "in_progress"
-  | "completed"
-  | "finished_early"
-  | "skipped"
-  | "cancelled";
+  "pending" | "in_progress" | "completed" | "finished_early" | "skipped" | "cancelled";
 export type QuestionKind = "main" | "follow_up";
 export type QuestionStatus = "active" | "regenerated" | "skipped";
 export type RoundAnswerAction = "follow_up" | "next_question" | "finish_round";
@@ -652,7 +649,9 @@ export function listHistory(): Promise<HistoryItem[]> {
   return request("/interviews/history");
 }
 
-export function listHistoryPage(options: { limit?: number; offset?: number } = {}): Promise<HistoryListResponse> {
+export function listHistoryPage(
+  options: { limit?: number; offset?: number } = {}
+): Promise<HistoryListResponse> {
   const params = new URLSearchParams();
   params.set("limit", String(options.limit || 20));
   params.set("offset", String(options.offset || 0));
@@ -663,7 +662,9 @@ export function listReports(): Promise<ReportListItem[]> {
   return request("/interviews/reports");
 }
 
-export function listReportsPage(options: { limit?: number; offset?: number } = {}): Promise<ReportListResponse> {
+export function listReportsPage(
+  options: { limit?: number; offset?: number } = {}
+): Promise<ReportListResponse> {
   const params = new URLSearchParams();
   params.set("limit", String(options.limit || 20));
   params.set("offset", String(options.offset || 0));
@@ -721,8 +722,8 @@ export function submitRoundAnswer(
   return request<InterviewOperationTaskResponse<RoundAnswerResponse>>(
     `/interviews/${interviewId}/rounds/${roundId}/answers-task`,
     {
-    method: "POST",
-    body: { question_id: questionId, answer }
+      method: "POST",
+      body: { question_id: questionId, answer }
     }
   ).then((task) => waitForInterviewOperation(task));
 }
@@ -795,11 +796,13 @@ export function getMemoryClearStatus(): Promise<MemoryClearStatus> {
   return request("/memories/clear-status");
 }
 
-export function listNotifications(options: {
-  filter?: NotificationFilter;
-  cursor?: string | null;
-  limit?: number;
-} = {}): Promise<NotificationListResponse> {
+export function listNotifications(
+  options: {
+    filter?: NotificationFilter;
+    cursor?: string | null;
+    limit?: number;
+  } = {}
+): Promise<NotificationListResponse> {
   const params = new URLSearchParams();
   params.set("filter", options.filter || "all");
   params.set("limit", String(options.limit || 10));
@@ -873,7 +876,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     const errorBody = normalizeErrorBody(data);
     const code = errorBody.code;
     const message =
-      errorBody.message || (code ? ERROR_MESSAGES[code] : undefined) || statusMessage(response.status);
+      errorBody.message ||
+      (code ? ERROR_MESSAGES[code] : undefined) ||
+      statusMessage(response.status);
 
     if (response.status === 401) {
       clearAuth();
@@ -886,7 +891,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return data as T;
 }
 
-async function waitForResumeParse(initialTask: ResumeParseTaskResponse): Promise<ResumeUploadResponse> {
+async function waitForResumeParse(
+  initialTask: ResumeParseTaskResponse
+): Promise<ResumeUploadResponse> {
   const startedAt = Date.now();
   let task = initialTask;
   while (true) {
@@ -897,7 +904,10 @@ async function waitForResumeParse(initialTask: ResumeParseTaskResponse): Promise
       };
     }
     if (task.status === "failed") {
-      throw new ApiError(task.error_message || ERROR_MESSAGES.RESUME_PARSE_FAILED, "RESUME_PARSE_FAILED");
+      throw new ApiError(
+        task.error_message || ERROR_MESSAGES.RESUME_PARSE_FAILED,
+        "RESUME_PARSE_FAILED"
+      );
     }
     if (Date.now() - startedAt > RESUME_UPLOAD_TIMEOUT_MS) {
       throw new ApiError(ERROR_MESSAGES.NETWORK_TIMEOUT, "NETWORK_TIMEOUT");
@@ -942,14 +952,16 @@ async function waitForInterviewOperation<T>(
 
 function readCookie(name: string): string {
   const encodedName = `${encodeURIComponent(name)}=`;
-  return document.cookie
-    .split(";")
-    .map((item) => item.trim())
-    .find((item) => item.startsWith(encodedName))
-    ?.slice(encodedName.length) || "";
+  return (
+    document.cookie
+      .split(";")
+      .map((item) => item.trim())
+      .find((item) => item.startsWith(encodedName))
+      ?.slice(encodedName.length) || ""
+  );
 }
 
-async function readJson(response: Response): Promise<any> {
+async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) {
     return null;
@@ -973,20 +985,32 @@ async function readJson(response: Response): Promise<any> {
   }
 }
 
-function normalizeErrorBody(data: any): { code?: string; message: string; details?: unknown } {
-  if (data?.error && typeof data.error === "object") {
+function normalizeErrorBody(data: unknown): { code?: string; message: string; details?: unknown } {
+  if (!data || typeof data !== "object") {
+    return { message: "" };
+  }
+
+  if ("error" in data && data.error && typeof data.error === "object") {
+    const error = data.error as { code?: unknown; message?: unknown; details?: unknown };
     return {
-      code: typeof data.error.code === "string" ? data.error.code : undefined,
-      message: typeof data.error.message === "string" ? data.error.message : "",
-      details: data.error.details
+      code: typeof error.code === "string" ? error.code : undefined,
+      message: typeof error.message === "string" ? error.message : "",
+      details: error.details
     };
   }
-  if (typeof data?.detail === "string") {
+
+  if ("detail" in data && typeof data.detail === "string") {
     return { message: data.detail };
   }
-  if (Array.isArray(data?.detail)) {
-    return { code: "VALIDATION_ERROR", message: ERROR_MESSAGES.VALIDATION_ERROR, details: data.detail };
+
+  if ("detail" in data && Array.isArray(data.detail)) {
+    return {
+      code: "VALIDATION_ERROR",
+      message: ERROR_MESSAGES.VALIDATION_ERROR,
+      details: data.detail
+    };
   }
+
   return { message: "" };
 }
 

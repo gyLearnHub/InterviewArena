@@ -26,7 +26,14 @@
               </clipPath>
             </defs>
             <g class="hero-hair-sway" clip-path="url(#dashboard-hero-hair-clip)">
-              <image :href="dashboardHeroAgent" x="0" y="0" width="1672" height="941" preserveAspectRatio="xMidYMid slice" />
+              <image
+                :href="dashboardHeroAgent"
+                x="0"
+                y="0"
+                width="1672"
+                height="941"
+                preserveAspectRatio="xMidYMid slice"
+              />
             </g>
           </svg>
         </div>
@@ -170,13 +177,17 @@
           <small>轻量检查</small>
         </div>
         <ul>
-          <li><i class="ok"></i><span>记忆系统</span><strong>{{ memoryStatus }}</strong></li>
+          <li>
+            <i class="ok"></i><span>记忆系统</span><strong>{{ memoryStatus }}</strong>
+          </li>
           <li>
             <i class="info"></i>
             <span>Harness</span>
             <RouterLink class="status-detail-link" to="/harness">查看状态</RouterLink>
           </li>
-          <li><i class="info"></i><span>报告任务</span><strong>{{ reportTaskStatus }}</strong></li>
+          <li>
+            <i class="info"></i><span>报告任务</span><strong>{{ reportTaskStatus }}</strong>
+          </li>
         </ul>
       </section>
     </div>
@@ -195,7 +206,10 @@
       >
         <header>
           <div>
-            <small>{{ severityText(selectedWeakPoint.severity) }} · {{ selectedWeakPoint.occurrence_count }} 次出现</small>
+            <small
+              >{{ severityText(selectedWeakPoint.severity) }} ·
+              {{ selectedWeakPoint.occurrence_count }} 次出现</small
+            >
             <h2 id="weak-modal-title">{{ selectedWeakPoint.title }}</h2>
           </div>
           <button type="button" @click="closeWeakPointDetail">关闭</button>
@@ -205,7 +219,12 @@
 
         <div class="weak-modal-section">
           <h3>改进建议</h3>
-          <p>{{ selectedWeakPoint.suggestion || "复盘对应问答，补充背景、行动、结果、技术取舍和量化数据。" }}</p>
+          <p>
+            {{
+              selectedWeakPoint.suggestion ||
+              "复盘对应问答，补充背景、行动、结果、技术取舍和量化数据。"
+            }}
+          </p>
         </div>
 
         <div v-if="selectedWeakPoint.evidence.length" class="weak-modal-section">
@@ -218,8 +237,13 @@
         <div v-if="selectedWeakPoint.sources.length" class="weak-modal-section">
           <h3>来源记录</h3>
           <ul class="weak-source-list">
-            <li v-for="source in selectedWeakPoint.sources" :key="`${source.interview_id}-${source.round_type || 'report'}`">
-              <RouterLink :to="`/history/${source.interview_id}`">{{ source.target_position }}</RouterLink>
+            <li
+              v-for="source in selectedWeakPoint.sources"
+              :key="`${source.interview_id}-${source.round_type || 'report'}`"
+            >
+              <RouterLink :to="`/history/${source.interview_id}`">{{
+                source.target_position
+              }}</RouterLink>
               <span>{{ source.round_type ? roundName(source.round_type) : "最终报告" }}</span>
               <strong>{{ source.score === null ? "-" : source.score }}</strong>
               <time>{{ formatDate(source.occurred_at) }}</time>
@@ -252,7 +276,9 @@ const summaryError = ref("");
 const displayName = computed(() => user.value?.display_name || user.value?.username || "武松");
 const latestInterview = computed(() => summary.value?.latest_interview || null);
 const latestReport = computed(() => summary.value?.latest_report || null);
-const overallScore = computed(() => latestReport.value?.score ?? latestInterview.value?.score ?? null);
+const overallScore = computed(
+  () => latestReport.value?.score ?? latestInterview.value?.score ?? null
+);
 const overallScoreText = computed(() => (overallScore.value === null ? 0 : overallScore.value));
 const latestPosition = computed(() => latestInterview.value?.target_position || "暂无最近岗位");
 const latestStatus = computed(() =>
@@ -274,8 +300,8 @@ const heroHint = computed(() =>
   !latestInterview.value
     ? "表现趋势与训练建议会同步到这里。"
     : latestInterview.value.status === "in_progress"
-    ? "你的上次面试还在进行中，可以从当前轮次继续。"
-    : "保持节奏，你的技术面表现正在稳步提升。"
+      ? "你的上次面试还在进行中，可以从当前轮次继续。"
+      : "保持节奏，你的技术面表现正在稳步提升。"
 );
 const trendText = computed(() => {
   const delta = summary.value?.score_delta;
@@ -544,7 +570,12 @@ onUnmounted(() => {
   overflow: hidden;
   padding: 54px 60px 36px;
   background:
-    linear-gradient(90deg, rgb(238 243 255 / 92%) 0%, rgb(239 243 255 / 70%) 38%, rgb(255 255 255 / 8%) 100%),
+    linear-gradient(
+      90deg,
+      rgb(238 243 255 / 92%) 0%,
+      rgb(239 243 255 / 70%) 38%,
+      rgb(255 255 255 / 8%) 100%
+    ),
     #edf2ff;
 }
 
@@ -833,14 +864,13 @@ onUnmounted(() => {
   min-width: 0;
   overflow: hidden;
   padding: 8px 0 2px;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(25% - 1px),
-      #dce3f2 calc(25% - 1px),
-      #dce3f2 25%
-    );
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(25% - 1px),
+    #dce3f2 calc(25% - 1px),
+    #dce3f2 25%
+  );
 }
 
 .chart-grid i {
@@ -1252,7 +1282,12 @@ onUnmounted(() => {
 
   .hero-card::after {
     background:
-      linear-gradient(180deg, rgb(239 244 255 / 96%) 0%, rgb(239 244 255 / 84%) 48%, transparent 100%),
+      linear-gradient(
+        180deg,
+        rgb(239 244 255 / 96%) 0%,
+        rgb(239 244 255 / 84%) 48%,
+        transparent 100%
+      ),
       radial-gradient(circle at 32% 15%, rgb(120 113 255 / 18%), transparent 30%);
   }
 
@@ -1340,5 +1375,4 @@ onUnmounted(() => {
     animation: none;
   }
 }
-
 </style>
