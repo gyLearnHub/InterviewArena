@@ -7,7 +7,7 @@ InterviewArena 是一个前后端分离的 AI 多轮面试练习项目。后端�
 - 后端：Python 3.11、FastAPI、Pydantic、PyMySQL、python-docx
 - 前端：Vue 3、Vue Router、Vite
 - 数据库：MySQL，初始化脚本在 `database/init_mysql.sql`
-- 质量检查：ruff、mypy、pytest、Vite build
+- 质量检查：ruff、mypy、pytest、vue-tsc、Vite build
 - CI：GitHub Actions，配置在 `.github/workflows/quality.yml`
 
 ## 目录结构
@@ -80,7 +80,7 @@ Vite 默认运行在 `http://127.0.0.1:5173`，开发代理会把 `/api` 转发�
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\quality.ps1
 ```
 
-默认模式会生成 OpenAPI/前端 API contract、对变更的后端 Python 文件跑 ruff、跑一组快速后端测试，并构建前端。
+默认模式会生成 OpenAPI/前端 API contract、对变更的后端 Python 文件跑 ruff、跑一组快速后端测试，并对前端执行 typecheck 和构建。
 
 全量检查：
 
@@ -88,7 +88,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\quality.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\quality.ps1 -Full
 ```
 
-全量模式会跑 `ruff check backend`、`mypy`、全部 `pytest backend/tests` 和前端构建。
+全量模式会跑 `ruff check backend`、`mypy`、全部 `pytest backend/tests`、前端 typecheck 和前端构建。
 
 只重新生成 OpenAPI/TypeScript contract：
 
@@ -103,7 +103,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\generate-openapi.ps1
 GitHub Actions 会在 push 到 `main`/`master` 或创建 PR 时运行：
 
 - 后端：安装 `backend/requirements-dev.txt`，验证 OpenAPI contract，同步检查 ruff、mypy、pytest
-- 前端：`npm ci` 后执行 `npm run build`
+- 前端：`npm ci` 后执行 `npm run typecheck` 和 `npm run build`
 
 ## 注意事项
 

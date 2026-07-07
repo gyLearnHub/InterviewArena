@@ -76,7 +76,7 @@
     <main v-if="activeRound" class="room-main">
       <section class="conversation-panel">
         <div
-          :ref="(el) => setMessagesEl(activeRound.type, el)"
+          :ref="setActiveMessagesEl"
           class="round-messages conversation-messages"
           aria-live="polite"
           :aria-busy="busyRoundType === activeRound.type || streamingRoundType === activeRound.type"
@@ -215,7 +215,7 @@
             +
           </button>
           <textarea
-            :ref="(el) => setTextareaEl(activeRound.type, el)"
+            :ref="setActiveTextareaEl"
             v-model="draftTexts[activeRound.type]"
             :disabled="!canTypeInRound(activeRound)"
             :placeholder="answerPlaceholder(activeRound)"
@@ -306,7 +306,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  type ComponentPublicInstance,
+  watch
+} from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
@@ -993,16 +1001,18 @@ function hydrateMessages(source: MultiRoundState) {
     if (!roundType) {
       continue;
     }
+    const questionMessageIndex = hydrated[roundType].length;
     hydrated[roundType].push({
-      id: `q-${entry.id || `${roundType}-${entry.sequence || hydrated.length}`}`,
+      id: `q-${entry.id || `${roundType}-${entry.sequence || questionMessageIndex}`}`,
       role: "assistant",
       text: question,
       roundLabel: roundMetas[roundType].label
     });
     const answer = readAnswerText(entry);
     if (answer) {
+      const answerMessageIndex = hydrated[roundType].length;
       hydrated[roundType].push({
-        id: `a-${entry.id || `${roundType}-${entry.sequence || hydrated.length}`}`,
+        id: `a-${entry.id || `${roundType}-${entry.sequence || answerMessageIndex}`}`,
         role: "user",
         text: answer
       });
@@ -1362,12 +1372,30 @@ async function focusRoundInput(type: RoundType) {
   textareaEls.value[type]?.focus();
 }
 
-function setMessagesEl(type: RoundType, el: Element | null) {
-  messageEls.value[type] = el as HTMLElement | null;
+type TemplateRefElement = Element | ComponentPublicInstance | null;
+
+function setActiveMessagesEl(el: TemplateRefElement) {
+  if (!activeRound.value) {
+    return;
+  }
+  setMessagesEl(activeRound.value.type, el);
 }
 
-function setTextareaEl(type: RoundType, el: Element | null) {
-  textareaEls.value[type] = el as HTMLTextAreaElement | null;
+function setActiveTextareaEl(el: TemplateRefElement) {
+  if (!activeRound.value) {
+    return;
+  }
+  setTextareaEl(activeRound.value.type, el);
+}
+
+function setMessagesEl(type: RoundType, el: TemplateRefElement) {
+  const element = el instanceof Element ? el : null;
+  messageEls.value[type] = element as HTMLElement | null;
+}
+
+function setTextareaEl(type: RoundType, el: TemplateRefElement) {
+  const element = el instanceof Element ? el : null;
+  textareaEls.value[type] = element as HTMLTextAreaElement | null;
 }
 
 function delay(milliseconds: number) {

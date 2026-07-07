@@ -124,6 +124,7 @@ else {
 
 Push-Location frontend
 try {
+    npm run typecheck
     npm run build
     if ($E2E) {
         npm run test:e2e
