@@ -2,8 +2,6 @@
   <section class="workspace interview-entry">
     <header class="page-header">
       <div>
-        <p class="eyebrow">新建面试</p>
-        <h1>按步骤完成配置</h1>
         <p class="entry-lead">系统会实时生成本次面试预览。</p>
       </div>
       <RouterLink class="ghost-button" to="/history">历史记录</RouterLink>
@@ -15,9 +13,11 @@
         :key="step.id"
         type="button"
         :class="{ active: currentStep === step.id, done: currentStep > step.id }"
+        :disabled="step.id > currentStep"
+        :aria-current="currentStep === step.id ? 'step' : undefined"
         @click="currentStep = step.id"
       >
-        <span>{{ step.id }}</span>
+        <span>{{ currentStep > step.id ? "✓" : step.id }}</span>
         {{ step.label }}
       </button>
     </nav>
@@ -132,7 +132,7 @@
         >
           <div class="section-heading compact">
             <p class="eyebrow">
-              {{ currentStep === 2 ? "简历与岗位" : currentStep === 3 ? "轮次与题量" : "面试偏好" }}
+              {{ currentStep === 2 ? "简历与岗位" : currentStep === 3 ? "面试轮次" : "面试偏好" }}
             </p>
             <h2 id="multi-title">
               {{
@@ -140,7 +140,7 @@
                   ? "上传或复用简历"
                   : currentStep === 3
                     ? "选择轮次"
-                    : "补充岗位 JD"
+                    : "设置面试策略"
               }}
             </h2>
           </div>
@@ -155,7 +155,27 @@
             </label>
           </div>
 
-          <label v-show="currentStep === 4" for="job-description">JD 文本</label>
+          <div v-show="currentStep === 4" class="strategy-panel" aria-label="面试策略">
+            <div class="strategy-group">
+              <span>面试目标</span>
+              <div class="strategy-options">
+                <button
+                  v-for="option in interviewGoalOptions"
+                  :key="option.value"
+                  type="button"
+                  class="strategy-option"
+                  :class="{ active: interviewGoal === option.value }"
+                  :aria-pressed="interviewGoal === option.value"
+                  @click="interviewGoal = option.value"
+                >
+                  <strong>{{ option.label }}</strong>
+                  <small>{{ option.note }}</small>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <label v-show="currentStep === 4" for="job-description">岗位 JD</label>
           <textarea
             v-show="currentStep === 4"
             id="job-description"
@@ -224,6 +244,9 @@
           <p class="eyebrow">确认并开始</p>
           <h2>{{ selectedPosition || "未选择岗位" }}</h2>
           <p>{{ selectionHint }}</p>
+          <div class="confirm-strategy">
+            <span>{{ interviewGoalLabel }}</span>
+          </div>
           <div class="confirm-rounds">
             <span v-for="label in selectedRoundLabels" :key="label">{{ label }}</span>
           </div>
@@ -238,37 +261,40 @@
           >
             上一步
           </button>
-          <div>
-            <p class="eyebrow">当前选择</p>
-            <strong>{{ selectedPosition || "未选择" }}</strong>
-            <span>{{ selectionHint }}</span>
+          <div class="selection-actions">
+            <button
+              class="ghost-button"
+              type="button"
+              :disabled="isResumeBusy"
+              @click="saveDraft(true)"
+            >
+              保存草稿
+            </button>
+            <button
+              class="primary"
+              type="button"
+              :disabled="isResumeBusy"
+              @click="handlePrimaryAction"
+            >
+              {{ currentStep === 5 ? submitLabel : "下一步" }}
+            </button>
           </div>
-          <button
-            class="ghost-button"
-            type="button"
-            :disabled="isResumeBusy"
-            @click="saveDraft(true)"
-          >
-            保存草稿
-          </button>
-          <button
-            class="primary"
-            type="button"
-            :disabled="isResumeBusy"
-            @click="handlePrimaryAction"
-          >
-            {{ currentStep === 5 ? submitLabel : "下一步" }}
-          </button>
         </div>
 
         <p v-if="message" class="message error">{{ message }}</p>
       </div>
 
-      <aside class="summary-card" aria-label="实时配置摘要">
-        <h2>实时预览</h2>
+      <aside v-if="currentStep < 5" class="summary-card" aria-label="配置摘要">
+        <header class="summary-heading">
+          <h2>配置摘要</h2>
+          <span>步骤 {{ currentStep }}/5</span>
+        </header>
         <div class="summary-target">
           <span>目标岗位</span>
           <strong>{{ selectedPosition || "待选择" }}</strong>
+        </div>
+        <div class="summary-strategy">
+          <span>{{ interviewGoalLabel }}</span>
         </div>
         <div class="summary-flow">
           <div
@@ -278,7 +304,7 @@
           >
             <span>{{ round.label }}</span>
             <small>{{
-              selectedRounds.includes(round.value) ? "预计 25 题 · 约 35 分钟" : "未启用"
+              selectedRounds.includes(round.value) ? "Agent 自适应追问" : "未启用"
             }}</small>
           </div>
         </div>
@@ -428,6 +454,7 @@ import {
   renameResume,
   setDefaultResume,
   uploadResume,
+  type InterviewGoal,
   type ResumeDetail,
   type ResumeListItem,
   type RoundType
@@ -439,7 +466,7 @@ const currentStep = ref(1);
 const steps = [
   { id: 1, label: "基础信息" },
   { id: 2, label: "简历与岗位" },
-  { id: 3, label: "轮次与题量" },
+  { id: 3, label: "面试轮次" },
   { id: 4, label: "面试偏好" },
   { id: 5, label: "确认并开始" }
 ];
@@ -454,11 +481,17 @@ const roundOptions: { value: RoundType; label: string; note: string }[] = [
   { value: "manager", label: "主管面", note: "业务理解、协作推动" },
   { value: "hr", label: "HR 面", note: "动机、稳定性、规划" }
 ];
+const interviewGoalOptions: { value: InterviewGoal; label: string; note: string }[] = [
+  { value: "internship", label: "实习", note: "基础和成长潜力" },
+  { value: "campus", label: "校招", note: "能力覆盖与项目深度" },
+  { value: "big_tech", label: "冲刺大厂", note: "深度追问和抗压表达" }
+];
 const targetPosition = ref("");
 const customPosition = ref("");
 const isCustomInputMode = ref(false);
 const isPositionMenuOpen = ref(false);
 const selectedRounds = ref<RoundType[]>(roundOptions.map((round) => round.value));
+const interviewGoal = ref<InterviewGoal>("campus");
 const jobDescription = ref("");
 const resumeId = ref<number | null>(null);
 const resumeName = ref("");
@@ -495,8 +528,13 @@ const currentPositionIcon = computed(() => {
   );
 });
 const selectionHint = computed(() => {
-  return `${selectedRounds.value.length} 个轮次${resumeId.value ? "，简历已就绪" : "，待上传简历"}`;
+  return `${selectedRounds.value.length} 个轮次，${interviewGoalLabel.value}${
+    resumeId.value ? "，简历已就绪" : "，待上传简历"
+  }`;
 });
+const interviewGoalLabel = computed(
+  () => interviewGoalOptions.find((option) => option.value === interviewGoal.value)?.label || "校招"
+);
 const selectedRoundLabels = computed(() =>
   roundOptions
     .filter((round) => selectedRounds.value.includes(round.value))
@@ -815,7 +853,8 @@ async function createMultiRoundInterview() {
   try {
     const interview = await createInterview(resumeId.value, selectedPosition.value, {
       jobDescription: jobDescription.value,
-      selectedRounds: selectedRounds.value
+      selectedRounds: selectedRounds.value,
+      interviewGoal: interviewGoal.value
     });
     localStorage.removeItem(DRAFT_KEY);
     router.push({ name: "multi-round-interview", params: { id: interview.id } });
@@ -908,6 +947,7 @@ function saveDraft(showMessage = false) {
       customPosition: customPosition.value,
       isCustomInputMode: isCustomInputMode.value,
       selectedRounds: selectedRounds.value,
+      interviewGoal: interviewGoal.value,
       jobDescription: jobDescription.value,
       resumeId: resumeId.value,
       resumeName: resumeName.value
@@ -929,6 +969,7 @@ function loadDraft() {
       customPosition?: string;
       isCustomInputMode?: boolean;
       selectedRounds?: RoundType[];
+      interviewGoal?: InterviewGoal;
       jobDescription?: string;
       resumeId?: number | null;
       resumeName?: string;
@@ -940,12 +981,19 @@ function loadDraft() {
       Array.isArray(draft.selectedRounds) && draft.selectedRounds.length
         ? draft.selectedRounds
         : selectedRounds.value;
+    if (isInterviewGoal(draft.interviewGoal)) {
+      interviewGoal.value = draft.interviewGoal;
+    }
     jobDescription.value = draft.jobDescription || "";
     resumeId.value = typeof draft.resumeId === "number" ? draft.resumeId : null;
     resumeName.value = draft.resumeName || "";
   } catch {
     localStorage.removeItem(DRAFT_KEY);
   }
+}
+
+function isInterviewGoal(value: unknown): value is InterviewGoal {
+  return interviewGoalOptions.some((option) => option.value === value);
 }
 
 onMounted(loadDraft);
@@ -956,6 +1004,7 @@ watch(
     customPosition,
     isCustomInputMode,
     selectedRounds,
+    interviewGoal,
     jobDescription,
     resumeId,
     resumeName
@@ -972,28 +1021,29 @@ watch(
 }
 
 .entry-lead {
-  margin: -6px 0 0;
+  margin: 0;
   color: #5d6673;
 }
 
 .stepper {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .stepper button {
   position: relative;
   display: inline-flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  min-height: 42px;
+  min-height: 36px;
   padding: 0;
   border: 0;
   background: transparent;
   color: #758195;
+  font-size: 14px;
   font-weight: 800;
   text-align: left;
 }
@@ -1010,8 +1060,8 @@ watch(
 .stepper span {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: #d0d8e2;
   color: #fff;
@@ -1022,30 +1072,39 @@ watch(
   color: #172033;
 }
 
-.stepper .active span,
-.stepper .done span {
+.stepper .active span {
   background: #3b9cff;
+  box-shadow: 0 6px 16px rgba(59, 156, 255, 0.2);
+}
+
+.stepper .done span {
+  background: #e8f7f1;
+  color: #16805f;
+}
+
+.stepper button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .entry-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.48fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.42fr);
+  gap: 20px;
   align-items: start;
 }
 
 .entry-panel {
   display: grid;
-  gap: 22px;
-  min-height: 580px;
-  padding: 36px 38px;
+  gap: 18px;
+  min-height: 520px;
+  padding: 28px 30px;
   border: 1px solid #e4edf7;
-  border-radius: 18px;
+  border-radius: 16px;
   background: #fff;
-  box-shadow: 0 18px 46px rgba(31, 68, 120, 0.08);
+  box-shadow: 0 14px 36px rgba(31, 68, 120, 0.07);
 }
 
-.selection-bar span,
 .round-option small,
 .upload-card small {
   color: #5d6673;
@@ -1305,6 +1364,57 @@ watch(
   color: #17212f;
 }
 
+.strategy-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.strategy-group {
+  display: grid;
+  gap: 8px;
+}
+
+.strategy-group > span {
+  color: #17212f;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.strategy-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.strategy-option {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid #d9e0e4;
+  border-radius: 8px;
+  background: #fff;
+  color: #17212f;
+  text-align: left;
+}
+
+.strategy-option:hover,
+.strategy-option:focus-visible,
+.strategy-option.active {
+  border-color: #3b9cff;
+  outline: none;
+  box-shadow: 0 10px 24px rgba(59, 156, 255, 0.14);
+}
+
+.strategy-option.active {
+  background: #f2f8ff;
+}
+
+.strategy-option small {
+  color: #5d6673;
+  line-height: 1.35;
+}
+
 #job-description {
   width: 100%;
   min-height: 112px;
@@ -1529,33 +1639,28 @@ watch(
 }
 
 .selection-bar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 16px;
+  display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
+  padding: 12px;
   border: 1px solid #e4edf7;
-  border-radius: 14px;
-  background: #f7fbff;
+  border-radius: 12px;
+  background: #f8fafc;
 }
 
-.selection-bar strong {
-  display: block;
-  margin-top: 2px;
-  font-size: 18px;
-}
-
-.selection-bar span {
-  display: block;
-  margin-top: 4px;
+.selection-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
 }
 
 .confirm-panel {
   display: grid;
   gap: 14px;
-  min-height: 280px;
-  padding: 26px;
+  min-height: 240px;
+  padding: 24px;
   border: 1px solid #c8e3ff;
   border-radius: 16px;
   background: linear-gradient(135deg, #f2f8ff 0%, #f7f5ff 100%);
@@ -1578,6 +1683,24 @@ watch(
   gap: 10px;
 }
 
+.confirm-strategy,
+.summary-strategy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.confirm-strategy span,
+.summary-strategy span {
+  padding: 7px 10px;
+  border: 1px solid #dbe7f3;
+  border-radius: 8px;
+  background: #fff;
+  color: #247de8;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .confirm-rounds span {
   padding: 8px 12px;
   border-radius: 999px;
@@ -1590,25 +1713,41 @@ watch(
   position: sticky;
   top: 24px;
   display: grid;
-  gap: 28px;
-  padding: 36px;
+  gap: 18px;
+  padding: 22px;
   border: 1px solid #e4edf7;
-  border-radius: 18px;
+  border-radius: 16px;
   background: #fff;
-  box-shadow: 0 18px 46px rgba(31, 68, 120, 0.08);
+  box-shadow: 0 14px 36px rgba(31, 68, 120, 0.07);
+}
+
+.summary-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .summary-card h2 {
   margin: 0;
   color: #172033;
-  font-size: 26px;
+  font-size: 21px;
+}
+
+.summary-heading > span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #5d6673;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .summary-target {
   display: grid;
-  gap: 8px;
-  padding: 22px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 12px;
   background: #f2f8ff;
 }
 
@@ -1620,29 +1759,33 @@ watch(
 
 .summary-target strong {
   color: #172033;
-  font-size: 19px;
+  font-size: 17px;
+}
+
+.summary-strategy span {
+  background: #f8fafc;
 }
 
 .summary-flow {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .summary-flow div {
   position: relative;
   display: grid;
   gap: 4px;
-  padding-left: 52px;
+  padding-left: 42px;
 }
 
 .summary-flow div::before {
   position: absolute;
-  left: 6px;
+  left: 4px;
   top: 2px;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   background: #3b9cff;
   color: #fff;
@@ -1664,6 +1807,10 @@ watch(
 
 .summary-flow .muted {
   opacity: 0.45;
+}
+
+.summary-card > p {
+  margin: 0;
 }
 
 .resume-modal-backdrop {
@@ -1849,9 +1996,14 @@ watch(
 }
 
 @media (max-width: 760px) {
-  .stepper,
   .entry-layout {
     grid-template-columns: 1fr;
+  }
+
+  .stepper {
+    grid-template-columns: repeat(5, minmax(118px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 6px;
   }
 
   .stepper button + button::before {
@@ -1859,6 +2011,10 @@ watch(
   }
 
   .round-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-options {
     grid-template-columns: 1fr;
   }
 
@@ -1875,8 +2031,23 @@ watch(
     grid-template-columns: 1fr;
   }
 
-  .selection-bar .primary {
+  .selection-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+    margin-left: 0;
+  }
+
+  .selection-actions button {
+    width: 100%;
+  }
+
+  .entry-panel {
+    padding: 22px 18px;
+  }
+
+  .summary-card {
+    position: static;
   }
 }
 </style>

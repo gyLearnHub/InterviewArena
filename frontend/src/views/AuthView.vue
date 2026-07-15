@@ -50,14 +50,6 @@
       </div>
 
       <div class="hero-figure" aria-hidden="true">
-        <div class="floating-card rating-card">
-          <strong>4.8/5.0</strong>
-          <span>★★★★★</span>
-        </div>
-        <div class="floating-card chat-card">
-          <span></span>
-          <span></span>
-        </div>
         <img class="hero-girl" :src="heroGirl" alt="" />
       </div>
     </div>
@@ -173,11 +165,11 @@ import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { ApiError, login, register } from "../api";
-import heroGirl from "../assets/auth-hero-girl.png";
-import hrAvatar from "../assets/interviewers/hr-interviewer.png";
-import managerAvatar from "../assets/interviewers/manager-interviewer.png";
-import resumeAvatar from "../assets/interviewers/resume-interviewer.png";
-import technicalAvatar from "../assets/interviewers/technical-interviewer.png";
+import heroGirl from "../assets/auth-hero-girl.webp";
+import hrAvatar from "../assets/interviewers/hr-interviewer.webp";
+import managerAvatar from "../assets/interviewers/manager-interviewer.webp";
+import resumeAvatar from "../assets/interviewers/resume-interviewer.webp";
+import technicalAvatar from "../assets/interviewers/technical-interviewer.webp";
 
 const router = useRouter();
 const route = useRoute();
@@ -759,10 +751,8 @@ function getRedirectTarget(): string {
 }
 
 .auth-page {
-  --auth-scale: 0.9;
-
-  grid-template-columns: minmax(690px, 1.24fr) minmax(390px, 590px);
-  gap: clamp(28px, 4.8vw, 78px);
+  grid-template-columns: minmax(620px, 1.18fr) minmax(390px, 520px);
+  gap: clamp(28px, 4vw, 64px);
   align-items: stretch;
   height: 100vh;
   height: 100svh;
@@ -770,7 +760,7 @@ function getRedirectTarget(): string {
   max-height: 100svh;
   min-height: 100vh;
   min-height: 100svh;
-  padding: clamp(32px, 4.2vw, 68px) clamp(32px, 4.8vw, 80px);
+  padding: clamp(28px, 3.2vw, 52px) clamp(32px, 4vw, 64px);
   overflow: hidden;
   background:
     radial-gradient(circle at 97% 6%, rgba(125, 172, 255, 0.34), transparent 26%),
@@ -841,22 +831,20 @@ function getRedirectTarget(): string {
   position: relative;
   z-index: 1;
   align-content: start;
-  gap: clamp(24px, 3.3vw, 42px);
+  gap: clamp(20px, 2.4vw, 32px);
   min-height: 0;
   height: 100%;
   padding-top: 6px;
-  transform: scale(var(--auth-scale));
-  transform-origin: top left;
 }
 
 .brand-pill {
-  min-height: 86px;
-  padding: 0 24px 0 20px;
+  min-height: 68px;
+  padding: 0 22px 0 16px;
   border: 0;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.96);
   color: #07082c;
-  font-size: clamp(24px, 1.9vw, 34px);
+  font-size: clamp(22px, 1.55vw, 28px);
   line-height: 1;
   box-shadow: 0 16px 36px rgba(59, 86, 150, 0.12);
   backdrop-filter: blur(18px);
@@ -865,17 +853,17 @@ function getRedirectTarget(): string {
 .brand-icon {
   display: grid;
   place-items: center;
-  width: 50px;
-  height: 50px;
-  margin-right: 16px;
+  width: 42px;
+  height: 42px;
+  margin-right: 13px;
   border-radius: 14px;
   background: linear-gradient(135deg, #5b7cff 0%, #8658ff 100%);
   box-shadow: 0 10px 22px rgba(91, 124, 255, 0.28);
 }
 
 .brand-icon svg {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   fill: none;
   stroke: #fff;
   stroke-linecap: round;
@@ -893,7 +881,7 @@ function getRedirectTarget(): string {
   max-width: 760px;
   margin-top: 4px;
   color: #07082c;
-  font-size: clamp(50px, 4.9vw, 76px);
+  font-size: clamp(44px, 4vw, 64px);
   font-weight: 950;
   line-height: 1.26;
 }
@@ -905,32 +893,32 @@ function getRedirectTarget(): string {
 }
 
 .brand-copy p {
-  margin-top: 16px;
+  margin-top: 12px;
   color: #68718f;
-  font-size: clamp(19px, 1.45vw, 27px);
+  font-size: clamp(17px, 1.25vw, 22px);
   font-weight: 800;
 }
 
 .agent-row {
   position: relative;
   z-index: 3;
-  grid-template-columns: repeat(4, 110px);
-  gap: clamp(18px, 2.1vw, 34px);
+  grid-template-columns: repeat(4, 92px);
+  gap: clamp(14px, 1.6vw, 24px);
   max-width: 600px;
 }
 
 .agent-chip {
-  gap: 12px;
+  gap: 8px;
   color: #090a2e;
-  font-size: clamp(16px, 1.05vw, 20px);
+  font-size: clamp(14px, 0.95vw, 17px);
   animation: agent-float 4.8s ease-in-out infinite;
   animation-delay: var(--delay, 0s);
 }
 
 .agent-face,
 .welcome-agent {
-  width: 92px;
-  height: 92px;
+  width: 76px;
+  height: 76px;
   border: 4px solid color-mix(in srgb, var(--agent, #3b9cff) 64%, white);
   background: color-mix(in srgb, var(--agent, #3b9cff) 12%, white);
   box-shadow:
@@ -977,20 +965,20 @@ function getRedirectTarget(): string {
 .feature-grid {
   position: relative;
   z-index: 3;
-  grid-template-columns: repeat(3, minmax(170px, 252px));
-  gap: clamp(18px, 2.1vw, 32px);
+  grid-template-columns: repeat(3, minmax(160px, 224px));
+  gap: clamp(14px, 1.6vw, 24px);
   max-width: 790px;
   margin-top: 2px;
 }
 
 .feature-card {
-  gap: 18px;
-  min-height: 250px;
-  padding: 34px 30px;
+  gap: 14px;
+  min-height: 184px;
+  padding: 22px 20px;
   border: 1px solid rgba(214, 224, 251, 0.82);
-  border-radius: 24px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 24px 60px rgba(72, 95, 150, 0.12);
+  box-shadow: 0 16px 40px rgba(72, 95, 150, 0.09);
   backdrop-filter: blur(18px);
 }
 
@@ -1001,19 +989,19 @@ function getRedirectTarget(): string {
 }
 
 .feature-card span {
-  width: 52px;
-  height: 52px;
+  width: 42px;
+  height: 42px;
   border-radius: 14px;
   background: linear-gradient(135deg, #e8f1ff, #eeeaff);
   color: #497bff;
-  font-size: 27px;
+  font-size: 22px;
 }
 
 .feature-card i {
   position: relative;
   display: block;
-  width: 52px;
-  height: 52px;
+  width: 42px;
+  height: 42px;
   border-radius: 13px;
   background: linear-gradient(135deg, rgba(76, 124, 255, 0.14), rgba(142, 94, 255, 0.2));
 }
@@ -1070,24 +1058,24 @@ function getRedirectTarget(): string {
 
 .feature-card strong {
   display: block;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   color: #08092d;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.25;
 }
 
 .feature-card p {
   color: #637092;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .hero-figure {
   position: absolute;
   z-index: 2;
-  right: clamp(-150px, -9vw, -70px);
-  bottom: clamp(-94px, -8vw, -54px);
-  width: clamp(430px, 38vw, 660px);
+  right: clamp(-120px, -7vw, -60px);
+  bottom: clamp(-82px, -6vw, -48px);
+  width: clamp(390px, 32vw, 540px);
   pointer-events: none;
 }
 
@@ -1109,79 +1097,20 @@ function getRedirectTarget(): string {
   transform-origin: 52% 78%;
 }
 
-.floating-card {
-  position: absolute;
-  z-index: 2;
-  border: 1px solid rgba(218, 226, 252, 0.78);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.66);
-  box-shadow: 0 16px 34px rgba(75, 91, 144, 0.12);
-  backdrop-filter: blur(12px);
-  animation: float-card 5s ease-in-out infinite;
-}
-
-.rating-card {
-  top: 7%;
-  left: -10%;
-  display: grid;
-  gap: 4px;
-  width: 150px;
-  padding: 22px 24px;
-  color: #5976ff;
-  font-weight: 900;
-  transform: rotate(13deg);
-}
-
-.rating-card::before {
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  background: conic-gradient(#7d6dff 0 34%, #6eb6ff 34% 66%, #d9ddff 66% 100%);
-  content: "";
-}
-
-.rating-card span {
-  color: #718aff;
-  font-size: 13px;
-  letter-spacing: 1px;
-}
-
-.chat-card {
-  top: 10%;
-  right: 0;
-  display: grid;
-  gap: 10px;
-  width: 82px;
-  height: 64px;
-  padding: 18px;
-  border-radius: 18px 18px 18px 6px;
-  background: rgba(190, 180, 255, 0.8);
-  animation-delay: 0.7s;
-}
-
-.chat-card span {
-  display: block;
-  height: 6px;
-  border-radius: 99px;
-  background: rgba(255, 255, 255, 0.8);
-}
-
 .auth-card {
   align-self: center;
-  max-width: 590px;
-  min-height: min(820px, calc(100vh - 112px));
-  padding: clamp(48px, 4.8vw, 78px) clamp(42px, 4.5vw, 68px);
+  max-width: 520px;
+  min-height: 0;
+  padding: clamp(38px, 3vw, 48px) clamp(34px, 3.2vw, 48px);
   border: 0;
-  border-radius: 32px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 30px 88px rgba(78, 96, 151, 0.13);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 64px rgba(78, 96, 151, 0.12);
   backdrop-filter: blur(20px);
-  transform: scale(var(--auth-scale));
-  transform-origin: top center;
 }
 
 .auth-form {
-  gap: 28px;
+  gap: 20px;
 }
 
 .form-heading {
@@ -1189,28 +1118,28 @@ function getRedirectTarget(): string {
 }
 
 .form-heading p {
-  margin-bottom: 18px;
+  margin-bottom: 10px;
   color: #6f7b9d;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
 }
 
 .form-heading h2 {
   color: #08092d;
-  font-size: clamp(28px, 2.55vw, 40px);
+  font-size: clamp(27px, 2.2vw, 34px);
   font-weight: 950;
   line-height: 1.25;
 }
 
 .form-heading span {
-  margin-top: 12px;
+  margin-top: 8px;
   color: #68718f;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .field-group {
-  gap: 12px;
+  gap: 8px;
 }
 
 .field-group > span {
@@ -1224,8 +1153,8 @@ function getRedirectTarget(): string {
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 14px;
   align-items: center;
-  min-height: 70px;
-  padding: 0 20px;
+  min-height: 58px;
+  padding: 0 16px;
   border: 1px solid #dbe3f4;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.78);
@@ -1253,7 +1182,7 @@ function getRedirectTarget(): string {
 
 .field-group input {
   width: 100%;
-  min-height: 68px;
+  min-height: 56px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -1332,12 +1261,12 @@ function getRedirectTarget(): string {
 }
 
 .submit-button {
-  min-height: 74px;
+  min-height: 60px;
   margin-top: 4px;
   border-radius: 13px;
   background: linear-gradient(100deg, #4186ff 0%, #8950ff 100%);
-  font-size: 23px;
-  box-shadow: 0 20px 38px rgba(86, 102, 255, 0.25);
+  font-size: 18px;
+  box-shadow: 0 16px 30px rgba(86, 102, 255, 0.22);
 }
 
 .mode-switch {
@@ -1377,16 +1306,6 @@ function getRedirectTarget(): string {
   }
 }
 
-@keyframes float-card {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-  50% {
-    translate: 0 -12px;
-  }
-}
-
 @media (max-width: 1280px) {
   .auth-page {
     grid-template-columns: minmax(540px, 1fr) minmax(360px, 500px);
@@ -1396,14 +1315,18 @@ function getRedirectTarget(): string {
 
   .auth-brand {
     gap: 22px;
+    isolation: isolate;
+    overflow: hidden;
   }
 
   .brand-copy {
-    width: min(720px, 100%);
+    z-index: 4;
+    width: min(520px, 100%);
   }
 
   .brand-copy h1 {
-    font-size: clamp(42px, 4.8vw, 58px);
+    max-width: 520px;
+    font-size: clamp(42px, 4.25vw, 52px);
   }
 
   .brand-copy p {
@@ -1436,16 +1359,27 @@ function getRedirectTarget(): string {
   }
 
   .hero-figure {
-    right: -10%;
-    width: min(500px, 39vw);
+    z-index: 1;
+    right: -8%;
+    bottom: -110px;
+    width: min(360px, 29vw);
+  }
+
+  .hero-girl {
+    -webkit-mask-image:
+      linear-gradient(90deg, transparent 0%, transparent 22%, #000 48%, #000 100%),
+      linear-gradient(180deg, transparent 0%, #000 7%, #000 88%, transparent 100%);
+    mask-image:
+      linear-gradient(90deg, transparent 0%, transparent 22%, #000 48%, #000 100%),
+      linear-gradient(180deg, transparent 0%, #000 7%, #000 88%, transparent 100%);
   }
 
   .auth-card {
     justify-self: center;
     min-height: auto;
     max-height: calc(100svh - 56px);
-    width: min(590px, 100%);
-    padding: 42px 42px;
+    width: min(520px, 100%);
+    padding: 36px 38px;
   }
 
   .auth-form {
@@ -1453,10 +1387,17 @@ function getRedirectTarget(): string {
   }
 }
 
+@media (min-width: 821px) and (max-width: 1100px) {
+  .hero-figure {
+    display: none;
+  }
+}
+
 @media (max-width: 820px) {
   .auth-page {
     grid-template-columns: 1fr;
     padding: 24px 16px 32px;
+    overflow-y: auto;
   }
 
   .auth-brand {
@@ -1503,15 +1444,10 @@ function getRedirectTarget(): string {
     margin-top: -16px;
   }
 
-  .floating-card {
-    display: none;
-  }
-
   .auth-card {
     align-self: center;
     padding: 32px 22px;
     border-radius: 24px;
-    transform-origin: center;
   }
 
   .field-shell {
@@ -1527,7 +1463,6 @@ function getRedirectTarget(): string {
   .hero-girl,
   .agent-chip,
   .agent-face::before,
-  .floating-card,
   .welcome-agent {
     animation: none !important;
   }

@@ -1,4 +1,4 @@
-const TOKEN_KEY = "interview_arena_token";
+const LEGACY_TOKEN_KEY = "interview_arena_token";
 const USER_KEY = "interview_arena_user";
 export const AUTH_CHANGED_EVENT = "interview-arena:auth-changed";
 
@@ -9,13 +9,8 @@ export type AuthUser = {
   avatar_url?: string | null;
 };
 
-export function getToken(): string {
-  localStorage.removeItem(TOKEN_KEY);
-  return "";
-}
-
 export function getUser(): AuthUser | null {
-  const raw = localStorage.getItem(USER_KEY);
+  const raw = readStorage(USER_KEY);
   if (!raw) {
     return null;
   }
@@ -28,15 +23,15 @@ export function getUser(): AuthUser | null {
   }
 }
 
-export function saveAuth(_token: string, user: AuthUser): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+export function saveAuth(user: AuthUser): void {
+  removeStorage(LEGACY_TOKEN_KEY);
+  writeStorage(USER_KEY, JSON.stringify(user));
   emitAuthChanged();
 }
 
 export function clearAuth(): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  removeStorage(LEGACY_TOKEN_KEY);
+  removeStorage(USER_KEY);
   emitAuthChanged();
 }
 
@@ -46,4 +41,28 @@ export function isLoggedIn(): boolean {
 
 function emitAuthChanged(): void {
   window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT));
+}
+
+function readStorage(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // The cookie session remains authoritative when browser storage is unavailable.
+  }
+}
+
+function removeStorage(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Keep authentication flows usable in restricted storage contexts.
+  }
 }

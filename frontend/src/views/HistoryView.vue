@@ -2,8 +2,6 @@
   <section class="workspace history-page">
     <header class="page-header">
       <div>
-        <p class="eyebrow">{{ pageCopy.eyebrow }}</p>
-        <h1>{{ pageCopy.title }}</h1>
         <p class="history-lead">{{ pageCopy.lead }}</p>
       </div>
       <div class="header-actions">
@@ -19,200 +17,144 @@
       </div>
     </header>
 
-    <section
-      class="history-toolbar"
-      :class="{ 'report-toolbar': isReportsMode }"
-      aria-label="历史筛选"
-    >
-      <label class="search-box">
-        <span aria-hidden="true">⌕</span>
-        <input v-model.trim="searchText" :placeholder="pageCopy.searchPlaceholder" />
-      </label>
-      <select v-if="!isReportsMode" v-model="statusFilter" aria-label="状态筛选">
-        <option value="">全部状态</option>
-        <option value="created">已创建</option>
-        <option value="in_progress">进行中</option>
-        <option value="finished">已完成</option>
-      </select>
-      <select v-if="isReportsMode" v-model="scoreFilter" aria-label="评分区间">
-        <option value="">全部评分</option>
-        <option value="high">80 分以上</option>
-        <option value="middle">60-79 分</option>
-      </select>
-      <select v-model="sortMode" aria-label="排序">
-        <option value="recent">最近优先</option>
-        <option v-if="isReportsMode" value="score-desc">评分从高到低</option>
-        <option v-if="isReportsMode" value="score-asc">评分从低到高</option>
-      </select>
-      <div class="view-toggle" role="group" aria-label="视图切换">
-        <button type="button" :class="{ active: viewMode === 'card' }" @click="setViewMode('card')">
-          ▦
-        </button>
-        <button type="button" :class="{ active: viewMode === 'list' }" @click="setViewMode('list')">
-          ☷
-        </button>
-      </div>
-    </section>
-
     <p v-if="message" class="message" :class="{ error: hasError }">{{ message }}</p>
-    <div v-if="!hasError && listItems.length === 0" class="empty history-empty">
-      <strong>{{ pageCopy.emptyTitle }}</strong>
-      <span>{{ pageCopy.emptyText }}</span>
-    </div>
-    <div v-else-if="!hasError" class="history-panel">
-      <div class="history-summary">
-        <span>{{ filteredItems.length }} / {{ listItems.length }} {{ pageCopy.countUnit }}</span>
-        <span>{{ sortSummary }}</span>
-      </div>
-      <div v-if="viewMode === 'card'" class="history-cards">
-        <article v-for="item in filteredItems" :key="item.interview_id" class="history-card">
-          <header>
-            <div>
-              <h2>{{ item.target_position }}</h2>
-              <time>{{
-                formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at)
-              }}</time>
-            </div>
-            <span v-if="!isReportsMode" class="status-pill" :class="`status-${item.status}`">
-              {{ statusText(item.status) }}
-            </span>
-            <span
-              v-if="reportReliabilityLabel(item)"
-              class="report-pill"
-              :class="`report-${item.report_reliability_status}`"
-            >
-              {{ reportReliabilityLabel(item) }}
-            </span>
-          </header>
-          <div v-if="!isReportsMode" class="round-preview" aria-label="四轮状态预览">
-            <span
-              v-for="round in roundPreview(item)"
-              :key="round.label"
-              :class="{ done: round.done }"
-            >
-              {{ round.label }}
-            </span>
-          </div>
-          <div class="card-bottom">
-            <div>
-              <span>{{ isReportsMode ? "总评分" : "更新时间" }}</span>
-              <strong v-if="isReportsMode">{{ formatScore(item.score) }}</strong>
-              <strong v-else class="time-value">{{
-                formatDate(item.updated_at || item.created_at)
-              }}</strong>
-            </div>
-            <div class="row-actions">
-              <button
-                v-if="!isReportsMode"
-                class="table-action danger-action"
-                type="button"
-                :disabled="deletingId !== null"
-                @click="deleteItem(item.interview_id)"
-              >
-                {{ deletingId === item.interview_id ? "删除中" : "删除" }}
-              </button>
-              <RouterLink
-                v-if="isReportsMode"
-                class="table-action"
-                :to="`/history/${item.interview_id}`"
-              >
-                查看报告
-              </RouterLink>
-              <RouterLink v-else class="table-action" :to="`/history/${item.interview_id}`">
-                查看问答
-              </RouterLink>
-              <RouterLink
-                v-if="!isReportsMode && item.status !== 'finished'"
-                class="table-action primary-action"
-                :to="`/interviews/multi/${item.interview_id}`"
-              >
-                继续
-              </RouterLink>
-            </div>
-          </div>
-        </article>
-      </div>
-      <div v-else class="table-wrap" role="region" aria-label="历史记录表格" tabindex="0">
-        <table class="history-table">
-          <thead>
-            <tr>
-              <th scope="col">岗位</th>
-              <th scope="col">{{ isReportsMode ? "报告状态" : "面试状态" }}</th>
-              <th scope="col">{{ isReportsMode ? "总评分" : "创建时间" }}</th>
-              <th scope="col">{{ isReportsMode ? "生成时间" : "更新时间" }}</th>
-              <th scope="col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in filteredItems" :key="item.interview_id">
-              <td>
-                <div class="position-cell">
-                  <strong>{{ item.target_position }}</strong>
-                  <span>#{{ item.interview_id }}</span>
-                </div>
-              </td>
-              <td>
-                <div class="status-cell">
-                  <span v-if="!isReportsMode" class="status-pill" :class="`status-${item.status}`">
-                    {{ statusText(item.status) }}
-                  </span>
-                  <span
-                    v-if="reportReliabilityLabel(item)"
-                    class="report-pill"
-                    :class="`report-${item.report_reliability_status}`"
-                  >
-                    {{ reportReliabilityLabel(item) }}
-                  </span>
-                </div>
-              </td>
-              <td>
-                <span v-if="isReportsMode" :class="item.score === null ? 'muted' : 'score-value'">
-                  {{ formatScore(item.score) }}
-                </span>
-                <span v-else>{{ formatDate(item.created_at) }}</span>
-              </td>
-              <td>
-                {{
-                  formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at)
-                }}
-              </td>
-              <td>
-                <div class="row-actions">
-                  <RouterLink class="table-action" :to="`/history/${item.interview_id}`">
-                    {{ isReportsMode ? "查看报告" : "查看问答" }}
-                  </RouterLink>
-                  <RouterLink
-                    v-if="!isReportsMode && item.status !== 'finished'"
-                    class="table-action primary-action"
-                    :to="`/interviews/multi/${item.interview_id}`"
-                  >
-                    继续
-                  </RouterLink>
-                  <button
-                    v-if="!isReportsMode"
-                    class="table-action danger-action"
-                    type="button"
-                    :disabled="deletingId !== null"
-                    @click="deleteItem(item.interview_id)"
-                  >
-                    {{ deletingId === item.interview_id ? "删除中" : "删除" }}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <button
-        v-if="hasMoreItems"
-        class="load-more-button"
-        type="button"
-        :disabled="loadingMore"
-        @click="loadMore"
+    <section v-if="!hasError" class="history-panel" aria-label="历史记录">
+      <div
+        class="history-toolbar"
+        :class="{ 'report-toolbar': isReportsMode }"
+        aria-label="历史筛选"
       >
-        {{ loadingMore ? "加载中..." : "加载更多" }}
-      </button>
-    </div>
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4 4" />
+          </svg>
+          <input v-model.trim="searchText" :placeholder="pageCopy.searchPlaceholder" />
+        </label>
+        <select v-if="!isReportsMode" v-model="statusFilter" aria-label="状态筛选">
+          <option value="">全部状态</option>
+          <option value="created">已创建</option>
+          <option value="in_progress">进行中</option>
+          <option value="finished">已完成</option>
+        </select>
+        <select v-if="isReportsMode" v-model="scoreFilter" aria-label="评分区间">
+          <option value="">全部评分</option>
+          <option value="high">80 分以上</option>
+          <option value="middle">60-79 分</option>
+        </select>
+        <select v-model="sortMode" aria-label="排序">
+          <option value="recent">最近更新</option>
+          <option v-if="isReportsMode" value="score-desc">评分从高到低</option>
+          <option v-if="isReportsMode" value="score-asc">评分从低到高</option>
+        </select>
+      </div>
+
+      <div v-if="listItems.length === 0" class="empty history-empty">
+        <strong>{{ pageCopy.emptyTitle }}</strong>
+        <span>{{ pageCopy.emptyText }}</span>
+      </div>
+      <template v-else>
+        <div class="history-summary">
+          <strong>{{ filteredItems.length }}</strong>
+          <span>共 {{ listItems.length }} {{ pageCopy.countUnit }}</span>
+          <span class="sort-summary">{{ sortSummary }}</span>
+        </div>
+        <div
+          v-if="filteredItems.length > 0"
+          class="table-wrap"
+          role="region"
+          aria-label="历史记录表格"
+          tabindex="0"
+        >
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th scope="col">岗位</th>
+                <th scope="col">{{ isReportsMode ? "报告状态" : "面试状态" }}</th>
+                <th scope="col">{{ isReportsMode ? "总评分" : "创建时间" }}</th>
+                <th scope="col">{{ isReportsMode ? "生成时间" : "更新时间" }}</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in filteredItems" :key="item.interview_id">
+                <td data-label="岗位">
+                  <div class="position-cell">
+                    <strong>{{ item.target_position }}</strong>
+                    <span>#{{ item.interview_id }}</span>
+                  </div>
+                </td>
+                <td :data-label="isReportsMode ? '报告状态' : '面试状态'">
+                  <div class="status-cell">
+                    <span
+                      v-if="!isReportsMode"
+                      class="status-pill"
+                      :class="`status-${item.status}`"
+                    >
+                      {{ statusText(item.status) }}
+                    </span>
+                    <span
+                      v-if="reportReliabilityLabel(item)"
+                      class="report-pill"
+                      :class="`report-${item.report_reliability_status}`"
+                    >
+                      {{ reportReliabilityLabel(item) }}
+                    </span>
+                  </div>
+                </td>
+                <td :data-label="isReportsMode ? '总评分' : '创建时间'">
+                  <span v-if="isReportsMode" :class="item.score === null ? 'muted' : 'score-value'">
+                    {{ formatScore(item.score) }}
+                  </span>
+                  <span v-else>{{ formatDate(item.created_at) }}</span>
+                </td>
+                <td :data-label="isReportsMode ? '生成时间' : '更新时间'">
+                  {{
+                    formatDate(isReportsMode ? item.created_at : item.updated_at || item.created_at)
+                  }}
+                </td>
+                <td data-label="操作">
+                  <div class="row-actions">
+                    <RouterLink class="table-action" :to="`/history/${item.interview_id}`">
+                      {{ isReportsMode ? "查看报告" : "查看问答" }}
+                    </RouterLink>
+                    <RouterLink
+                      v-if="!isReportsMode && item.status !== 'finished'"
+                      class="table-action primary-action"
+                      :to="`/interviews/multi/${item.interview_id}`"
+                    >
+                      继续
+                    </RouterLink>
+                    <button
+                      v-if="!isReportsMode"
+                      class="table-action danger-action"
+                      type="button"
+                      :disabled="deletingId !== null"
+                      @click="deleteItem(item.interview_id)"
+                    >
+                      {{ deletingId === item.interview_id ? "删除中" : "删除" }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="empty filter-empty">
+          <strong>没有符合条件的记录</strong>
+          <span>调整搜索词或筛选条件后再试。</span>
+        </div>
+        <button
+          v-if="hasMoreItems"
+          class="load-more-button"
+          type="button"
+          :disabled="loadingMore"
+          @click="loadMore"
+        >
+          {{ loadingMore ? "加载中..." : "加载更多" }}
+        </button>
+      </template>
+    </section>
   </section>
 </template>
 
@@ -252,9 +194,6 @@ const searchText = ref("");
 const statusFilter = ref("");
 const scoreFilter = ref("");
 const sortMode = ref("recent");
-const viewMode = ref<"card" | "list">(
-  (localStorage.getItem("interview_arena_history_view") as "card" | "list") || "card"
-);
 const PAGE_SIZE = 20;
 const historyNextOffset = ref<number | null>(null);
 const reportsNextOffset = ref<number | null>(null);
@@ -266,8 +205,6 @@ const hasMoreItems = computed(() =>
 const pageCopy = computed(() =>
   isReportsMode.value
     ? {
-        eyebrow: "面试报告",
-        title: "查看已生成的评估报告",
         lead: "集中查看已完成面试的评分和建议。",
         searchPlaceholder: "搜索岗位或报告编号",
         emptyTitle: "暂无面试报告",
@@ -275,12 +212,10 @@ const pageCopy = computed(() =>
         countUnit: "份报告"
       }
     : {
-        eyebrow: "历史记录",
-        title: "回顾每一场面试",
-        lead: "找到持续进步的证据。",
+        lead: "查看面试进度与问答记录。",
         searchPlaceholder: "搜索岗位或面试记录",
         emptyTitle: "暂无面试记录",
-        emptyText: "完成一次面试后，这里会显示岗位、状态、评分和时间。",
+        emptyText: "开始一次面试后，这里会显示岗位、状态和更新时间。",
         countUnit: "场面试"
       }
 );
@@ -342,11 +277,11 @@ const filteredItems = computed(() => {
 });
 const sortSummary = computed(() => {
   const map: Record<string, string> = {
-    recent: "按最近开始时间查看",
+    recent: "按最近更新时间",
     "score-desc": "按评分从高到低",
     "score-asc": "按评分从低到高"
   };
-  return map[sortMode.value] || "按最近开始时间查看";
+  return map[sortMode.value] || "按最近更新时间";
 });
 
 onMounted(async () => {
@@ -491,18 +426,6 @@ function dateSortValue(value: string | null): number {
   return Number.isNaN(time) ? 0 : time;
 }
 
-function setViewMode(mode: "card" | "list") {
-  viewMode.value = mode;
-}
-
-function roundPreview(item: DisplayItem) {
-  const doneCount = item.status === "finished" ? 4 : item.status === "in_progress" ? 2 : 0;
-  return ["简历", "技术", "主管", "HR"].map((label, index) => ({
-    label,
-    done: index < doneCount
-  }));
-}
-
 function showInfo(text: string) {
   message.value = text;
   hasError.value = false;
@@ -517,10 +440,6 @@ function clearMessage() {
   message.value = "";
   hasError.value = false;
 }
-
-watch(viewMode, (mode) => {
-  localStorage.setItem("interview_arena_history_view", mode);
-});
 
 watch(isReportsMode, async () => {
   searchText.value = "";
@@ -543,39 +462,52 @@ watch(isReportsMode, async () => {
 }
 
 .history-lead {
-  margin: 4px 0 0;
+  margin: 0;
   color: #758195;
 }
 
 .history-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 140px 160px auto;
-  gap: 14px;
-  padding: 16px 22px;
-  border: 1px solid #e4edf7;
-  border-radius: 18px;
+  grid-template-columns: minmax(260px, 1fr) minmax(132px, 156px) minmax(132px, 156px);
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e7edf5;
   background: #fff;
-  box-shadow: 0 18px 46px rgba(31, 68, 120, 0.08);
 }
 
 .search-box {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 9px;
   align-items: center;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid #dfe5ec;
-  border-radius: 12px;
-  background: #f7f9fc;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.search-box:focus-within {
+  border-color: #86aef3;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(59, 156, 255, 0.1);
+}
+
+.search-box svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: #8793a5;
+  stroke-linecap: round;
+  stroke-width: 1.8;
 }
 
 .search-box input,
 .history-toolbar select {
   width: 100%;
-  min-height: 42px;
-  border: 1px solid #dfe5ec;
-  border-radius: 12px;
+  min-height: 40px;
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
   background: #fff;
   color: #172033;
 }
@@ -592,136 +524,31 @@ watch(isReportsMode, async () => {
   padding: 0 12px;
 }
 
-.view-toggle {
-  display: inline-flex;
-  gap: 8px;
-}
-
-.view-toggle button {
-  width: 44px;
-  min-height: 42px;
-  border: 0;
-  border-radius: 12px;
-  background: #f2f8ff;
-  color: #247de8;
-  font-weight: 900;
-}
-
-.view-toggle button.active {
-  background: #e4f1ff;
-}
-
 .history-panel {
   overflow: hidden;
-  border: 1px solid #e4edf7;
-  border-radius: 18px;
+  border: 1px solid #e1e8f0;
+  border-radius: 16px;
   background: #fff;
-  box-shadow: 0 18px 46px rgba(31, 68, 120, 0.08);
+  box-shadow: 0 12px 32px rgba(31, 68, 120, 0.06);
 }
 
 .history-summary {
   display: flex;
-  gap: 16px;
-  justify-content: space-between;
-  padding: 18px 26px;
-  border-bottom: 1px solid #e4edf7;
+  gap: 8px;
+  align-items: baseline;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e7edf5;
   color: #758195;
   font-size: 14px;
 }
 
-.history-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 28px;
-  padding: 34px 28px;
-}
-
-.history-card {
-  display: grid;
-  gap: 28px;
-  min-height: 250px;
-  padding: 28px;
-  border: 1px solid #e4edf7;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 14px 32px rgba(31, 68, 120, 0.06);
-}
-
-.history-card header {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.history-card h2 {
-  margin: 0 0 10px;
+.history-summary strong {
   color: #172033;
-  font-size: 24px;
-}
-
-.history-card time,
-.card-bottom span {
-  color: #758195;
-}
-
-.round-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: center;
-}
-
-.round-preview span {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #758195;
-}
-
-.round-preview span::before {
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: #dfe5ec;
-  content: "";
-}
-
-.round-preview span.done::before {
-  background: #3b9cff;
-}
-
-.round-preview span:nth-child(2).done::before {
-  background: #7567f8;
-}
-
-.round-preview span:nth-child(3).done::before {
-  background: #f59b45;
-}
-
-.round-preview span:nth-child(4).done::before {
-  background: #f06f9b;
-}
-
-.card-bottom {
-  display: flex;
-  gap: 18px;
-  align-items: end;
-  justify-content: space-between;
-}
-
-.card-bottom strong {
-  display: block;
-  margin-top: 4px;
-  color: #172033;
-  font-size: 34px;
-}
-
-.card-bottom .time-value {
-  max-width: 260px;
   font-size: 18px;
-  line-height: 1.35;
+}
+
+.sort-summary {
+  margin-left: auto;
 }
 
 .table-wrap {
@@ -730,21 +557,21 @@ watch(isReportsMode, async () => {
 
 .history-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 780px;
   border-collapse: collapse;
 }
 
 .history-table th,
 .history-table td {
-  padding: 16px 18px;
-  border-bottom: 1px solid #e4edf7;
+  padding: 15px 20px;
+  border-bottom: 1px solid #edf1f5;
   text-align: left;
   vertical-align: middle;
 }
 
 .history-table th {
   color: #758195;
-  background: #f7f9fc;
+  background: #f8fafc;
   font-size: 13px;
   font-weight: 700;
 }
@@ -754,7 +581,7 @@ watch(isReportsMode, async () => {
 }
 
 .history-table tbody tr:hover {
-  background: #f7fbff;
+  background: #f8fbff;
 }
 
 .position-cell {
@@ -773,8 +600,9 @@ watch(isReportsMode, async () => {
 }
 
 .score-value {
-  color: #1f2328;
-  font-weight: 700;
+  color: #425ee8;
+  font-size: 16px;
+  font-weight: 800;
 }
 
 .status-cell {
@@ -838,15 +666,18 @@ watch(isReportsMode, async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 6px 12px;
-  border: 1px solid #c8e3ff;
-  border-radius: 10px;
-  color: #247de8;
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 1px solid #d5e0ef;
+  border-radius: 8px;
+  color: #336edc;
+  background: #fff;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .primary-action {
+  border-color: transparent;
   background: linear-gradient(135deg, #3b9cff 0%, #7c6cff 100%);
   color: #fff;
 }
@@ -864,9 +695,10 @@ watch(isReportsMode, async () => {
 }
 
 .load-more-button {
-  justify-self: center;
+  display: block;
   min-width: 132px;
   min-height: 40px;
+  margin: 18px auto;
   padding: 0 18px;
   border: 1px solid #c8e3ff;
   border-radius: 10px;
@@ -883,10 +715,22 @@ watch(isReportsMode, async () => {
 .history-empty {
   display: grid;
   gap: 6px;
+  min-height: 220px;
+  place-content: center;
+  text-align: center;
 }
 
-.history-empty span {
+.history-empty span,
+.filter-empty span {
   color: #758195;
+}
+
+.filter-empty {
+  display: grid;
+  gap: 6px;
+  min-height: 180px;
+  place-content: center;
+  text-align: center;
 }
 
 @media (max-width: 760px) {
@@ -895,14 +739,70 @@ watch(isReportsMode, async () => {
     flex-wrap: wrap;
   }
 
-  .history-toolbar,
-  .history-cards {
+  .history-toolbar {
     grid-template-columns: 1fr;
+    padding: 14px;
   }
 
   .history-summary {
+    padding: 13px 16px;
+  }
+
+  .sort-summary {
+    margin-left: auto;
+  }
+
+  .table-wrap {
+    overflow: visible;
+  }
+
+  .history-table {
+    min-width: 0;
+  }
+
+  .history-table thead {
+    display: none;
+  }
+
+  .history-table,
+  .history-table tbody,
+  .history-table tr,
+  .history-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .history-table tr {
+    padding: 14px 16px;
+    border-bottom: 1px solid #e7edf5;
+  }
+
+  .history-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .history-table td {
     display: grid;
-    gap: 4px;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 8px 0;
+    border: 0;
+  }
+
+  .history-table td::before {
+    color: #8792a2;
+    font-size: 12px;
+    font-weight: 700;
+    content: attr(data-label);
+  }
+
+  .history-table td:last-child {
+    align-items: start;
+  }
+
+  .history-table .row-actions {
+    gap: 8px;
   }
 }
 </style>

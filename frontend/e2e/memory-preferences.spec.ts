@@ -16,6 +16,9 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/notifications/unread-count", async (route) => {
     await route.fulfill({ json: { count: 0 } });
   });
+  await page.route("**/api/review-bookmarks**", async (route) => {
+    await route.fulfill({ json: [] });
+  });
   await page.route("**/api/memories/clear-status", async (route) => {
     await route.fulfill({
       json: { task_id: null, status: "idle", deleted_count: 0, error_message: null }
@@ -36,35 +39,57 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("dashboard shows accumulated memory when memories exist before report reuse", async ({
-  page
-}) => {
-  await page.unroute("**/api/dashboard/summary");
-  await page.route("**/api/dashboard/summary", async (route) => {
+test("memory page shows accumulated memories", async ({ page }) => {
+  await page.route("**/api/memories?**", async (route) => {
     await route.fulfill({
       json: {
-        interview_count: 2,
-        report_count: 2,
-        personalized_feedback_used: false,
-        memory_status: "ready",
-        candidate_memory_count: 2,
-        latest_interview: null,
-        latest_report: null,
-        score_trend: [],
-        abilities: [],
-        weak_points: []
+        items: [
+          {
+            id: 1,
+            memory_type: "weakness",
+            title: "索引原理需要加强",
+            content: "需要补充覆盖索引和回表分析。",
+            confidence: 0.9,
+            status: "active",
+            index_status: "indexed",
+            source_interview_id: 10,
+            source_round_id: 20,
+            target_position: "后端工程师",
+            evidence: ["回答缺少执行计划证据"],
+            created_at: "2026-07-10T10:00:00",
+            updated_at: "2026-07-10T10:00:00"
+          },
+          {
+            id: 2,
+            memory_type: "preference",
+            title: "偏好结构化回答",
+            content: "回答时优先使用背景、行动和结果结构。",
+            confidence: 0.8,
+            status: "active",
+            index_status: "indexed",
+            source_interview_id: null,
+            source_round_id: null,
+            target_position: null,
+            evidence: [],
+            created_at: "2026-07-10T11:00:00",
+            updated_at: "2026-07-10T11:00:00"
+          }
+        ],
+        total: 2,
+        active_count: 2,
+        pending_review_count: 0,
+        limit: 100,
+        offset: 0,
+        next_offset: null
       }
     });
   });
-  await page.route("**/api/user/preferences", async (route) => {
-    await route.fulfill({ json: { memory_enabled: true } });
-  });
 
-  await page.goto("/dashboard");
+  await page.goto("/memories");
 
-  await expect(page.getByText("记忆系统")).toBeVisible();
-  await expect(page.getByText("已积累 2 条")).toBeVisible();
-  await expect(page.getByText("待积累")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "记忆概览" }).getByText("2").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "索引原理需要加强" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "偏好结构化回答" })).toBeVisible();
 });
 
 test("memory toggle keeps previous UI state when preference API fails", async ({ page }) => {

@@ -2,9 +2,9 @@
   <section class="harness-page">
     <header class="harness-hero">
       <div class="hero-copy">
-        <p>系统运行与恢复状态</p>
-        <h1>Harness 状态</h1>
-        <span>追踪多 Agent 流程、规则评测、重试与恢复状态</span>
+        <p>高级工具</p>
+        <h1>高级诊断</h1>
+        <span>查看面试运行、规则校验、重试与恢复记录</span>
       </div>
 
       <div class="hero-visual" aria-hidden="true">
@@ -17,23 +17,74 @@
       </button>
     </header>
 
+    <section
+      v-if="evolutionStatus"
+      class="evolution-status-panel"
+      aria-label="Harness 自动进化状态"
+    >
+      <div class="panel-heading">
+        <div class="panel-title">
+          <span class="panel-icon" aria-hidden="true">
+            <img :src="harnessAssets.health" alt="" />
+          </span>
+          <h2>Harness 自动进化</h2>
+        </div>
+        <em :class="evolutionStatus.enabled ? 'ok' : 'warning'">
+          {{ evolutionStatus.enabled ? "自动运行中" : "已停用" }}
+        </em>
+      </div>
+      <div class="evolution-summary">
+        <span>每 {{ evolutionStatus.trigger_interviews }} 场有效面试触发</span>
+        <span>{{ evolutionStatus.synthetic_samples }} 条合成样本校验</span>
+        <span>{{ evolutionStatus.observation_interviews }} 场上线观察</span>
+      </div>
+      <div v-if="evolutionStatus.families.length" class="evolution-families">
+        <article v-for="family in evolutionStatus.families" :key="family.job_family_key">
+          <div>
+            <strong>{{ family.job_family_key }}</strong>
+            <small>第 {{ family.generation }} 代 · {{ statusLabel(family.bundle_status) }}</small>
+          </div>
+          <div>
+            <span>下次触发进度</span>
+            <strong>
+              {{ Math.min(family.eligible_interview_count, evolutionStatus.trigger_interviews) }} /
+              {{ evolutionStatus.trigger_interviews }}
+            </strong>
+          </div>
+          <div>
+            <span>观察 / 连续失败</span>
+            <strong>{{ family.observation_count }} / {{ family.consecutive_failures }}</strong>
+          </div>
+        </article>
+      </div>
+      <p v-else class="evolution-empty">完成有效面试后，系统会自动创建岗位族并累计进化样本。</p>
+      <div v-if="evolutionStatus.runs.length" class="evolution-runs">
+        <article v-for="run in evolutionStatus.runs.slice(0, 5)" :key="run.id">
+          <strong>#{{ run.trigger_sequence }} {{ run.job_family_key }}</strong>
+          <span>{{ run.candidate_artifact_key || "等待分析" }}</span>
+          <em :class="statusClass(run.status)">{{ statusLabel(run.status) }}</em>
+          <small>{{ formatDate(run.completed_at || run.heartbeat_at || run.created_at) }}</small>
+        </article>
+      </div>
+    </section>
+
     <section v-if="loading && !harnessStatus" class="empty-state">
-      <strong>正在读取 Harness 状态</strong>
+      <strong>正在读取诊断信息</strong>
       <span>会优先同步最近一次面试的状态字段和运行记录。</span>
     </section>
 
     <section v-else-if="!latestInterview" class="empty-state">
-      <strong>暂无 Harness 状态</strong>
+      <strong>暂无诊断信息</strong>
       <span>完成或开始一次多轮面试后，这里会显示运行状态、规则评测和恢复点。</span>
     </section>
 
     <template v-else>
       <p class="status-message" :class="{ error: hasError }">
         <span aria-hidden="true">i</span>
-        {{ message || "当前展示后端返回的真实 Harness 运行明细。" }}
+        {{ message || "当前展示系统返回的真实运行明细。" }}
       </p>
 
-      <section class="interview-switcher" aria-label="Harness 面试记录">
+      <section class="interview-switcher" aria-label="面试运行记录">
         <div>
           <span>当前面试</span>
           <strong>{{ selectedInterview?.target_position || "-" }}</strong>
@@ -61,7 +112,7 @@
         </time>
       </section>
 
-      <section class="summary-grid" aria-label="Harness 状态总览">
+      <section class="summary-grid" aria-label="诊断状态总览">
         <article class="metric-card" :class="statusTone">
           <div class="metric-icon" aria-hidden="true">
             <img :src="harnessAssets.status" alt="" />
@@ -293,14 +344,16 @@ import { computed, onMounted, ref } from "vue";
 
 import {
   ApiError,
+  getAutonomousEvolutionStatus,
   getInterviewHarnessStatus,
-  listHistory,
+  listHistoryPage,
   type HarnessCheckpointItem,
   type HarnessRuleEvaluationItem,
   type HarnessStatus,
   type HarnessTraceItem,
   type HistoryItem,
-  type InterviewHarnessStatus
+  type InterviewHarnessStatus,
+  type AutonomousEvolutionStatus
 } from "../api";
 import checkpointEmptyAsset from "../assets/harness/checkpoint-empty.png";
 import healthIconAsset from "../assets/harness/health-icon.png";
@@ -330,6 +383,7 @@ type StatusBar = {
 
 const history = ref<HistoryItem[]>([]);
 const harnessStatus = ref<InterviewHarnessStatus | null>(null);
+const evolutionStatus = ref<AutonomousEvolutionStatus | null>(null);
 const traces = ref<HarnessTraceItem[]>([]);
 const evaluations = ref<HarnessRuleEvaluationItem[]>([]);
 const checkpoints = ref<HarnessCheckpointItem[]>([]);
@@ -543,7 +597,12 @@ async function loadHarnessStatus() {
   message.value = "";
   hasError.value = false;
   try {
-    history.value = await listHistory();
+    const [historyPage, evolution] = await Promise.all([
+      listHistoryPage({ limit: 100, offset: 0 }),
+      getAutonomousEvolutionStatus()
+    ]);
+    history.value = historyPage.items;
+    evolutionStatus.value = evolution;
     const interview = ensureSelectedInterview();
     if (!interview) {
       resetHarnessDetails();
@@ -555,7 +614,7 @@ async function loadHarnessStatus() {
   } catch (error) {
     resetHarnessDetails();
     hasError.value = true;
-    message.value = error instanceof ApiError ? error.message : "Harness 状态加载失败。";
+    message.value = error instanceof ApiError ? error.message : "诊断信息加载失败。";
   } finally {
     loading.value = false;
   }
@@ -574,7 +633,7 @@ async function handleSelectedInterviewChange() {
   } catch (error) {
     resetHarnessDetails();
     hasError.value = true;
-    message.value = error instanceof ApiError ? error.message : "Harness 状态加载失败。";
+    message.value = error instanceof ApiError ? error.message : "诊断信息加载失败。";
   } finally {
     loading.value = false;
   }
@@ -588,7 +647,7 @@ async function loadSelectedInterviewDetails(interviewId: number) {
   evaluations.value = detail.evaluations;
   checkpoints.value = detail.checkpoints;
   if (!detail.traces.length && !detail.evaluations.length && !detail.checkpoints.length) {
-    message.value = "后端暂无这场面试的 Harness 运行明细。";
+    message.value = "系统暂无这场面试的运行明细。";
   }
 }
 
@@ -641,7 +700,14 @@ function statusLabel(status: string): string {
     failed: "步骤失败",
     completed: "已完成",
     succeeded: "已完成",
-    available: "可恢复"
+    available: "可恢复",
+    processing: "进化验证中",
+    retry_wait: "等待自动重试",
+    observing: "上线观察中",
+    active: "已稳定启用",
+    rejected: "候选未通过",
+    rolled_back: "已自动回滚",
+    superseded: "已被新版本替代"
   };
   return map[status] || status;
 }
@@ -658,13 +724,13 @@ function compactStatusLabel(status: string): string {
 }
 
 function statusClass(status: string): "ok" | "info" | "warning" | "danger" {
-  if (["failed", "error"].includes(status)) {
+  if (["failed", "error", "rejected"].includes(status)) {
     return "danger";
   }
-  if (["retrying", "degraded", "paused", "warning"].includes(status)) {
+  if (["retrying", "retry_wait", "degraded", "paused", "warning", "rolled_back"].includes(status)) {
     return "warning";
   }
-  if (["running", "pending"].includes(status)) {
+  if (["running", "processing", "observing", "pending"].includes(status)) {
     return "info";
   }
   return "ok";
@@ -761,6 +827,100 @@ onMounted(() => {
   max-width: min(1360px, 100%);
   margin: 0 auto;
   color: var(--gray-900, #172033);
+}
+
+.evolution-status-panel {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid #d9e1f1;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 18px 38px rgb(52 65 105 / 7%);
+}
+
+.evolution-status-panel .panel-heading {
+  margin-bottom: 0;
+}
+
+.evolution-status-panel .panel-heading > em {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #e9f8f1;
+  color: #16895b;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.evolution-status-panel .panel-heading > em.warning {
+  background: #fff4e8;
+  color: #b9651e;
+}
+
+.evolution-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.evolution-summary span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f0f4fb;
+  color: #53617a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.evolution-families,
+.evolution-runs {
+  display: grid;
+  gap: 10px;
+}
+
+.evolution-families article,
+.evolution-runs article {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) repeat(2, minmax(120px, 0.8fr));
+  gap: 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #e8edf6;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.evolution-families article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.evolution-families span,
+.evolution-families small,
+.evolution-runs span,
+.evolution-runs small,
+.evolution-empty {
+  color: #67748a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evolution-runs article {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 1fr) auto minmax(150px, auto);
+}
+
+.evolution-runs em {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eef3fb;
+  color: #53617a;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.evolution-empty {
+  margin: 0;
 }
 
 .harness-hero {
@@ -2168,6 +2328,13 @@ onMounted(() => {
 @media (max-width: 1220px) {
   .hero-asset {
     display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .evolution-families article,
+  .evolution-runs article {
+    grid-template-columns: 1fr;
   }
 }
 </style>

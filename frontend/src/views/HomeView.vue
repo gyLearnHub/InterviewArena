@@ -1,12 +1,5 @@
 <template>
   <section class="dashboard">
-    <header class="dashboard-header">
-      <div>
-        <h1>欢迎回来，{{ displayName }} <span aria-hidden="true">👋</span></h1>
-        <p>准备好了吗？今天也向理想岗位更进一步。</p>
-      </div>
-    </header>
-
     <div class="hero-grid">
       <section class="hero-card">
         <div class="hero-agent-stage" aria-hidden="true">
@@ -157,38 +150,55 @@
             :style="{ '--weak-color': item.color, '--weak-tint': item.tint }"
             @click="openWeakPointDetail(item)"
           >
-            <span class="weak-icon" aria-hidden="true">{{ item.icon }}</span>
             <span class="weak-copy">
               <strong>{{ item.title }}</strong>
               <em>{{ item.text }}</em>
             </span>
-            <b>{{ severityText(item.severity) }}</b>
           </button>
         </div>
         <p v-else class="module-empty">暂无薄弱项</p>
       </section>
 
-      <section class="module status-module">
+      <section class="module review-module">
         <div class="module-heading">
           <div class="module-title">
-            <span aria-hidden="true">⌁</span>
-            <h2>系统状态</h2>
+            <span aria-hidden="true">R</span>
+            <h2>复盘收藏</h2>
           </div>
-          <small>轻量检查</small>
+          <RouterLink class="review-more-link" to="/review-bookmarks">
+            {{ reviewBookmarksLoading ? "同步中" : "查看全部" }}
+          </RouterLink>
         </div>
-        <ul>
-          <li>
-            <i class="ok"></i><span>记忆系统</span><strong>{{ memoryStatus }}</strong>
-          </li>
-          <li>
-            <i class="info"></i>
-            <span>Harness</span>
-            <RouterLink class="status-detail-link" to="/harness">查看状态</RouterLink>
-          </li>
-          <li>
-            <i class="info"></i><span>报告任务</span><strong>{{ reportTaskStatus }}</strong>
-          </li>
-        </ul>
+        <div v-if="reviewBookmarkRows.length" class="review-list">
+          <article v-for="item in reviewBookmarkRows" :key="item.id" class="review-row">
+            <div>
+              <small>{{ item.roundLabel }} · {{ item.score }}</small>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.issue }}</p>
+              <em>{{ item.source }} · {{ formatDate(item.updatedAt) }}</em>
+            </div>
+            <button
+              type="button"
+              :disabled="
+                activeReviewBookmarkId !== null ||
+                (!item.practiceInterviewId && !item.sourceInterviewId)
+              "
+              @click="startReviewPractice(item)"
+            >
+              {{
+                activeReviewBookmarkId === item.id
+                  ? "创建中"
+                  : item.practiceInterviewId
+                    ? "继续练"
+                    : item.sourceInterviewId
+                      ? "专项练"
+                      : "仅复盘"
+              }}
+            </button>
+          </article>
+        </div>
+        <p v-else class="module-empty">暂无复盘收藏</p>
+        <p v-if="reviewBookmarkError" class="review-error">{{ reviewBookmarkError }}</p>
       </section>
     </div>
 
@@ -208,7 +218,8 @@
           <div>
             <small
               >{{ severityText(selectedWeakPoint.severity) }} ·
-              {{ selectedWeakPoint.occurrence_count }} 次出现</small
+              {{ selectedWeakPoint.occurrence_count }} 次出现 ·
+              {{ practiceStatusText(selectedWeakPoint.practice_status) }}</small
             >
             <h2 id="weak-modal-title">{{ selectedWeakPoint.title }}</h2>
           </div>
@@ -216,6 +227,22 @@
         </header>
 
         <p class="weak-modal-summary">{{ selectedWeakPoint.summary || selectedWeakPoint.text }}</p>
+
+        <div class="weak-modal-section">
+          <h3>训练进度</h3>
+          <p class="weak-practice-line">
+            <span>{{ practiceStatusText(selectedWeakPoint.practice_status) }}</span>
+            <span v-if="selectedWeakPoint.practice_count > 0">
+              已完成 {{ selectedWeakPoint.practice_count }} 次专项
+            </span>
+            <span v-if="selectedWeakPoint.practice_score !== null">
+              最近专项 {{ selectedWeakPoint.practice_score }} 分
+            </span>
+            <span v-if="selectedWeakPoint.last_practiced_at">
+              {{ formatDate(selectedWeakPoint.last_practiced_at) }}
+            </span>
+          </p>
+        </div>
 
         <div class="weak-modal-section">
           <h3>改进建议</h3>
@@ -257,22 +284,31 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRouter } from "vue-router";
 
 import {
   ApiError,
   getDashboardSummary,
+  listReviewBookmarks,
+  startReviewBookmarkPractice,
   type DashboardAbilitySummary,
   type DashboardSummary,
   type DashboardWeakPointSource,
-  type DashboardWeakPointSummary
+  type DashboardWeakPointSummary,
+  type ReviewBookmarkItem
 } from "../api";
-import dashboardHeroAgent from "../assets/dashboard-hero-agent.png";
+import dashboardHeroAgent from "../assets/dashboard-hero-agent.webp";
 import { AUTH_CHANGED_EVENT, getUser, type AuthUser } from "../auth";
 
 const user = ref<AuthUser | null>(getUser());
+const router = useRouter();
 const summary = ref<DashboardSummary | null>(null);
 const summaryLoading = ref(false);
 const summaryError = ref("");
+const reviewBookmarks = ref<ReviewBookmarkItem[]>([]);
+const reviewBookmarksLoading = ref(false);
+const reviewBookmarkError = ref("");
+const activeReviewBookmarkId = ref<number | null>(null);
 const displayName = computed(() => user.value?.display_name || user.value?.username || "武松");
 const latestInterview = computed(() => summary.value?.latest_interview || null);
 const latestReport = computed(() => summary.value?.latest_report || null);
@@ -317,32 +353,6 @@ const trendArrow = computed(() => {
   }
   return delta > 0 ? "↗" : "↘";
 });
-const memoryStatus = computed(() => {
-  const status = summary.value?.memory_status;
-  const count = summary.value?.candidate_memory_count ?? 0;
-  if (status === "disabled") {
-    return "已关闭";
-  }
-  if (status === "summarizing") {
-    return "总结中";
-  }
-  if (status === "ready") {
-    return count > 0 ? `已积累 ${count} 条` : "已积累";
-  }
-  if (status === "enabled") {
-    return count > 0 ? `已启用 ${count} 条` : "已启用";
-  }
-  if (status === "failed") {
-    return "待重试";
-  }
-  if (status === "unavailable") {
-    return "需检查";
-  }
-  return summary.value?.personalized_feedback_used ? "已启用" : "待积累";
-});
-const reportTaskStatus = computed(() =>
-  latestReport.value ? reportStatusText(latestReport.value.report_reliability_status) : "未生成"
-);
 const greetingText = computed(() => {
   const hour = new Date().getHours();
   if (hour < 12) {
@@ -357,6 +367,7 @@ const chartMarks = [100, 75, 50, 25, 0];
 const trendPoints = computed(() => summary.value?.score_trend.map((point) => point.score) ?? []);
 const abilities = computed(() => (summary.value?.abilities ?? []).map(toAbilityRow));
 const weakPoints = computed(() => (summary.value?.weak_points ?? []).map(toWeakPointRow));
+const reviewBookmarkRows = computed(() => reviewBookmarks.value.slice(0, 4).map(toReviewRow));
 const selectedWeakPoint = ref<WeakPointRow | null>(null);
 const roundMeta: Record<string, { name: string; color: string; tint: string; icon: string }> = {
   resume: { name: "简历面", color: "#5961ff", tint: "#eef1ff", icon: "▣" },
@@ -377,6 +388,10 @@ type WeakPointRow = {
   suggestion: string | null;
   severity: string;
   occurrence_count: number;
+  practice_status: string;
+  practice_score: number | null;
+  last_practiced_at: string | null;
+  practice_count: number;
   evidence: string[];
   sources: DashboardWeakPointSource[];
   updated_at: string | null;
@@ -385,9 +400,22 @@ type WeakPointRow = {
   icon: string;
 };
 
+type ReviewBookmarkRow = {
+  id: number;
+  title: string;
+  issue: string;
+  source: string;
+  score: string;
+  roundLabel: string;
+  sourceInterviewId: number | null;
+  practiceInterviewId: number | null;
+  updatedAt: string | null;
+};
+
 function refreshUser() {
   user.value = getUser();
   void loadDashboardSummary();
+  void loadReviewBookmarks();
 }
 
 async function loadDashboardSummary() {
@@ -403,20 +431,24 @@ async function loadDashboardSummary() {
   }
 }
 
+async function loadReviewBookmarks() {
+  reviewBookmarksLoading.value = true;
+  reviewBookmarkError.value = "";
+  try {
+    reviewBookmarks.value = await listReviewBookmarks({ limit: 4 });
+  } catch (error) {
+    reviewBookmarks.value = [];
+    reviewBookmarkError.value = error instanceof ApiError ? error.message : "复盘收藏加载失败。";
+  } finally {
+    reviewBookmarksLoading.value = false;
+  }
+}
+
 function statusText(status: string): string {
   const map: Record<string, string> = {
     created: "已创建",
     in_progress: "进行中",
     finished: "已完成"
-  };
-  return map[status] || status;
-}
-
-function reportStatusText(status: string): string {
-  const map: Record<string, string> = {
-    normal: "已生成",
-    reference_only: "仅供参考",
-    unavailable: "不可用"
   };
   return map[status] || status;
 }
@@ -449,12 +481,30 @@ function toWeakPointRow(item: DashboardWeakPointSummary, index: number) {
     suggestion: item.suggestion,
     severity: item.severity || "medium",
     occurrence_count: item.occurrence_count ?? 1,
+    practice_status: item.practice_status || "not_started",
+    practice_score: item.practice_score ?? null,
+    last_practiced_at: item.last_practiced_at || null,
+    practice_count: item.practice_count ?? 0,
     evidence: Array.isArray(item.evidence) ? item.evidence : [],
     sources: Array.isArray(item.sources) ? item.sources : [],
     updated_at: item.updated_at || null,
     color: meta.color,
     tint: meta.tint,
     icon: meta.icon
+  };
+}
+
+function toReviewRow(item: ReviewBookmarkItem): ReviewBookmarkRow {
+  return {
+    id: item.id,
+    title: item.title,
+    issue: item.suggestion || item.issue,
+    source: item.target_position,
+    score: typeof item.source_score === "number" ? `${item.source_score} 分` : "结构复盘",
+    roundLabel: item.round_type ? roundName(String(item.round_type)) : "综合复盘",
+    sourceInterviewId: item.source_interview_id,
+    practiceInterviewId: item.practice_interview_id || null,
+    updatedAt: item.updated_at || null
   };
 }
 
@@ -474,11 +524,38 @@ function handleKeydown(event: KeyboardEvent) {
 
 function handleWindowFocus() {
   void loadDashboardSummary();
+  void loadReviewBookmarks();
 }
 
 function handleVisibilityChange() {
   if (document.visibilityState === "visible") {
     void loadDashboardSummary();
+    void loadReviewBookmarks();
+  }
+}
+
+async function startReviewPractice(item: ReviewBookmarkRow) {
+  if (activeReviewBookmarkId.value !== null) {
+    return;
+  }
+  if (item.practiceInterviewId) {
+    router.push({ name: "multi-round-interview", params: { id: item.practiceInterviewId } });
+    return;
+  }
+  if (!item.sourceInterviewId) {
+    reviewBookmarkError.value = "原面试已删除，收藏内容仍可复盘，但不能新建专项练习。";
+    return;
+  }
+  activeReviewBookmarkId.value = item.id;
+  reviewBookmarkError.value = "";
+  try {
+    const interview = await startReviewBookmarkPractice(item.id);
+    await router.push({ name: "multi-round-interview", params: { id: interview.id } });
+  } catch (error) {
+    reviewBookmarkError.value =
+      error instanceof ApiError ? error.message : "专项练习创建失败，请稍后重试。";
+  } finally {
+    activeReviewBookmarkId.value = null;
   }
 }
 
@@ -489,6 +566,17 @@ function severityText(severity: string): string {
     low: "低优先级"
   };
   return map[severity] || severity;
+}
+
+function practiceStatusText(status: string): string {
+  const map: Record<string, string> = {
+    not_started: "待练",
+    pending: "待练",
+    practiced: "已练",
+    improving: "改善中",
+    needs_work: "仍需加强"
+  };
+  return map[status] || "待练";
 }
 
 function roundName(roundType: string): string {
@@ -505,6 +593,7 @@ onMounted(() => {
   window.addEventListener("focus", handleWindowFocus);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   void loadDashboardSummary();
+  void loadReviewBookmarks();
 });
 
 onUnmounted(() => {
@@ -518,7 +607,7 @@ onUnmounted(() => {
 <style scoped>
 .dashboard {
   display: grid;
-  gap: 30px;
+  gap: 24px;
   width: 100%;
   min-width: 0;
   max-width: min(1560px, 100%);
@@ -526,31 +615,10 @@ onUnmounted(() => {
   color: #080d31;
 }
 
-.dashboard-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.dashboard-header h1 {
-  margin: 0;
-  color: #080d31;
-  font-size: 44px;
-  font-weight: 950;
-  line-height: 1.16;
-}
-
-.dashboard-header p {
-  margin: 10px 0 0;
-  color: #66728f;
-  font-size: 21px;
-  font-weight: 700;
-}
-
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(420px, 0.93fr);
-  gap: 30px;
+  grid-template-columns: minmax(0, 1.32fr) minmax(360px, 0.8fr);
+  gap: 24px;
   min-width: 0;
 }
 
@@ -559,16 +627,16 @@ onUnmounted(() => {
 .module {
   min-width: 0;
   border: 1px solid rgb(207 216 235 / 78%);
-  border-radius: 22px;
+  border-radius: 18px;
   background: rgb(255 255 255 / 78%);
-  box-shadow: 0 28px 56px rgb(45 68 116 / 9%);
+  box-shadow: 0 18px 40px rgb(45 68 116 / 8%);
 }
 
 .hero-card {
   position: relative;
-  min-height: 442px;
+  min-height: 368px;
   overflow: hidden;
-  padding: 54px 60px 36px;
+  padding: 38px 42px 30px;
   background:
     linear-gradient(
       90deg,
@@ -632,24 +700,24 @@ onUnmounted(() => {
 }
 
 .hero-copy h2 {
-  max-width: 520px;
+  max-width: 480px;
   margin: 0;
   color: #050a2f;
-  font-size: 43px;
+  font-size: clamp(32px, 3vw, 38px);
   font-weight: 950;
   line-height: 1.12;
 }
 
 .hero-copy h2 span {
   color: #5c61ff;
-  font-size: 32px;
+  font-size: 26px;
 }
 
 .hero-copy p {
-  max-width: 390px;
-  margin: 18px 0 0;
+  max-width: 360px;
+  margin: 12px 0 0;
   color: #4e5b77;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   line-height: 1.45;
 }
@@ -657,8 +725,8 @@ onUnmounted(() => {
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 32px;
+  gap: 12px;
+  margin-top: 24px;
 }
 
 .primary-action,
@@ -667,11 +735,11 @@ onUnmounted(() => {
   gap: 10px;
   align-items: center;
   justify-content: center;
-  min-width: 204px;
-  min-height: 62px;
-  padding: 0 26px;
-  border-radius: 14px;
-  font-size: 20px;
+  min-width: 168px;
+  min-height: 50px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 16px;
   font-weight: 950;
   line-height: 1;
 }
@@ -691,23 +759,23 @@ onUnmounted(() => {
 
 .resume-strip {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 20px;
-  gap: 20px;
+  grid-template-columns: 56px minmax(0, 1fr) 18px;
+  gap: 14px;
   align-items: center;
-  width: min(448px, 100%);
-  min-height: 126px;
-  margin-top: 38px;
-  padding: 20px 24px;
-  border-radius: 20px;
+  width: min(410px, 100%);
+  min-height: 94px;
+  margin-top: 24px;
+  padding: 14px 18px;
+  border-radius: 14px;
   background: rgb(255 255 255 / 84%);
-  box-shadow: 0 18px 40px rgb(45 68 116 / 10%);
+  box-shadow: 0 12px 28px rgb(45 68 116 / 9%);
 }
 
 .resume-icon {
   display: grid;
   place-items: center;
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   border-radius: 999px;
   background: #eef1ff;
   color: #5961ff;
@@ -715,8 +783,8 @@ onUnmounted(() => {
 
 .resume-icon svg,
 .score-title svg {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -733,7 +801,7 @@ onUnmounted(() => {
 }
 
 .resume-strip small {
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .resume-strip strong {
@@ -741,28 +809,28 @@ onUnmounted(() => {
   overflow: hidden;
   margin: 3px 0;
   color: #10163d;
-  font-size: 25px;
+  font-size: 20px;
   font-weight: 950;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .resume-strip em {
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .resume-strip b {
   color: #7b87a8;
-  font-size: 34px;
+  font-size: 28px;
   font-weight: 500;
 }
 
 .score-card {
   display: grid;
   align-content: start;
-  min-height: 442px;
+  min-height: 368px;
   overflow: hidden;
-  padding: 40px 36px 36px;
+  padding: 30px 28px 26px;
 }
 
 .score-title,
@@ -772,7 +840,7 @@ onUnmounted(() => {
 }
 
 .score-title {
-  gap: 18px;
+  gap: 14px;
 }
 
 .score-title span,
@@ -786,24 +854,24 @@ onUnmounted(() => {
 }
 
 .score-title span {
-  width: 54px;
-  height: 54px;
+  width: 46px;
+  height: 46px;
 }
 
 .score-title h2,
 .module-heading h2 {
   margin: 0;
   color: #0a1038;
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 950;
 }
 
 .score-body {
   display: grid;
   grid-template-columns: minmax(128px, 0.7fr) minmax(0, 1fr);
-  gap: clamp(18px, 2vw, 30px);
+  gap: clamp(14px, 1.5vw, 24px);
   align-items: end;
-  margin-top: 32px;
+  margin-top: 24px;
   min-width: 0;
 }
 
@@ -814,38 +882,38 @@ onUnmounted(() => {
 
 .score-copy strong {
   color: #03082e;
-  font-size: clamp(60px, 4.5vw, 82px);
+  font-size: clamp(52px, 4vw, 68px);
   font-weight: 950;
   line-height: 0.95;
 }
 
 .score-copy span {
   color: #66728f;
-  font-size: 25px;
+  font-size: 20px;
   font-weight: 800;
 }
 
 .score-copy em {
   display: block;
   width: fit-content;
-  margin-top: 24px;
-  padding: 10px 20px;
+  margin-top: 18px;
+  padding: 7px 14px;
   border-radius: 999px;
   background: #dff8e9;
   color: #09924d;
-  font-size: 19px;
+  font-size: 15px;
   font-style: normal;
   font-weight: 950;
 }
 
 .trend-chart {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr);
   grid-template-rows: repeat(5, 1fr);
   align-items: center;
-  min-height: 292px;
+  min-height: 226px;
   color: #647094;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -887,24 +955,25 @@ onUnmounted(() => {
   grid-column: 2;
   display: grid;
   place-items: center;
-  min-height: 292px;
+  min-height: 226px;
   border: 1px dashed #cbd5e8;
   border-radius: 14px;
   color: #66728f;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 800;
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.22fr) minmax(0, 1.03fr) minmax(0, 0.96fr);
-  gap: 30px;
+  gap: 24px;
+  align-items: stretch;
   min-width: 0;
 }
 
 .module {
-  min-height: 320px;
-  padding: 28px 36px 30px;
+  min-height: 0;
+  padding: 24px;
 }
 
 .module-heading {
@@ -912,69 +981,69 @@ onUnmounted(() => {
   gap: 18px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 26px;
+  margin-bottom: 20px;
 }
 
 .module-title {
-  gap: 16px;
+  gap: 12px;
 }
 
 .module-title span {
-  width: 46px;
-  height: 46px;
-  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
 }
 
 .module-heading small {
   color: #6f7897;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 800;
 }
 
 .ability-list {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .module-empty {
   display: grid;
   place-items: center;
-  min-height: 188px;
+  min-height: 148px;
   margin: 0;
   border: 1px dashed #d6deeb;
   border-radius: 14px;
   color: #66728f;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 800;
 }
 
 .ability-row {
   display: grid;
-  grid-template-columns: 46px 90px minmax(120px, 1fr) 34px;
-  gap: 18px;
+  grid-template-columns: 40px 76px minmax(100px, 1fr) 32px;
+  gap: 12px;
   align-items: center;
 }
 
 .ability-icon {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   background: var(--ability-tint);
   color: var(--ability-color);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 950;
 }
 
 .ability-name {
   color: #53607d;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
 }
 
 .ability-track {
-  height: 15px;
+  height: 12px;
   overflow: hidden;
   border-radius: 999px;
   background: #eef1f8;
@@ -990,24 +1059,31 @@ onUnmounted(() => {
 
 .ability-row strong {
   color: var(--ability-color);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 950;
   text-align: right;
 }
 
+.ability-module {
+  min-height: 318px;
+}
+
+.review-module .module-empty {
+  min-height: 178px;
+}
+
 .weak-list {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .weak-row {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   width: 100%;
-  min-height: 68px;
-  padding: 0 20px;
+  min-height: 74px;
+  padding: 14px 18px;
   border: 0;
   border-radius: 16px;
   background: linear-gradient(180deg, rgb(250 252 255 / 92%), rgb(244 247 252 / 92%));
@@ -1022,48 +1098,137 @@ onUnmounted(() => {
   outline-offset: 2px;
 }
 
-.weak-icon {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  background: var(--weak-tint);
-  color: var(--weak-color);
-  font-size: 22px;
-  font-weight: 950;
-}
-
 .weak-copy {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: 6px;
 }
 
 .weak-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
   color: #10163d;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 950;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .weak-copy em {
+  display: -webkit-box;
   overflow: hidden;
   color: #66728f;
-  font-size: 17px;
+  font-size: 15px;
   font-style: normal;
   font-weight: 700;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.review-list {
+  display: grid;
+  gap: 14px;
+}
+
+.review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  min-height: 92px;
+  padding: 16px 18px;
+  border: 1px solid #e1e7f3;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 92%), rgb(246 249 255 / 92%));
+}
+
+.review-row div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.review-row small {
+  color: #5961ff;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.review-row strong {
+  overflow: hidden;
+  color: #10163d;
+  font-size: 18px;
+  font-weight: 950;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.weak-row b {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: var(--weak-tint);
-  color: var(--weak-color);
-  font-size: 14px;
-  font-weight: 950;
+.review-row p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #66728f;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.review-row em {
+  overflow: hidden;
+  color: #8a94ad;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 800;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.review-row button {
+  min-width: 86px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: #10163d;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.review-row button:hover,
+.review-row button:focus-visible {
+  background: #5961ff;
+  outline: 2px solid #c8d3ff;
+  outline-offset: 2px;
+}
+
+.review-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.review-error {
+  margin: 14px 0 0;
+  color: #c0364a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.review-more-link {
+  color: #5961ff;
+  font-size: 15px;
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.review-more-link:hover,
+.review-more-link:focus-visible {
+  color: #1f64bf;
+  outline: none;
 }
 
 .weak-modal-backdrop {
@@ -1154,6 +1319,22 @@ onUnmounted(() => {
   line-height: 1.55;
 }
 
+.weak-practice-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.weak-practice-line span {
+  padding-right: 10px;
+  border-right: 1px solid #d8e0ef;
+}
+
+.weak-practice-line span:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
 .weak-modal-section ul {
   display: grid;
   gap: 10px;
@@ -1190,64 +1371,24 @@ onUnmounted(() => {
   color: #10163d;
 }
 
-.status-module ul {
-  display: grid;
-  gap: 0;
-  padding: 0;
-  margin: 0;
-  list-style: none;
+@media (max-width: 1480px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .review-module {
+    grid-column: 1 / -1;
+  }
 }
 
-.status-module li {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 22px;
-  align-items: center;
-  min-height: 70px;
-  border-bottom: 1px solid #e2e7f1;
-  color: #10163d;
-  font-size: 20px;
-  font-weight: 800;
-}
-
-.status-module li:last-child {
-  border-bottom: 0;
-}
-
-.status-module i {
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-}
-
-.status-module .ok {
-  background: #20b76a;
-}
-
-.status-module .info {
-  background: #5183ff;
-}
-
-.status-module strong {
-  color: #66728f;
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.status-detail-link {
-  color: #5961ff;
-  font-size: 18px;
-  font-weight: 950;
-}
-
-.status-detail-link:hover {
-  color: #1f64bf;
-}
-
-@media (max-width: 1320px) {
+@media (max-width: 1100px) {
   .hero-grid,
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .review-module {
+    grid-column: auto;
   }
 }
 
@@ -1256,11 +1397,6 @@ onUnmounted(() => {
     gap: 20px;
   }
 
-  .dashboard-header h1 {
-    font-size: 30px;
-  }
-
-  .dashboard-header p,
   .hero-copy p {
     font-size: 16px;
   }
@@ -1272,7 +1408,7 @@ onUnmounted(() => {
   }
 
   .hero-card {
-    min-height: 520px;
+    min-height: 470px;
     padding: 30px 22px 24px;
   }
 
@@ -1303,9 +1439,26 @@ onUnmounted(() => {
 
   .resume-strip,
   .score-body,
-  .ability-row,
-  .weak-row {
+  .weak-row,
+  .review-row {
     grid-template-columns: 1fr;
+  }
+
+  .resume-strip {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .resume-strip b {
+    display: none;
+  }
+
+  .ability-row {
+    grid-template-columns: 40px minmax(0, 1fr) 32px;
+    gap: 12px;
+  }
+
+  .ability-track {
+    grid-column: 2 / -1;
   }
 
   .score-card,
@@ -1329,10 +1482,6 @@ onUnmounted(() => {
     white-space: normal;
   }
 
-  .weak-row b {
-    width: fit-content;
-  }
-
   .weak-modal {
     padding: 24px 18px;
   }
@@ -1344,14 +1493,6 @@ onUnmounted(() => {
 
   .weak-modal header {
     display: grid;
-  }
-
-  .status-module li {
-    grid-template-columns: 18px minmax(0, 1fr);
-  }
-
-  .status-module strong {
-    grid-column: 2;
   }
 }
 

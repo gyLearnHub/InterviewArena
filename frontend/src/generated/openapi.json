@@ -168,22 +168,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -230,22 +214,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -306,22 +274,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "requestBody": {
@@ -381,22 +333,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -410,81 +346,6 @@
                     "$ref": "#/components/schemas/ResumeListItem"
                   },
                   "title": "Response List Resumes Api Resumes Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/resumes/upload": {
-      "post": {
-        "tags": [
-          "resumes"
-        ],
-        "summary": "Upload Resume",
-        "operationId": "upload_resume_api_resumes_upload_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_resume_api_resumes_upload_post"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResumeUploadResponse"
                 }
               }
             }
@@ -524,22 +385,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -609,22 +454,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -683,22 +512,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -754,22 +567,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -837,22 +634,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -904,22 +685,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -969,22 +734,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "requestBody": {
@@ -1021,14 +770,23 @@
         }
       }
     },
-    "/api/interviews/history": {
-      "get": {
+    "/api/interviews/{interview_id}/practice": {
+      "post": {
         "tags": [
           "interviews"
         ],
-        "summary": "List History",
-        "operationId": "list_history_api_interviews_history_get",
+        "summary": "Create Weakness Practice",
+        "operationId": "create_weakness_practice_api_interviews__interview_id__practice_post",
         "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -1044,94 +802,28 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeaknessPracticeRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/HistoryListItem"
-                  },
-                  "title": "Response List History Api Interviews History Get"
+                  "$ref": "#/components/schemas/WeaknessPracticeResponse"
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "Clear History",
-        "operationId": "clear_history_api_interviews_history_delete",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1192,22 +884,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -1217,75 +893,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HistoryListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/interviews/reports": {
-      "get": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "List Reports",
-        "operationId": "list_reports_api_interviews_reports_get",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ReportListItem"
-                  },
-                  "title": "Response List Reports Api Interviews Reports Get"
                 }
               }
             }
@@ -1349,22 +956,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -1377,6 +968,48 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/interviews/history": {
+      "delete": {
+        "tags": [
+          "interviews"
+        ],
+        "summary": "Clear History",
+        "operationId": "clear_history_api_interviews_history_delete",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1422,22 +1055,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -1489,22 +1106,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -1564,22 +1165,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -1637,22 +1222,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -1712,22 +1281,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -1785,22 +1338,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -1860,22 +1397,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -1885,89 +1406,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterviewStateResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/interviews/{interview_id}/rounds/{round_id}/start": {
-      "post": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "Start Round",
-        "operationId": "start_round_api_interviews__interview_id__rounds__round_id__start_post",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "round_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Round Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoundAnswerResponse"
                 }
               }
             }
@@ -2026,24 +1464,25 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RoundStartRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "Successful Response",
@@ -2068,13 +1507,13 @@
         }
       }
     },
-    "/api/interviews/{interview_id}/rounds/{round_id}/answers": {
-      "post": {
+    "/api/interviews/{interview_id}/rounds/{round_id}/questions/{question_id}/draft": {
+      "get": {
         "tags": [
           "interviews"
         ],
-        "summary": "Answer Round Question",
-        "operationId": "answer_round_question_api_interviews__interview_id__rounds__round_id__answers_post",
+        "summary": "Get Round Answer Draft",
+        "operationId": "get_round_answer_draft_api_interviews__interview_id__rounds__round_id__questions__question_id__draft_get",
         "parameters": [
           {
             "name": "interview_id",
@@ -2095,6 +1534,15 @@
             }
           },
           {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Question Id"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -2109,9 +1557,67 @@
               ],
               "title": "Authorization"
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerDraftResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "interviews"
+        ],
+        "summary": "Save Round Answer Draft",
+        "operationId": "save_round_answer_draft_api_interviews__interview_id__rounds__round_id__questions__question_id__draft_put",
+        "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
           },
           {
-            "name": "X-CSRF-Token",
+            "name": "round_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Round Id"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Question Id"
+            }
+          },
+          {
+            "name": "authorization",
             "in": "header",
             "required": false,
             "schema": {
@@ -2123,7 +1629,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Csrf-Token"
+              "title": "Authorization"
             }
           }
         ],
@@ -2132,7 +1638,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RoundAnswerRequest"
+                "$ref": "#/components/schemas/AnswerDraftRequest"
               }
             }
           }
@@ -2143,10 +1649,77 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoundAnswerResponse"
+                  "$ref": "#/components/schemas/AnswerDraftResponse"
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "interviews"
+        ],
+        "summary": "Delete Round Answer Draft",
+        "operationId": "delete_round_answer_draft_api_interviews__interview_id__rounds__round_id__questions__question_id__draft_delete",
+        "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
+          },
+          {
+            "name": "round_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Round Id"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Question Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -2202,22 +1775,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "requestBody": {
@@ -2237,98 +1794,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterviewOperationTaskResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/interviews/{interview_id}/rounds/{round_id}/questions/{question_id}/regenerate": {
-      "post": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "Regenerate Round Question",
-        "operationId": "regenerate_round_question_api_interviews__interview_id__rounds__round_id__questions__question_id__regenerate_post",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "round_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Round Id"
-            }
-          },
-          {
-            "name": "question_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Question Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoundAnswerResponse"
                 }
               }
             }
@@ -2396,22 +1861,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -2421,98 +1870,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterviewOperationTaskResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/interviews/{interview_id}/rounds/{round_id}/questions/{question_id}/skip": {
-      "post": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "Skip Round Question",
-        "operationId": "skip_round_question_api_interviews__interview_id__rounds__round_id__questions__question_id__skip_post",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "round_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Round Id"
-            }
-          },
-          {
-            "name": "question_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Question Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoundAnswerResponse"
                 }
               }
             }
@@ -2580,22 +1937,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -2605,106 +1946,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterviewOperationTaskResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/interviews/{interview_id}/rounds/{round_id}/finish": {
-      "post": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "Finish Round",
-        "operationId": "finish_round_api_interviews__interview_id__rounds__round_id__finish_post",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "round_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Round Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/RoundFinishRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoundAnswerResponse"
                 }
               }
             }
@@ -2763,22 +2004,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "requestBody": {
@@ -2805,97 +2030,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterviewOperationTaskResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/interviews/{interview_id}/finish": {
-      "post": {
-        "tags": [
-          "interviews"
-        ],
-        "summary": "Finish Interview",
-        "operationId": "finish_interview_api_interviews__interview_id__finish_post",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/InterviewFinishRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeedbackReportResponse"
                 }
               }
             }
@@ -2944,22 +2078,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3027,22 +2145,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -3092,22 +2194,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -3155,22 +2241,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "requestBody": {
@@ -3208,6 +2278,76 @@
       }
     },
     "/api/memories": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "List Memories",
+        "operationId": "list_memories_api_memories_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedMemoryListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "memories"
@@ -3229,22 +2369,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3295,22 +2419,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -3323,6 +2431,57 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memories/{memory_id}": {
+      "delete": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Delete Memory",
+        "operationId": "delete_memory_api_memories__memory_id__delete",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Memory Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -3399,22 +2558,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -3463,22 +2606,6 @@
                 }
               ],
               "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3538,22 +2665,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -3612,22 +2723,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -3670,9 +2765,35 @@
               ],
               "title": "Authorization"
             }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/feedback": {
+      "post": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "Submit Feedback",
+        "operationId": "submit_feedback_api_feedback_post",
+        "parameters": [
           {
-            "name": "X-CSRF-Token",
+            "name": "authorization",
             "in": "header",
             "required": false,
             "schema": {
@@ -3684,7 +2805,418 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Csrf-Token"
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserFeedbackSubmissionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFeedbackSubmissionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-bookmarks": {
+      "get": {
+        "tags": [
+          "review-bookmarks"
+        ],
+        "summary": "List Review Bookmarks",
+        "operationId": "list_review_bookmarks_api_review_bookmarks_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "round_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(all|resume|technical|manager|hr)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Round Type"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(all|open|active|practice_created|mastered)$",
+              "default": "all",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewBookmarkItem"
+                  },
+                  "title": "Response List Review Bookmarks Api Review Bookmarks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "review-bookmarks"
+        ],
+        "summary": "Create Review Bookmark",
+        "operationId": "create_review_bookmark_api_review_bookmarks_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewBookmarkCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBookmarkItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-bookmarks/from-report/{interview_id}": {
+      "post": {
+        "tags": [
+          "review-bookmarks"
+        ],
+        "summary": "Create Review Bookmarks From Report",
+        "operationId": "create_review_bookmarks_from_report_api_review_bookmarks_from_report__interview_id__post",
+        "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBookmarkBatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-bookmarks/{bookmark_id}/practice": {
+      "post": {
+        "tags": [
+          "review-bookmarks"
+        ],
+        "summary": "Create Review Bookmark Practice",
+        "operationId": "create_review_bookmark_practice_api_review_bookmarks__bookmark_id__practice_post",
+        "parameters": [
+          {
+            "name": "bookmark_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Bookmark Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBookmarkPracticeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/review-bookmarks/{bookmark_id}": {
+      "patch": {
+        "tags": [
+          "review-bookmarks"
+        ],
+        "summary": "Update Review Bookmark",
+        "operationId": "update_review_bookmark_api_review_bookmarks__bookmark_id__patch",
+        "parameters": [
+          {
+            "name": "bookmark_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Bookmark Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewBookmarkUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBookmarkItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "review-bookmarks"
+        ],
+        "summary": "Delete Review Bookmark",
+        "operationId": "delete_review_bookmark_api_review_bookmarks__bookmark_id__delete",
+        "parameters": [
+          {
+            "name": "bookmark_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Bookmark Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -3705,574 +3237,13 @@
         }
       }
     },
-    "/api/internal/harness/interviews/{interview_id}/traces": {
+    "/api/harness/evolution/status": {
       "get": {
         "tags": [
-          "internal-harness"
+          "harness"
         ],
-        "summary": "List Interview Traces",
-        "operationId": "list_interview_traces_api_internal_harness_interviews__interview_id__traces_get",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HarnessListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/harness/traces/{trace_id}": {
-      "get": {
-        "tags": [
-          "internal-harness"
-        ],
-        "summary": "Get Trace Detail",
-        "operationId": "get_trace_detail_api_internal_harness_traces__trace_id__get",
-        "parameters": [
-          {
-            "name": "trace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Trace Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Trace Detail Api Internal Harness Traces  Trace Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/harness/traces/{trace_id}/replay": {
-      "post": {
-        "tags": [
-          "internal-harness"
-        ],
-        "summary": "Replay Trace",
-        "operationId": "replay_trace_api_internal_harness_traces__trace_id__replay_post",
-        "parameters": [
-          {
-            "name": "trace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Trace Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/HarnessActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HarnessActionResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/harness/nodes/{node_id}/rerun": {
-      "post": {
-        "tags": [
-          "internal-harness"
-        ],
-        "summary": "Rerun Node",
-        "operationId": "rerun_node_api_internal_harness_nodes__node_id__rerun_post",
-        "parameters": [
-          {
-            "name": "node_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Node Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/HarnessActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HarnessActionResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/harness/interviews/{interview_id}/evaluations": {
-      "get": {
-        "tags": [
-          "internal-harness"
-        ],
-        "summary": "List Interview Evaluations",
-        "operationId": "list_interview_evaluations_api_internal_harness_interviews__interview_id__evaluations_get",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HarnessListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/harness/interviews/{interview_id}/checkpoints": {
-      "get": {
-        "tags": [
-          "internal-harness"
-        ],
-        "summary": "List Interview Checkpoints",
-        "operationId": "list_interview_checkpoints_api_internal_harness_interviews__interview_id__checkpoints_get",
-        "parameters": [
-          {
-            "name": "interview_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Interview Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HarnessListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/harness/improvement-candidates": {
-      "get": {
-        "tags": [
-          "internal-harness"
-        ],
-        "summary": "List Improvement Candidates",
-        "operationId": "list_improvement_candidates_api_internal_harness_improvement_candidates_get",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HarnessListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/summary": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Get Evolution Summary",
-        "operationId": "get_evolution_summary_api_internal_evolution_summary_get",
+        "summary": "Get Autonomous Evolution Status",
+        "operationId": "get_autonomous_evolution_status_api_harness_evolution_status_get",
         "parameters": [
           {
             "name": "authorization",
@@ -4289,22 +3260,6 @@
               ],
               "title": "Authorization"
             }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
           }
         ],
         "responses": {
@@ -4313,1277 +3268,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvolutionSummaryResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/runs": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "List Evolution Runs",
-        "operationId": "list_evolution_runs_api_internal_evolution_runs_get",
-        "parameters": [
-          {
-            "name": "trigger_type",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Trigger Type"
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EvolutionListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Create Evolution Run",
-        "operationId": "create_evolution_run_api_internal_evolution_runs_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EvolutionRunCreateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Create Evolution Run Api Internal Evolution Runs Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/candidates/{candidate_id}/approve": {
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Approve Evolution Candidate",
-        "operationId": "approve_evolution_candidate_api_internal_evolution_candidates__candidate_id__approve_post",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EvolutionCandidateActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Approve Evolution Candidate Api Internal Evolution Candidates  Candidate Id  Approve Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/candidates/{candidate_id}/reject": {
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Reject Evolution Candidate",
-        "operationId": "reject_evolution_candidate_api_internal_evolution_candidates__candidate_id__reject_post",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EvolutionCandidateActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Reject Evolution Candidate Api Internal Evolution Candidates  Candidate Id  Reject Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/candidates/{candidate_id}/rerun-validation": {
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Rerun Evolution Candidate Validation",
-        "operationId": "rerun_evolution_candidate_validation_api_internal_evolution_candidates__candidate_id__rerun_validation_post",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EvolutionValidationRerunRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Rerun Evolution Candidate Validation Api Internal Evolution Candidates  Candidate Id  Rerun Validation Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/candidates/{candidate_id}/rollback": {
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Rollback Evolution Candidate",
-        "operationId": "rollback_evolution_candidate_api_internal_evolution_candidates__candidate_id__rollback_post",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EvolutionCandidateActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Rollback Evolution Candidate Api Internal Evolution Candidates  Candidate Id  Rollback Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/frontend-suggestions/{candidate_id}/mark-handled": {
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Mark Frontend Suggestion Handled",
-        "operationId": "mark_frontend_suggestion_handled_api_internal_evolution_frontend_suggestions__candidate_id__mark_handled_post",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EvolutionCandidateActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Mark Frontend Suggestion Handled Api Internal Evolution Frontend Suggestions  Candidate Id  Mark Handled Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/frontend-suggestions/{candidate_id}/request-regeneration": {
-      "post": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Request Frontend Suggestion Regeneration",
-        "operationId": "request_frontend_suggestion_regeneration_api_internal_evolution_frontend_suggestions__candidate_id__request_regeneration_post",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/EvolutionCandidateActionRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Request"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Request Frontend Suggestion Regeneration Api Internal Evolution Frontend Suggestions  Candidate Id  Request Regeneration Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/candidates": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "List Evolution Candidates",
-        "operationId": "list_evolution_candidates_api_internal_evolution_candidates_get",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "name": "risk_level",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Risk Level"
-            }
-          },
-          {
-            "name": "candidate_type",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Candidate Type"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EvolutionListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/candidates/{candidate_id}": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "Get Evolution Candidate",
-        "operationId": "get_evolution_candidate_api_internal_evolution_candidates__candidate_id__get",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Evolution Candidate Api Internal Evolution Candidates  Candidate Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/version-bundles": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "List Evolution Version Bundles",
-        "operationId": "list_evolution_version_bundles_api_internal_evolution_version_bundles_get",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EvolutionListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/validation-runs": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "List Evolution Validation Runs",
-        "operationId": "list_evolution_validation_runs_api_internal_evolution_validation_runs_get",
-        "parameters": [
-          {
-            "name": "candidate_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EvolutionListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/internal/evolution/audit-events": {
-      "get": {
-        "tags": [
-          "internal-evolution"
-        ],
-        "summary": "List Evolution Audit Events",
-        "operationId": "list_evolution_audit_events_api_internal_evolution_audit_events_get",
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Run Id"
-            }
-          },
-          {
-            "name": "candidate_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Candidate Id"
-            }
-          },
-          {
-            "name": "event_type",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Event Type"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Csrf-Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EvolutionListResponse"
+                  "$ref": "#/components/schemas/AutonomousEvolutionStatusResponse"
                 }
               }
             }
@@ -5604,6 +3289,54 @@
   },
   "components": {
     "schemas": {
+      "AnswerDraftRequest": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "maxLength": 8000,
+            "title": "Answer",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AnswerDraftRequest"
+      },
+      "AnswerDraftResponse": {
+        "properties": {
+          "question_id": {
+            "type": "integer",
+            "title": "Question Id"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question_id"
+        ],
+        "title": "AnswerDraftResponse"
+      },
       "AuthRequest": {
         "properties": {
           "username": {
@@ -5626,6 +3359,53 @@
         ],
         "title": "AuthRequest"
       },
+      "AutonomousEvolutionStatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "trigger_interviews": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Trigger Interviews"
+          },
+          "synthetic_samples": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Synthetic Samples"
+          },
+          "observation_interviews": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Observation Interviews"
+          },
+          "families": {
+            "items": {
+              "$ref": "#/components/schemas/EvolutionFamilyStatusResponse"
+            },
+            "type": "array",
+            "title": "Families"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/EvolutionRunStatusResponse"
+            },
+            "type": "array",
+            "title": "Runs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "trigger_interviews",
+          "synthetic_samples",
+          "observation_interviews",
+          "families",
+          "runs"
+        ],
+        "title": "AutonomousEvolutionStatusResponse"
+      },
       "Body_upload_current_user_avatar_api_auth_me_avatar_post": {
         "properties": {
           "file": {
@@ -5639,20 +3419,6 @@
           "file"
         ],
         "title": "Body_upload_current_user_avatar_api_auth_me_avatar_post"
-      },
-      "Body_upload_resume_api_resumes_upload_post": {
-        "properties": {
-          "file": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
-            "title": "File"
-          }
-        },
-        "type": "object",
-        "required": [
-          "file"
-        ],
-        "title": "Body_upload_resume_api_resumes_upload_post"
       },
       "Body_upload_resume_async_api_resumes_upload_async_post": {
         "properties": {
@@ -6027,6 +3793,39 @@
             "title": "Occurrence Count",
             "default": 1
           },
+          "practice_status": {
+            "type": "string",
+            "title": "Practice Status",
+            "default": "not_started"
+          },
+          "practice_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Practice Score"
+          },
+          "last_practiced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Practiced At"
+          },
+          "practice_count": {
+            "type": "integer",
+            "title": "Practice Count",
+            "default": 0
+          },
           "evidence": {
             "items": {
               "type": "string"
@@ -6061,251 +3860,105 @@
         ],
         "title": "DashboardWeakPointSummary"
       },
-      "EvolutionCandidateActionRequest": {
+      "EvolutionFamilyStatusResponse": {
         "properties": {
-          "reason": {
+          "job_family_key": {
+            "type": "string",
+            "title": "Job Family Key"
+          },
+          "active_bundle_id": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 500
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Reason"
+            "title": "Active Bundle Id"
           },
-          "manual_note": {
+          "active_bundle_key": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 1000
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Manual Note"
+            "title": "Active Bundle Key"
           },
-          "apply_after_approval": {
-            "type": "boolean",
-            "title": "Apply After Approval",
-            "default": false
+          "generation": {
+            "type": "integer",
+            "title": "Generation",
+            "default": 0
           },
-          "options": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Options"
+          "bundle_status": {
+            "type": "string",
+            "title": "Bundle Status"
           },
-          "audit_metadata": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Audit Metadata"
-          }
-        },
-        "type": "object",
-        "title": "EvolutionCandidateActionRequest"
-      },
-      "EvolutionListResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Items"
+          "observation_count": {
+            "type": "integer",
+            "title": "Observation Count",
+            "default": 0
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures",
+            "default": 0
+          },
+          "eligible_interview_count": {
+            "type": "integer",
+            "title": "Eligible Interview Count",
+            "default": 0
+          },
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
           }
         },
         "type": "object",
         "required": [
-          "items"
+          "job_family_key",
+          "bundle_status"
         ],
-        "title": "EvolutionListResponse"
+        "title": "EvolutionFamilyStatusResponse"
       },
-      "EvolutionRunCreateRequest": {
+      "EvolutionRunStatusResponse": {
         "properties": {
-          "trigger_type": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "job_family_key": {
             "type": "string",
-            "enum": [
-              "immediate",
-              "sample_10",
-              "sample_50",
-              "daily_inspection",
-              "manual"
-            ],
-            "title": "Trigger Type",
-            "default": "manual"
+            "title": "Job Family Key"
           },
-          "trigger_reason": {
+          "trigger_sequence": {
+            "type": "integer",
+            "title": "Trigger Sequence"
+          },
+          "status": {
             "type": "string",
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Trigger Reason"
+            "title": "Status"
           },
-          "scope_type": {
-            "type": "string",
-            "maxLength": 100,
-            "title": "Scope Type",
-            "default": "global"
-          },
-          "scope_key": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scope Key"
-          },
-          "sample_count": {
+          "attempt_count": {
             "type": "integer",
-            "minimum": 0.0,
-            "title": "Sample Count",
-            "default": 0
+            "title": "Attempt Count"
           },
-          "sample_scope": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Sample Scope"
-          },
-          "data_scope": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Data Scope"
-          },
-          "anonymization_status": {
-            "type": "string",
-            "maxLength": 100,
-            "title": "Anonymization Status",
-            "default": "anonymized"
-          },
-          "audit_metadata": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Audit Metadata"
-          }
-        },
-        "type": "object",
-        "required": [
-          "trigger_reason"
-        ],
-        "title": "EvolutionRunCreateRequest"
-      },
-      "EvolutionSummaryResponse": {
-        "properties": {
-          "run_count": {
+          "max_retries": {
             "type": "integer",
-            "title": "Run Count",
-            "default": 0
+            "title": "Max Retries"
           },
-          "candidate_count": {
-            "type": "integer",
-            "title": "Candidate Count",
-            "default": 0
-          },
-          "risk_distribution": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Risk Distribution"
-          },
-          "latest_quality_signals": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Latest Quality Signals"
-          },
-          "version_bundle_status": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Version Bundle Status"
-          }
-        },
-        "type": "object",
-        "title": "EvolutionSummaryResponse"
-      },
-      "EvolutionValidationRerunRequest": {
-        "properties": {
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "manual_note": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 1000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Manual Note"
-          },
-          "sample_count": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Sample Count",
-            "default": 0
-          },
-          "options": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Options"
-          },
-          "audit_metadata": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Audit Metadata"
-          }
-        },
-        "type": "object",
-        "title": "EvolutionValidationRerunRequest"
-      },
-      "FeedbackReportResponse": {
-        "properties": {
-          "interview_id": {
-            "type": "integer",
-            "title": "Interview Id"
-          },
-          "score": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 0.0,
-            "title": "Score"
-          },
-          "weaknesses": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Weaknesses"
-          },
-          "suggestions": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Suggestions"
-          },
-          "recommendation": {
+          "candidate_artifact_key": {
             "anyOf": [
               {
                 "type": "string"
@@ -6314,106 +3967,9 @@
                 "type": "null"
               }
             ],
-            "title": "Recommendation"
+            "title": "Candidate Artifact Key"
           },
-          "round_scores": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Round Scores"
-          },
-          "strengths": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Strengths"
-          },
-          "ability_analysis": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ability Analysis"
-          },
-          "job_match": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Job Match"
-          },
-          "final_conclusion": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Final Conclusion"
-          },
-          "confidence": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Confidence"
-          },
-          "reference_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Note"
-          },
-          "used_candidate_memory": {
-            "type": "boolean",
-            "title": "Used Candidate Memory",
-            "default": false
-          },
-          "report_reliability_status": {
-            "type": "string",
-            "title": "Report Reliability Status",
-            "default": "normal"
-          },
-          "detailed_feedback": {
+          "validation_summary": {
             "anyOf": [
               {
                 "additionalProperties": true,
@@ -6423,17 +3979,84 @@
                 "type": "null"
               }
             ],
-            "title": "Detailed Feedback"
+            "title": "Validation Summary"
+          },
+          "decision_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Summary"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
           }
         },
         "type": "object",
         "required": [
-          "interview_id",
-          "score",
-          "weaknesses",
-          "suggestions"
+          "id",
+          "job_family_key",
+          "trigger_sequence",
+          "status",
+          "attempt_count",
+          "max_retries",
+          "created_at"
         ],
-        "title": "FeedbackReportResponse"
+        "title": "EvolutionRunStatusResponse"
       },
       "FeedbackReportSummary": {
         "properties": {
@@ -6592,96 +4215,6 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "HarnessActionRequest": {
-        "properties": {
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "options": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Options"
-          }
-        },
-        "type": "object",
-        "title": "HarnessActionRequest"
-      },
-      "HarnessActionResponse": {
-        "properties": {
-          "replay_run_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Replay Run Id"
-          },
-          "source_trace_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Trace Id"
-          },
-          "source_node_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Node Id"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "result": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Result"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "HarnessActionResponse"
-      },
       "HarnessCheckpointSummaryResponse": {
         "properties": {
           "id": {
@@ -6726,11 +4259,6 @@
             "type": "string",
             "title": "Status"
           },
-          "snapshot": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Snapshot"
-          },
           "resume_version": {
             "anyOf": [
               {
@@ -6764,23 +4292,6 @@
           "status"
         ],
         "title": "HarnessCheckpointSummaryResponse"
-      },
-      "HarnessListResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Items"
-          }
-        },
-        "type": "object",
-        "required": [
-          "items"
-        ],
-        "title": "HarnessListResponse"
       },
       "HarnessRuleEvaluationSummaryResponse": {
         "properties": {
@@ -7461,6 +4972,36 @@
               }
             ],
             "title": "Selected Rounds"
+          },
+          "interview_goal": {
+            "type": "string",
+            "enum": [
+              "internship",
+              "campus",
+              "big_tech"
+            ],
+            "title": "Interview Goal",
+            "default": "campus"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
           }
         },
         "type": "object",
@@ -7484,6 +5025,36 @@
             "type": "string",
             "title": "Mode",
             "default": "multi_round"
+          },
+          "interview_goal": {
+            "type": "string",
+            "enum": [
+              "internship",
+              "campus",
+              "big_tech"
+            ],
+            "title": "Interview Goal",
+            "default": "campus"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
           },
           "rounds": {
             "items": {
@@ -7718,6 +5289,26 @@
             "title": "Elapsed Seconds",
             "default": 0
           },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
+          },
           "execution_status": {
             "anyOf": [
               {
@@ -7771,6 +5362,36 @@
               }
             ],
             "title": "Job Description"
+          },
+          "interview_goal": {
+            "type": "string",
+            "enum": [
+              "internship",
+              "campus",
+              "big_tech"
+            ],
+            "title": "Interview Goal",
+            "default": "campus"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
           },
           "current_round": {
             "anyOf": [
@@ -7889,6 +5510,180 @@
           "display_name"
         ],
         "title": "LoginResponse"
+      },
+      "ManagedMemoryItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "memory_type": {
+            "type": "string",
+            "title": "Memory Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending_review",
+              "superseded",
+              "archived",
+              "deleted"
+            ],
+            "title": "Status"
+          },
+          "index_status": {
+            "type": "string",
+            "enum": [
+              "pending_index",
+              "indexed",
+              "index_failed",
+              "pending_delete"
+            ],
+            "title": "Index Status"
+          },
+          "source_interview_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Interview Id"
+          },
+          "source_round_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Round Id"
+          },
+          "target_position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Position"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "memory_type",
+          "title",
+          "content",
+          "confidence",
+          "status",
+          "index_status"
+        ],
+        "title": "ManagedMemoryItem"
+      },
+      "ManagedMemoryListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedMemoryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "active_count": {
+            "type": "integer",
+            "title": "Active Count"
+          },
+          "pending_review_count": {
+            "type": "integer",
+            "title": "Pending Review Count"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "active_count",
+          "pending_review_count",
+          "limit",
+          "offset"
+        ],
+        "title": "ManagedMemoryListResponse"
       },
       "MemoryClearStatusResponse": {
         "properties": {
@@ -8572,22 +6367,678 @@
         ],
         "title": "ResumeUpdateRequest"
       },
-      "ResumeUploadResponse": {
+      "ReviewBookmarkBatchResponse": {
+        "properties": {
+          "source_interview_id": {
+            "type": "integer",
+            "title": "Source Interview Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewBookmarkItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "created_count": {
+            "type": "integer",
+            "title": "Created Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_interview_id",
+          "items",
+          "created_count"
+        ],
+        "title": "ReviewBookmarkBatchResponse"
+      },
+      "ReviewBookmarkCreate": {
+        "properties": {
+          "interview_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interview Id"
+          },
+          "round_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Id"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "resume",
+                  "technical",
+                  "manager",
+                  "hr"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion"
+          },
+          "source_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Score"
+          },
+          "evaluation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewBookmarkEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReviewBookmarkCreate"
+      },
+      "ReviewBookmarkEvaluation": {
+        "properties": {
+          "evaluation_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Id"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "round_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Id"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "resume",
+                  "technical",
+                  "manager",
+                  "hr"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "total_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Score"
+          },
+          "dimension_scores": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ReviewBookmarkEvaluationDimensionScore"
+                },
+                "type": "array",
+                "maxItems": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dimension Scores"
+          },
+          "strengths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strengths"
+          },
+          "issues": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issues"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "should_follow_up": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Should Follow Up"
+          },
+          "follow_up_direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Direction"
+          },
+          "impact": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReviewBookmarkEvaluation"
+      },
+      "ReviewBookmarkEvaluationDimensionScore": {
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Dimension"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dimension"
+        ],
+        "title": "ReviewBookmarkEvaluationDimensionScore"
+      },
+      "ReviewBookmarkItem": {
         "properties": {
           "id": {
             "type": "integer",
             "title": "Id"
           },
-          "structured_data": {
-            "$ref": "#/components/schemas/StructuredResumeData"
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "issue": {
+            "type": "string",
+            "title": "Issue"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "practice_created",
+                  "mastered"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Status",
+            "default": "active"
+          },
+          "source_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Score"
+          },
+          "source_interview_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Interview Id"
+          },
+          "target_position": {
+            "type": "string",
+            "title": "Target Position"
+          },
+          "round_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Id"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "practice_interview_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Practice Interview Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
           "id",
-          "structured_data"
+          "title",
+          "issue",
+          "target_position",
+          "created_at",
+          "updated_at"
         ],
-        "title": "ResumeUploadResponse"
+        "title": "ReviewBookmarkItem"
+      },
+      "ReviewBookmarkPracticeResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "multi_round"
+          },
+          "interview_goal": {
+            "type": "string",
+            "enum": [
+              "internship",
+              "campus",
+              "big_tech"
+            ],
+            "title": "Interview Goal",
+            "default": "campus"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewRoundResponse"
+            },
+            "type": "array",
+            "title": "Rounds"
+          },
+          "bookmark_id": {
+            "type": "integer",
+            "title": "Bookmark Id"
+          },
+          "source_interview_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Interview Id"
+          },
+          "practice_focus": {
+            "type": "string",
+            "title": "Practice Focus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "bookmark_id",
+          "practice_focus"
+        ],
+        "title": "ReviewBookmarkPracticeResponse"
+      },
+      "ReviewBookmarkUpdate": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "mastered"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ReviewBookmarkUpdate"
       },
       "RoundAnswerRequest": {
         "properties": {
@@ -8614,46 +7065,11 @@
         ],
         "title": "RoundAnswerRequest"
       },
-      "RoundAnswerResponse": {
-        "properties": {
-          "action": {
-            "type": "string",
-            "title": "Action"
-          },
-          "question": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RoundQuestionResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "round_summary": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Round Summary"
-          }
-        },
-        "type": "object",
-        "required": [
-          "action"
-        ],
-        "title": "RoundAnswerResponse"
-      },
       "RoundFinishRequest": {
         "properties": {
           "finish_type": {
             "type": "string",
-            "pattern": "^(normal|early)$",
+            "pattern": "^(normal|early|timeout)$",
             "title": "Finish Type",
             "default": "normal"
           }
@@ -8713,6 +7129,11 @@
           "question": {
             "type": "string",
             "title": "Question"
+          },
+          "is_last_question": {
+            "type": "boolean",
+            "title": "Is Last Question",
+            "default": false
           }
         },
         "type": "object",
@@ -8725,6 +7146,32 @@
           "question"
         ],
         "title": "RoundQuestionResponse"
+      },
+      "RoundStartRequest": {
+        "properties": {
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
+          }
+        },
+        "type": "object",
+        "title": "RoundStartRequest"
       },
       "StructuredResumeData": {
         "properties": {
@@ -8779,6 +7226,176 @@
           "certificates_awards"
         ],
         "title": "StructuredResumeData"
+      },
+      "UserFeedbackSubmissionCreate": {
+        "properties": {
+          "feedback_type": {
+            "type": "string",
+            "enum": [
+              "general",
+              "bug",
+              "question",
+              "scoring",
+              "report",
+              "experience"
+            ],
+            "title": "Feedback Type",
+            "default": "general"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 5,
+            "title": "Content"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "interview_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interview Id"
+          },
+          "round_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Id"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "UserFeedbackSubmissionCreate"
+      },
+      "UserFeedbackSubmissionResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "feedback_type": {
+            "type": "string",
+            "enum": [
+              "general",
+              "bug",
+              "question",
+              "scoring",
+              "report",
+              "experience"
+            ],
+            "title": "Feedback Type"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "interview_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interview Id"
+          },
+          "round_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Id"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "feedback_type",
+          "content",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UserFeedbackSubmissionResponse"
       },
       "UserPreferencesResponse": {
         "properties": {
@@ -8896,6 +7513,115 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WeaknessPracticeRequest": {
+        "properties": {
+          "weakness": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Weakness"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(resume|technical|manager|hr)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weakness"
+        ],
+        "title": "WeaknessPracticeRequest"
+      },
+      "WeaknessPracticeResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "multi_round"
+          },
+          "interview_goal": {
+            "type": "string",
+            "enum": [
+              "internship",
+              "campus",
+              "big_tech"
+            ],
+            "title": "Interview Goal",
+            "default": "campus"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "normal",
+              "pressure"
+            ],
+            "title": "Difficulty",
+            "default": "normal"
+          },
+          "time_limit_minutes": {
+            "type": "integer",
+            "enum": [
+              30,
+              45,
+              60
+            ],
+            "title": "Time Limit Minutes",
+            "default": 45
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewRoundResponse"
+            },
+            "type": "array",
+            "title": "Rounds"
+          },
+          "source_interview_id": {
+            "type": "integer",
+            "title": "Source Interview Id"
+          },
+          "practice_focus": {
+            "type": "string",
+            "title": "Practice Focus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "source_interview_id",
+          "practice_focus"
+        ],
+        "title": "WeaknessPracticeResponse"
       }
     }
   }

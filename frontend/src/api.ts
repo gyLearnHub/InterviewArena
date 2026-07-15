@@ -6,8 +6,8 @@ const RESUME_UPLOAD_TIMEOUT_MS = 220000;
 const RESUME_PARSE_POLL_INTERVAL_MS = 1500;
 const INTERVIEW_OPERATION_TIMEOUT_MS = 260000;
 const INTERVIEW_OPERATION_POLL_INTERVAL_MS = 1200;
-const CSRF_COOKIE_NAME = "interview_arena_csrf";
-const CSRF_HEADER_NAME = "X-CSRF-Token";
+const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME || "interview_arena_csrf";
+const CSRF_HEADER_NAME = import.meta.env.VITE_CSRF_HEADER_NAME || "X-CSRF-Token";
 export const AUTH_EXPIRED_EVENT = "interview-arena:auth-expired";
 
 export type LoginResponse = {
@@ -65,11 +65,25 @@ export type InterviewCreateResponse = {
   id: number;
   status: string;
   mode?: "multi_round";
+  interview_goal?: InterviewGoal;
+  difficulty?: InterviewDifficulty;
+  time_limit_minutes?: TimeLimitMinutes;
   rounds?: InterviewRound[];
   harness_status?: HarnessStatus | null;
   recovery_count?: number;
   had_degradation?: boolean;
   last_harness_error?: string | null;
+};
+
+export type WeaknessPracticeRequest = {
+  weakness: string;
+  suggestion?: string | null;
+  roundType?: RoundType;
+};
+
+export type WeaknessPracticeResponse = InterviewCreateResponse & {
+  source_interview_id: number;
+  practice_focus: string;
 };
 
 export type FeedbackReport = {
@@ -138,6 +152,38 @@ export type MemoryClearStatus = {
   error_message?: string | null;
 };
 
+export type ManagedMemoryStatus =
+  "active" | "pending_review" | "superseded" | "archived" | "deleted" | string;
+
+export type ManagedMemoryIndexStatus =
+  "pending_index" | "indexed" | "index_failed" | "pending_delete" | string;
+
+export type ManagedMemoryItem = {
+  id: number;
+  memory_type: string;
+  title: string;
+  content: string;
+  confidence: number;
+  status: ManagedMemoryStatus;
+  index_status: ManagedMemoryIndexStatus;
+  source_interview_id?: number | null;
+  source_round_id?: number | null;
+  target_position?: string | null;
+  evidence: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type ManagedMemoryListResponse = {
+  items: ManagedMemoryItem[];
+  total: number;
+  active_count: number;
+  pending_review_count: number;
+  limit: number;
+  offset: number;
+  next_offset?: number | null;
+};
+
 export type NotificationFilter = "all" | "unread";
 
 export type NotificationTarget = {
@@ -173,6 +219,81 @@ export type NotificationListResponse = {
 
 export type NotificationUnreadCountResponse = {
   count: number;
+};
+
+export type FeedbackType = "general" | "bug" | "question" | "scoring" | "report" | "experience";
+
+export type FeedbackSubmissionRequest = {
+  feedback_type: FeedbackType;
+  content: string;
+  rating?: number | null;
+  interview_id?: number | null;
+  round_id?: number | null;
+  question_id?: number | null;
+};
+
+export type FeedbackSubmissionResponse = {
+  id: number;
+  feedback_type: FeedbackType;
+  content: string;
+  rating: number | null;
+  interview_id: number | null;
+  round_id: number | null;
+  question_id: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewBookmarkStatus = "active" | "practice_created" | "mastered" | string;
+export type ReviewBookmarkFilterStatus =
+  "all" | "open" | "active" | "practice_created" | "mastered";
+
+export type ReviewBookmarkItem = {
+  id: number;
+  title: string;
+  issue: string;
+  suggestion?: string | null;
+  status: ReviewBookmarkStatus;
+  source_score?: number | null;
+  source_interview_id: number | null;
+  target_position: string;
+  round_id?: number | null;
+  round_type?: RoundType | string | null;
+  question_id?: number | null;
+  question?: string | null;
+  answer?: string | null;
+  practice_interview_id?: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewBookmarkCreateRequest = {
+  interview_id?: number | null;
+  round_id?: number | null;
+  question_id?: number | null;
+  round_type?: RoundType | string | null;
+  title?: string | null;
+  issue?: string | null;
+  suggestion?: string | null;
+  source_score?: number | null;
+  evaluation?: QuestionEvaluation | null;
+};
+
+export type ReviewBookmarkPracticeResponse = InterviewCreateResponse & {
+  bookmark_id: number;
+  source_interview_id: number | null;
+  practice_focus: string;
+};
+
+export type ReviewBookmarkUpdateRequest = {
+  status: "active" | "mastered";
+};
+
+export type ReviewBookmarkBatchResponse = {
+  source_interview_id: number;
+  items: ReviewBookmarkItem[];
+  created_count: number;
 };
 
 export type HistoryItem = {
@@ -288,6 +409,10 @@ export type DashboardWeakPointSummary = {
   suggestion: string | null;
   severity?: "high" | "medium" | "low" | string;
   occurrence_count?: number;
+  practice_status?: "not_started" | "pending" | "practiced" | "improving" | "needs_work" | string;
+  practice_score?: number | null;
+  last_practiced_at?: string | null;
+  practice_count?: number;
   evidence?: string[];
   sources?: DashboardWeakPointSource[];
   updated_at?: string | null;
@@ -330,6 +455,9 @@ export type HarnessStatus =
 export type ReportReliabilityStatus = "normal" | "reference_only" | "unavailable";
 
 export type RoundType = "resume" | "technical" | "manager" | "hr";
+export type InterviewGoal = "internship" | "campus" | "big_tech";
+export type InterviewDifficulty = "easy" | "normal" | "pressure";
+export type TimeLimitMinutes = 30 | 45 | 60;
 export type RoundStatus =
   "pending" | "in_progress" | "completed" | "finished_early" | "skipped" | "cancelled";
 export type QuestionKind = "main" | "follow_up";
@@ -354,6 +482,8 @@ export type InterviewRound = {
   started_at?: string | null;
   ended_at?: string | null;
   elapsed_seconds?: number;
+  difficulty: InterviewDifficulty;
+  time_limit_minutes: TimeLimitMinutes;
 };
 
 export type RoundSummary = {
@@ -372,8 +502,10 @@ export type RoundSummary = {
 export type QuestionEvaluation = {
   question_id?: number | null;
   round_id?: number | null;
-  total_score?: number;
-  dimension_scores?: unknown[];
+  round_type?: RoundType | string;
+  status?: string;
+  total_score?: number | null;
+  dimension_scores?: QuestionEvaluationDimension[];
   strengths?: string[];
   issues?: string[];
   evidence?: string[];
@@ -381,6 +513,12 @@ export type QuestionEvaluation = {
   follow_up_direction?: string | null;
   prompt_version?: string;
   model_name?: string;
+};
+
+export type QuestionEvaluationDimension = {
+  dimension: string;
+  score: number;
+  reason?: string;
 };
 
 export type MultiRoundQuestion = {
@@ -393,6 +531,7 @@ export type MultiRoundQuestion = {
   regenerated_from_question_id?: number | null;
   question_type?: string;
   question: string;
+  is_last_question?: boolean;
 };
 
 export type MultiRoundQaEntry = {
@@ -411,6 +550,7 @@ export type MultiRoundQaEntry = {
   answer_text?: string;
   user_answer?: string;
   question_evaluation?: QuestionEvaluation | null;
+  is_last_question?: boolean;
 };
 
 export type MultiRoundState = {
@@ -419,6 +559,9 @@ export type MultiRoundState = {
   overall_status: string;
   target_position: string;
   job_description: string | null;
+  interview_goal: InterviewGoal;
+  difficulty: InterviewDifficulty;
+  time_limit_minutes: TimeLimitMinutes;
   current_round: RoundType | null;
   elapsed_seconds: number;
   rounds: InterviewRound[];
@@ -489,11 +632,56 @@ export type InterviewHarnessStatus = {
   checkpoints: HarnessCheckpointItem[];
 };
 
+export type EvolutionFamilyStatus = {
+  job_family_key: string;
+  active_bundle_id?: number | null;
+  active_bundle_key?: string | null;
+  generation: number;
+  bundle_status: string;
+  observation_count: number;
+  consecutive_failures: number;
+  eligible_interview_count: number;
+  activated_at?: string | null;
+};
+
+export type EvolutionRunStatus = {
+  id: number;
+  job_family_key: string;
+  trigger_sequence: number;
+  status: string;
+  attempt_count: number;
+  max_retries: number;
+  candidate_artifact_key?: string | null;
+  validation_summary?: Record<string, unknown> | null;
+  decision_summary?: Record<string, unknown> | null;
+  error_message?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  heartbeat_at?: string | null;
+  completed_at?: string | null;
+};
+
+export type AutonomousEvolutionStatus = {
+  enabled: boolean;
+  trigger_interviews: number;
+  synthetic_samples: number;
+  observation_interviews: number;
+  families: EvolutionFamilyStatus[];
+  runs: EvolutionRunStatus[];
+};
+
 export type RoundAnswerResponse = {
   action: RoundAnswerAction;
   question: MultiRoundQuestion | null;
   round_summary: RoundSummary | null;
+  answer_evaluation?: QuestionEvaluation | null;
   round?: InterviewRound;
+};
+
+export type AnswerDraftResponse = {
+  question_id: number;
+  answer?: string | null;
+  updated_at?: string | null;
 };
 
 type RequestOptions = {
@@ -545,7 +733,7 @@ export async function login(username: string, password: string): Promise<LoginRe
     method: "POST",
     body: { username, password }
   });
-  saveAuth("", {
+  saveAuth({
     id: data.id,
     username: data.username,
     display_name: data.display_name,
@@ -632,6 +820,9 @@ export function createInterview(
   options: {
     jobDescription?: string;
     selectedRounds?: RoundType[];
+    interviewGoal?: InterviewGoal;
+    difficulty?: InterviewDifficulty;
+    timeLimitMinutes?: TimeLimitMinutes;
   } = {}
 ): Promise<InterviewCreateResponse> {
   return request("/interviews", {
@@ -640,13 +831,26 @@ export function createInterview(
       resume_id: resumeId,
       target_position: targetPosition,
       ...(options.jobDescription ? { job_description: options.jobDescription } : {}),
-      ...(options.selectedRounds ? { selected_rounds: options.selectedRounds } : {})
+      ...(options.selectedRounds ? { selected_rounds: options.selectedRounds } : {}),
+      ...(options.interviewGoal ? { interview_goal: options.interviewGoal } : {}),
+      ...(options.difficulty ? { difficulty: options.difficulty } : {}),
+      ...(options.timeLimitMinutes ? { time_limit_minutes: options.timeLimitMinutes } : {})
     }
   });
 }
 
-export function listHistory(): Promise<HistoryItem[]> {
-  return request("/interviews/history");
+export function createWeaknessPractice(
+  sourceInterviewId: number,
+  requestBody: WeaknessPracticeRequest
+): Promise<WeaknessPracticeResponse> {
+  return request(`/interviews/${sourceInterviewId}/practice`, {
+    method: "POST",
+    body: {
+      weakness: requestBody.weakness,
+      ...(requestBody.suggestion ? { suggestion: requestBody.suggestion } : {}),
+      ...(requestBody.roundType ? { round_type: requestBody.roundType } : {})
+    }
+  });
 }
 
 export function listHistoryPage(
@@ -656,10 +860,6 @@ export function listHistoryPage(
   params.set("limit", String(options.limit || 20));
   params.set("offset", String(options.offset || 0));
   return request(`/interviews/history/page?${params.toString()}`);
-}
-
-export function listReports(): Promise<ReportListItem[]> {
-  return request("/interviews/reports");
 }
 
 export function listReportsPage(
@@ -691,6 +891,36 @@ export function getMultiRoundState(interviewId: number): Promise<MultiRoundState
   return request(`/interviews/${interviewId}/state`);
 }
 
+export function getRoundAnswerDraft(
+  interviewId: number,
+  roundId: number,
+  questionId: number
+): Promise<AnswerDraftResponse> {
+  return request(`/interviews/${interviewId}/rounds/${roundId}/questions/${questionId}/draft`);
+}
+
+export function saveRoundAnswerDraft(
+  interviewId: number,
+  roundId: number,
+  questionId: number,
+  answer: string
+): Promise<AnswerDraftResponse> {
+  return request(`/interviews/${interviewId}/rounds/${roundId}/questions/${questionId}/draft`, {
+    method: "PUT",
+    body: { answer }
+  });
+}
+
+export function deleteRoundAnswerDraft(
+  interviewId: number,
+  roundId: number,
+  questionId: number
+): Promise<void> {
+  return request(`/interviews/${interviewId}/rounds/${roundId}/questions/${questionId}/draft`, {
+    method: "DELETE"
+  });
+}
+
 export function pauseMultiRoundInterview(interviewId: number): Promise<MultiRoundState> {
   return request(`/interviews/${interviewId}/pause`, {
     method: "POST"
@@ -705,11 +935,21 @@ export function resumeMultiRoundInterview(interviewId: number): Promise<MultiRou
 
 export function startInterviewRound(
   interviewId: number,
-  roundId: number
+  roundId: number,
+  options: {
+    difficulty: InterviewDifficulty;
+    timeLimitMinutes: TimeLimitMinutes;
+  }
 ): Promise<RoundAnswerResponse | MultiRoundState> {
   return request<InterviewOperationTaskResponse<RoundAnswerResponse>>(
     `/interviews/${interviewId}/rounds/${roundId}/start-task`,
-    { method: "POST" }
+    {
+      method: "POST",
+      body: {
+        difficulty: options.difficulty,
+        time_limit_minutes: options.timeLimitMinutes
+      }
+    }
   ).then((task) => waitForInterviewOperation(task));
 }
 
@@ -753,7 +993,7 @@ export function skipRoundQuestion(
 export function finishInterviewRound(
   interviewId: number,
   roundId: number,
-  finishType: "normal" | "early" = "early"
+  finishType: "normal" | "early" | "timeout" = "early"
 ): Promise<RoundAnswerResponse | MultiRoundState> {
   return request<InterviewOperationTaskResponse<RoundAnswerResponse>>(
     `/interviews/${interviewId}/rounds/${roundId}/finish-task`,
@@ -796,6 +1036,17 @@ export function getMemoryClearStatus(): Promise<MemoryClearStatus> {
   return request("/memories/clear-status");
 }
 
+export function listManagedMemories(limit = 100, offset = 0): Promise<ManagedMemoryListResponse> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  return request(`/memories?${params.toString()}`);
+}
+
+export function deleteManagedMemory(memoryId: number): Promise<void> {
+  return request(`/memories/${memoryId}`, { method: "DELETE" });
+}
+
 export function listNotifications(
   options: {
     filter?: NotificationFilter;
@@ -828,8 +1079,82 @@ export function markAllNotificationsRead(): Promise<void> {
   return request("/notifications/read-all", { method: "POST" });
 }
 
+export function submitFeedback(
+  payload: FeedbackSubmissionRequest
+): Promise<FeedbackSubmissionResponse> {
+  return request("/feedback", {
+    method: "POST",
+    body: payload
+  });
+}
+
+export function listReviewBookmarks(
+  options: {
+    limit?: number;
+    offset?: number;
+    roundType?: RoundType | "all";
+    status?: ReviewBookmarkFilterStatus;
+  } = {}
+): Promise<ReviewBookmarkItem[]> {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit || 20));
+  params.set("offset", String(options.offset || 0));
+  if (options.roundType && options.roundType !== "all") {
+    params.set("round_type", options.roundType);
+  }
+  if (options.status && options.status !== "all") {
+    params.set("status", options.status);
+  }
+  return request(`/review-bookmarks?${params.toString()}`);
+}
+
+export function saveReviewBookmark(
+  payload: ReviewBookmarkCreateRequest
+): Promise<ReviewBookmarkItem> {
+  return request("/review-bookmarks", {
+    method: "POST",
+    body: payload
+  });
+}
+
+export function createReviewBookmarksFromReport(
+  interviewId: number
+): Promise<ReviewBookmarkBatchResponse> {
+  return request(`/review-bookmarks/from-report/${interviewId}`, {
+    method: "POST"
+  });
+}
+
+export function startReviewBookmarkPractice(
+  bookmarkId: number
+): Promise<ReviewBookmarkPracticeResponse> {
+  return request(`/review-bookmarks/${bookmarkId}/practice`, {
+    method: "POST"
+  });
+}
+
+export function updateReviewBookmark(
+  bookmarkId: number,
+  payload: ReviewBookmarkUpdateRequest
+): Promise<ReviewBookmarkItem> {
+  return request(`/review-bookmarks/${bookmarkId}`, {
+    method: "PATCH",
+    body: payload
+  });
+}
+
+export function deleteReviewBookmark(bookmarkId: number): Promise<void> {
+  return request(`/review-bookmarks/${bookmarkId}`, {
+    method: "DELETE"
+  });
+}
+
 export function getInterviewHarnessStatus(interviewId: number): Promise<InterviewHarnessStatus> {
   return request(`/interviews/${interviewId}/harness`);
+}
+
+export function getAutonomousEvolutionStatus(): Promise<AutonomousEvolutionStatus> {
+  return request("/harness/evolution/status");
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {

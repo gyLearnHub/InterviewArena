@@ -1,11 +1,7 @@
 <template>
   <section class="help-center" aria-label="帮助中心">
-    <section class="help-hero" aria-labelledby="help-center-title">
-      <div>
-        <p class="eyebrow">帮助中心</p>
-        <h1 id="help-center-title">查找使用说明与常见问题</h1>
-        <span>帮助文档和问题检索已恢复。</span>
-      </div>
+    <section class="help-hero" aria-label="帮助检索">
+      <p class="help-lead">查找使用说明与常见问题。</p>
 
       <label class="search-box" for="help-search">
         <span>问题检索</span>
@@ -13,7 +9,7 @@
           id="help-search"
           v-model.trim="searchText"
           type="search"
-          placeholder="搜索：简历、四轮面试、报告、记忆、Harness"
+          placeholder="搜索：简历、四轮面试、报告、记忆"
           autocomplete="off"
         />
       </label>
@@ -40,14 +36,80 @@
 
         <section
           v-if="isFeedbackNavActive"
-          class="feedback-status"
-          aria-labelledby="feedback-status-title"
+          class="feedback-panel"
+          aria-labelledby="feedback-form-title"
         >
-          <div class="feedback-status-mark" aria-hidden="true">!</div>
-          <div>
-            <p>反馈提交</p>
-            <h2 id="feedback-status-title">该功能正在抓紧更新</h2>
-          </div>
+          <header class="feedback-panel-header">
+            <div class="feedback-status-mark" aria-hidden="true">!</div>
+            <div>
+              <p>反馈提交</p>
+              <h2 id="feedback-form-title">告诉我们哪里需要改进</h2>
+              <span>题目、评分、报告和使用体验都可以反馈。</span>
+            </div>
+          </header>
+
+          <form class="feedback-form" @submit.prevent="handleFeedbackSubmit">
+            <div class="feedback-form-grid">
+              <label class="feedback-field" for="feedback-type">
+                <span>反馈类型</span>
+                <select
+                  id="feedback-type"
+                  v-model="feedbackType"
+                  :disabled="feedbackSubmitting"
+                  @change="clearFeedbackMessage"
+                >
+                  <option v-for="item in feedbackTypeOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+
+              <fieldset class="feedback-field rating-field">
+                <legend>满意度</legend>
+                <div class="rating-buttons" role="group" aria-label="满意度评分">
+                  <button
+                    v-for="score in ratingOptions"
+                    :key="score"
+                    type="button"
+                    :class="{ active: feedbackRating === score }"
+                    :aria-pressed="feedbackRating === score"
+                    :disabled="feedbackSubmitting"
+                    @click="selectFeedbackRating(score)"
+                  >
+                    {{ score }}
+                  </button>
+                </div>
+              </fieldset>
+            </div>
+
+            <label class="feedback-field" for="feedback-content">
+              <span>反馈内容</span>
+              <textarea
+                id="feedback-content"
+                v-model="feedbackContent"
+                :disabled="feedbackSubmitting"
+                maxlength="2000"
+                placeholder="例如：某道题和岗位不匹配、评分证据不足、报告建议太笼统。"
+                @input="clearFeedbackMessage"
+              ></textarea>
+            </label>
+
+            <div class="feedback-actions">
+              <span>{{ feedbackContent.length }}/2000</span>
+              <button type="submit" :disabled="!canSubmitFeedback">
+                {{ feedbackSubmitting ? "提交中..." : "提交反馈" }}
+              </button>
+            </div>
+
+            <p
+              v-if="feedbackMessage"
+              class="feedback-message"
+              :class="{ error: feedbackHasError }"
+              role="status"
+            >
+              {{ feedbackMessage }}
+            </p>
+          </form>
         </section>
 
         <div v-else-if="filteredArticles.length" class="article-list">
@@ -65,7 +127,7 @@
 
         <section v-else class="empty-result" aria-live="polite">
           <strong>没有找到匹配问题</strong>
-          <p>换一个关键词试试，例如“报告”“暂停面试”“清除记忆”或“Harness”。</p>
+          <p>换一个关键词试试，例如“报告”“暂停面试”或“清除记忆”。</p>
         </section>
       </div>
     </section>
@@ -74,6 +136,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+
+import { ApiError, submitFeedback, type FeedbackType } from "../api";
 
 type HelpArticle = {
   id: string;
@@ -92,12 +156,13 @@ const articles: HelpArticle[] = [
     id: "create-interview",
     category: "面试流程",
     title: "如何开始一次多轮模拟面试？",
-    summary: "从新建面试进入配置页，选择岗位方向、简历、轮次和题量后即可开始。",
+    summary:
+      "从新建面试进入配置页，选择岗位方向、简历、轮次和目标；进入面试后再配置每轮难度与限时。",
     keywords: ["新建面试", "岗位", "简历", "轮次", "开始面试"],
     steps: [
       "进入左侧导航的“新建面试”。",
       "选择面试方向，上传或选择已有简历，并补充岗位 JD。",
-      "确认要练习的轮次和题量，点击“开始面试”。"
+      "确认要练习的轮次和面试目标，点击“开始面试”。进入每轮前，在弹窗中选择本轮难度与限时。"
     ]
   },
   {
@@ -174,12 +239,12 @@ const articles: HelpArticle[] = [
   },
   {
     id: "harness",
-    category: "系统状态",
-    title: "Harness 状态页面有什么用？",
-    summary: "Harness 状态用于查看最近面试的运行状态、规则评测、Trace 和恢复点。",
+    category: "高级功能",
+    title: "高级诊断有什么用？",
+    summary: "高级诊断用于排查面试运行、规则校验、重试和恢复记录。",
     keywords: ["Harness", "状态", "Trace", "恢复点", "规则评测"],
     steps: [
-      "进入左侧导航的“Harness 状态”。",
+      "点击左下角账号区域，选择“高级诊断”。",
       "选择面试记录后查看运行状态和同步结果。",
       "当后端生成 Trace、规则或恢复点后，页面会展示对应明细。"
     ]
@@ -187,18 +252,37 @@ const articles: HelpArticle[] = [
 ];
 
 const articleCategories = Array.from(new Set(articles.map((article) => article.category)));
-const systemStatusIndex = articleCategories.indexOf("系统状态");
+const advancedToolsIndex = articleCategories.indexOf("高级功能");
 const categories = [
   ALL_CATEGORY,
-  ...articleCategories.slice(0, systemStatusIndex + 1),
+  ...articleCategories.slice(0, advancedToolsIndex + 1),
   FEEDBACK_NAV,
-  ...articleCategories.slice(systemStatusIndex + 1)
+  ...articleCategories.slice(advancedToolsIndex + 1)
 ];
 const activeCategory = ref(ALL_CATEGORY);
 const searchText = ref("");
+const feedbackType = ref<FeedbackType>("general");
+const feedbackRating = ref<number | null>(null);
+const feedbackContent = ref("");
+const feedbackSubmitting = ref(false);
+const feedbackMessage = ref("");
+const feedbackHasError = ref(false);
+
+const feedbackTypeOptions: { value: FeedbackType; label: string }[] = [
+  { value: "general", label: "通用建议" },
+  { value: "bug", label: "功能异常" },
+  { value: "question", label: "题目问题" },
+  { value: "scoring", label: "评分问题" },
+  { value: "report", label: "报告建议" },
+  { value: "experience", label: "使用体验" }
+];
+const ratingOptions = [1, 2, 3, 4, 5];
 
 const normalizedSearchText = computed(() => searchText.value.toLowerCase());
 const isFeedbackNavActive = computed(() => activeCategory.value === FEEDBACK_NAV);
+const canSubmitFeedback = computed(
+  () => feedbackContent.value.trim().length >= 5 && !feedbackSubmitting.value
+);
 
 const filteredArticles = computed(() => {
   const query = normalizedSearchText.value;
@@ -238,11 +322,47 @@ const resultTitle = computed(() => {
 
 const resultHint = computed(() =>
   isFeedbackNavActive.value
-    ? "当前状态"
+    ? "提交后会记录到反馈列表，便于后续排查与优化。"
     : searchText.value
       ? `当前关键词：${searchText.value}`
       : "选择分类或输入关键词，可快速定位问题。"
 );
+
+function selectFeedbackRating(score: number): void {
+  feedbackRating.value = feedbackRating.value === score ? null : score;
+  clearFeedbackMessage();
+}
+
+function clearFeedbackMessage(): void {
+  feedbackMessage.value = "";
+  feedbackHasError.value = false;
+}
+
+async function handleFeedbackSubmit(): Promise<void> {
+  if (!canSubmitFeedback.value) {
+    return;
+  }
+
+  feedbackSubmitting.value = true;
+  feedbackMessage.value = "";
+  feedbackHasError.value = false;
+  try {
+    const response = await submitFeedback({
+      feedback_type: feedbackType.value,
+      content: feedbackContent.value.trim(),
+      rating: feedbackRating.value
+    });
+    feedbackContent.value = "";
+    feedbackRating.value = null;
+    feedbackMessage.value = `反馈已提交，编号 #${response.id}。`;
+  } catch (error) {
+    feedbackHasError.value = true;
+    feedbackMessage.value =
+      error instanceof ApiError ? error.message : "反馈提交失败，请稍后重试。";
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -258,8 +378,8 @@ const resultHint = computed(() =>
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
   gap: 24px;
-  align-items: end;
-  padding: 26px;
+  align-items: center;
+  padding: 18px 22px;
   border: 1px solid rgb(207 216 235 / 82%);
   border-radius: 8px;
   background:
@@ -267,26 +387,16 @@ const resultHint = computed(() =>
   box-shadow: var(--shadow-sm, 0 4px 12px rgb(31 68 120 / 6%));
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  color: var(--brand-700, #1f64bf);
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.help-hero h1 {
-  margin: 0 0 10px;
-  font-size: clamp(30px, 4vw, 44px);
-  letter-spacing: 0;
-  line-height: 1.12;
-}
-
-.help-hero span,
+.help-lead,
 .result-summary span,
 .empty-result p {
   color: var(--gray-500, #758195);
   font-weight: 700;
   line-height: 1.7;
+}
+
+.help-lead {
+  margin: 0;
 }
 
 .search-box {
@@ -422,16 +532,21 @@ const resultHint = computed(() =>
   line-height: 1.75;
 }
 
-.feedback-status {
+.feedback-panel {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid rgb(31 122 91 / 24%);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffffff, #f7fffb);
+  box-shadow: var(--shadow-sm, 0 4px 12px rgb(31 68 120 / 6%));
+}
+
+.feedback-panel-header {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 16px;
   align-items: center;
-  padding: 18px;
-  border: 1px solid rgb(230 150 42 / 32%);
-  border-radius: 8px;
-  background: #fffaf2;
-  box-shadow: var(--shadow-sm, 0 4px 12px rgb(31 68 120 / 6%));
 }
 
 .feedback-status-mark {
@@ -440,24 +555,128 @@ const resultHint = computed(() =>
   width: 52px;
   height: 52px;
   border-radius: 8px;
-  background: #fff4e3;
-  color: #9a5a00;
+  background: #ecf8f4;
+  color: #1f7a5b;
   font-size: 24px;
   font-weight: 950;
 }
 
-.feedback-status p {
+.feedback-panel p {
   margin: 0 0 4px;
-  color: #9a5a00;
+  color: #1f7a5b;
   font-size: 13px;
   font-weight: 950;
 }
 
-.feedback-status h2 {
+.feedback-panel h2 {
   margin: 0;
-  color: #7a4700;
+  color: var(--gray-900, #172033);
   font-size: 20px;
   line-height: 1.35;
+}
+
+.feedback-panel-header span {
+  color: var(--gray-500, #758195);
+  font-weight: 700;
+  line-height: 1.7;
+}
+
+.feedback-form {
+  display: grid;
+  gap: 14px;
+}
+
+.feedback-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 14px;
+}
+
+.feedback-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.feedback-field span,
+.feedback-field legend {
+  color: var(--gray-700, #3b4658);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.feedback-field select,
+.feedback-field textarea {
+  width: 100%;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.feedback-field textarea {
+  min-height: 148px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.rating-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 44px);
+  gap: 8px;
+}
+
+.rating-buttons button {
+  width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--gray-200, #dfe5ec);
+  border-radius: 8px;
+  background: var(--gray-0, #fff);
+  color: var(--gray-700, #3b4658);
+  font-weight: 950;
+}
+
+.rating-buttons button.active {
+  border-color: #8dd8bc;
+  background: #ecf8f4;
+  color: #1f7a5b;
+  box-shadow: inset 0 0 0 2px rgb(31 122 91 / 16%);
+}
+
+.feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.feedback-actions span {
+  color: var(--gray-500, #758195);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.feedback-actions button {
+  min-width: 118px;
+}
+
+.feedback-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(31 122 91 / 24%);
+  border-radius: 8px;
+  background: #ecf8f4;
+  color: #1f7a5b;
+  font-weight: 800;
+  line-height: 1.6;
+}
+
+.feedback-message.error {
+  border-color: rgb(192 57 43 / 28%);
+  background: #fff1ef;
+  color: #a93226;
 }
 
 .empty-result {
@@ -505,9 +724,17 @@ const resultHint = computed(() =>
     grid-template-columns: 1fr;
   }
 
-  .feedback-status {
+  .feedback-panel-header,
+  .feedback-form-grid {
     grid-template-columns: 1fr;
-    justify-items: start;
+  }
+
+  .rating-buttons {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .rating-buttons button {
+    width: 100%;
   }
 }
 </style>

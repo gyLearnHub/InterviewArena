@@ -6,7 +6,11 @@ let pendingSession: Promise<AuthUser | null> | null = null;
 
 export async function ensureAuthenticated(): Promise<AuthUser | null> {
   if (verifiedSession) {
-    return getUser();
+    const cachedUser = getUser();
+    if (cachedUser) {
+      return cachedUser;
+    }
+    verifiedSession = false;
   }
   return hydrateCurrentSession();
 }
@@ -19,7 +23,7 @@ export async function hydrateCurrentSession(): Promise<AuthUser | null> {
   pendingSession = getCurrentUser()
     .then((profile) => {
       const user = toAuthUser(profile);
-      saveAuth("", user);
+      saveAuth(user);
       verifiedSession = true;
       return user;
     })

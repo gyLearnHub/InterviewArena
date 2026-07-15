@@ -15,6 +15,28 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/notifications/unread-count", async (route) => {
     await route.fulfill({ json: { count: 0 } });
   });
+  await page.route("**/api/review-bookmarks**", async (route) => {
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/harness/evolution/status", async (route) => {
+    await route.fulfill({
+      json: {
+        enabled: true,
+        trigger_interviews: 10,
+        synthetic_samples: 5,
+        observation_interviews: 3,
+        families: [],
+        runs: []
+      }
+    });
+  });
+  await page.route("**/api/interviews/*/rounds/*/questions/*/draft", async (route) => {
+    if (route.request().method() === "DELETE") {
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.fulfill({ json: { question_id: 0, answer: "", updated_at: null } });
+  });
 });
 
 test("workspace exposes independent harness status page with backend harness records", async ({
@@ -42,30 +64,33 @@ test("workspace exposes independent harness status page with backend harness rec
       }
     });
   });
-  await page.route("**/api/interviews/history", async (route) => {
+  await page.route("**/api/interviews/history/page?*", async (route) => {
     await route.fulfill({
-      json: [
-        {
-          interview_id: 77,
-          target_position: "后端工程师",
-          status: "in_progress",
-          score: null,
-          created_at: "2026-06-22T09:55:00",
-          updated_at: "2026-06-22T10:06:00",
-          started_at: "2026-06-22T10:00:00",
-          ended_at: null
-        },
-        {
-          interview_id: 78,
-          target_position: "前端工程师",
-          status: "finished",
-          score: null,
-          created_at: "2026-06-21T09:55:00",
-          updated_at: "2026-06-21T11:05:00",
-          started_at: "2026-06-21T10:00:00",
-          ended_at: "2026-06-21T11:00:00"
-        }
-      ]
+      json: {
+        items: [
+          {
+            interview_id: 77,
+            target_position: "后端工程师",
+            status: "in_progress",
+            score: null,
+            created_at: "2026-06-22T09:55:00",
+            updated_at: "2026-06-22T10:06:00",
+            started_at: "2026-06-22T10:00:00",
+            ended_at: null
+          },
+          {
+            interview_id: 78,
+            target_position: "前端工程师",
+            status: "finished",
+            score: null,
+            created_at: "2026-06-21T09:55:00",
+            updated_at: "2026-06-21T11:05:00",
+            started_at: "2026-06-21T10:00:00",
+            ended_at: "2026-06-21T11:00:00"
+          }
+        ],
+        next_offset: null
+      }
     });
   });
   await page.route("**/api/interviews/77/harness", async (route) => {
@@ -171,11 +196,11 @@ test("workspace exposes independent harness status page with backend harness rec
   });
 
   await page.goto("/dashboard");
-  await expect(page.getByRole("link", { name: "查看状态" })).toBeVisible();
-  await page.getByRole("link", { name: "查看状态" }).click();
+  await page.locator(".account-card").click();
+  await page.getByRole("menuitem", { name: "高级诊断" }).click();
 
   await expect(page).toHaveURL(/\/harness$/);
-  await expect(page.getByRole("main").getByRole("heading", { name: "Harness 状态" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { name: "高级诊断" })).toBeVisible();
   await expect(page.getByText("备用流程").first()).toBeVisible();
   await expect(page.getByText("1 / 1")).toBeVisible();
   await expect(page.getByText("technical-question-1").first()).toBeVisible();
@@ -257,20 +282,23 @@ test("harness status does not render fallback rows when backend has no records",
       }
     });
   });
-  await page.route("**/api/interviews/history", async (route) => {
+  await page.route("**/api/interviews/history/page?*", async (route) => {
     await route.fulfill({
-      json: [
-        {
-          interview_id: 91,
-          target_position: "后端工程师",
-          status: "in_progress",
-          overall_status: "in_progress",
-          created_at: "2026-06-24T09:00:00",
-          updated_at: "2026-06-24T09:20:00",
-          started_at: "2026-06-24T09:10:00",
-          ended_at: null
-        }
-      ]
+      json: {
+        items: [
+          {
+            interview_id: 91,
+            target_position: "后端工程师",
+            status: "in_progress",
+            overall_status: "in_progress",
+            created_at: "2026-06-24T09:00:00",
+            updated_at: "2026-06-24T09:20:00",
+            started_at: "2026-06-24T09:10:00",
+            ended_at: null
+          }
+        ],
+        next_offset: null
+      }
     });
   });
   await page.route("**/api/interviews/91/harness", async (route) => {
@@ -289,7 +317,7 @@ test("harness status does not render fallback rows when backend has no records",
 
   await page.goto("/harness");
 
-  await expect(page.getByText("后端暂无这场面试的 Harness 运行明细。")).toBeVisible();
+  await expect(page.getByText("系统暂无这场面试的运行明细。")).toBeVisible();
   await expect(page.getByText("状态同步")).toHaveCount(0);
   await expect(page.getByText("轮次记录")).toHaveCount(0);
   await expect(page.getByText("问答记录")).toHaveCount(0);
@@ -381,7 +409,7 @@ test("multi-round review keeps future rounds locked and current round actionable
   await expect(technicalCard).toHaveClass(/is-active-view/);
   await expect(managerCard).toHaveAttribute("aria-disabled", "true");
 
-  await managerCard.click();
+  await managerCard.dispatchEvent("click");
   await expect(technicalCard).toHaveClass(/is-active-view/);
 
   await expect(resumeCard).toHaveAttribute("aria-disabled", "false");
@@ -660,6 +688,10 @@ test("reports and history show reliability labels", async ({ page }) => {
   await expect(page.getByText("报告不可用")).toBeVisible();
 
   await page.goto("/reports/77");
+  await expect(page.getByRole("heading", { name: "面试复盘" })).toBeVisible();
+  await expect(page.getByText("代码筑基，系统赋能，创造无限可能")).toHaveCount(0);
+  await expect(page.locator(".overview-art")).toHaveCount(0);
+  await expect(page.locator(".score-summary")).toContainText("72");
   await expect(page.getByText("报告仅供参考")).toBeVisible();
   await expect(page.getByText("部分结果受备用流程影响。")).toBeVisible();
 });

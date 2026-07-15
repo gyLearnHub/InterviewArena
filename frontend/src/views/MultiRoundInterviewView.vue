@@ -6,13 +6,12 @@
   >
     <header class="room-header">
       <div class="room-title">
-        <p class="eyebrow">InterviewArena</p>
-        <h1>{{ state?.target_position || "多轮模拟面试" }} · 四轮模拟面试</h1>
+        <h1>{{ state?.target_position || "模拟面试" }} · 模拟面试</h1>
       </div>
 
       <div class="room-actions">
         <button class="theme-toggle" type="button" @click.stop="toggleRoomTheme">
-          {{ isDarkRoom ? "浅色模式" : "深色沉浸" }}
+          {{ isDarkRoom ? "浅色模式" : "深色模式" }}
         </button>
         <button
           class="panel-toggle"
@@ -20,16 +19,17 @@
           :aria-expanded="!isInfoPanelCollapsed"
           @click.stop="toggleInfoPanel"
         >
-          {{ isInfoPanelCollapsed ? "展开面板" : "收起面板" }}
+          {{ isInfoPanelCollapsed ? "显示信息" : "隐藏信息" }}
         </button>
       </div>
     </header>
 
     <section class="round-zone" aria-label="四轮面试">
       <div class="round-board" :class="{ 'has-current': Boolean(currentRoundType) }">
-        <article
+        <button
           v-for="round in displayRounds"
           :key="round.type"
+          type="button"
           class="round-card"
           :class="[
             round.status,
@@ -54,7 +54,7 @@
             <span>{{ roundCardStatusText(round.status) }}</span>
           </div>
           <strong class="round-time">{{ formatDuration(roundElapsedSeconds(round)) }}</strong>
-        </article>
+        </button>
       </div>
     </section>
 
@@ -81,23 +81,121 @@
           aria-live="polite"
           :aria-busy="busyRoundType === activeRound.type || streamingRoundType === activeRound.type"
         >
-          <article
-            v-for="item in activeRound.messages"
-            :key="item.id"
-            class="message-row"
-            :class="item.role"
-          >
-            <img
-              v-if="item.role === 'assistant'"
-              :src="activeRound.avatar"
-              alt=""
-              aria-hidden="true"
-            />
-            <div class="bubble" :class="item.role">
-              <small v-if="item.roundLabel">{{ item.roundLabel }}</small>
-              <p>{{ item.text }}</p>
-            </div>
-          </article>
+          <template v-for="item in activeRound.messages" :key="item.id">
+            <article class="message-row" :class="item.role">
+              <img
+                v-if="item.role === 'assistant'"
+                :src="activeRound.avatar"
+                alt=""
+                aria-hidden="true"
+              />
+              <div class="bubble" :class="item.role">
+                <small v-if="item.roundLabel">{{ item.roundLabel }}</small>
+                <p>{{ item.text }}</p>
+              </div>
+            </article>
+
+            <section
+              v-if="item.answerEvaluation"
+              class="answer-quality-panel answer-quality-inline"
+              :class="answerQualityTone(item.answerEvaluation)"
+              :data-question-id="item.answerEvaluation.question_id"
+            >
+              <div class="answer-quality-score">
+                <span>即时回答提示</span>
+                <strong v-if="typeof item.answerEvaluation.total_score === 'number'">
+                  {{ item.answerEvaluation.total_score }} 分
+                </strong>
+                <strong v-else>结构提示</strong>
+                <em>{{ answerQualityLabel(item.answerEvaluation) }}</em>
+              </div>
+              <p>{{ answerQualityLead(item.answerEvaluation) }}</p>
+              <section
+                v-if="answerQualityDimensions(item.answerEvaluation).length"
+                class="answer-quality-section answer-quality-dimensions"
+              >
+                <h4>维度表现</h4>
+                <div class="answer-quality-dimension-grid">
+                  <article
+                    v-for="dimension in answerQualityDimensions(item.answerEvaluation)"
+                    :key="dimension.dimension"
+                  >
+                    <div>
+                      <strong>{{ dimension.dimension }}</strong>
+                      <span>{{ dimension.score }} 分</span>
+                    </div>
+                    <p v-if="dimension.reason">{{ dimension.reason }}</p>
+                  </article>
+                </div>
+              </section>
+              <div class="answer-quality-detail-grid">
+                <section
+                  v-if="answerQualityStrengths(item.answerEvaluation).length"
+                  class="answer-quality-section quality-strengths"
+                >
+                  <h4>做得好的</h4>
+                  <ul>
+                    <li
+                      v-for="strength in answerQualityStrengths(item.answerEvaluation)"
+                      :key="strength"
+                    >
+                      {{ strength }}
+                    </li>
+                  </ul>
+                </section>
+                <section
+                  v-if="answerQualityIssues(item.answerEvaluation).length"
+                  class="answer-quality-section quality-issues"
+                >
+                  <h4>优先改进</h4>
+                  <ul>
+                    <li v-for="issue in answerQualityIssues(item.answerEvaluation)" :key="issue">
+                      {{ issue }}
+                    </li>
+                  </ul>
+                </section>
+              </div>
+              <section
+                v-if="item.answerEvaluation.follow_up_direction"
+                class="answer-quality-next-step"
+              >
+                <strong>下一步怎么答</strong>
+                <span>{{ item.answerEvaluation.follow_up_direction }}</span>
+              </section>
+              <details v-if="answerQualityEvidence(item.answerEvaluation).length">
+                <summary>查看判断依据</summary>
+                <ul>
+                  <li
+                    v-for="evidence in answerQualityEvidence(item.answerEvaluation)"
+                    :key="evidence"
+                  >
+                    {{ evidence }}
+                  </li>
+                </ul>
+              </details>
+              <p v-if="!hasAnswerQualityDetails(item.answerEvaluation)" class="quality-empty">
+                暂未生成详细建议，本题回答已正常记录。
+              </p>
+              <div class="answer-quality-actions">
+                <span
+                  v-if="answerBookmarkQuestionId === item.answerEvaluation.question_id"
+                  :class="{ error: answerBookmarkError }"
+                >
+                  {{ answerBookmarkMessage }}
+                </span>
+                <button
+                  type="button"
+                  :disabled="
+                    !canBookmarkAnswer(item.answerEvaluation) ||
+                    isSavingAnswerBookmark(item.answerEvaluation)
+                  "
+                  @click.stop="bookmarkAnswerEvaluation(item.answerEvaluation)"
+                >
+                  {{ answerBookmarkButtonText(item.answerEvaluation) }}
+                </button>
+              </div>
+            </section>
+          </template>
 
           <article
             v-if="isThinkingVisible && busyRoundType === activeRound.type"
@@ -215,7 +313,7 @@
             :disabled="isBusy || isReadOnlyRound(activeRound)"
             @click.stop="toggleActionMenu(activeRound)"
           >
-            +
+            ⋯
           </button>
           <textarea
             :ref="setActiveTextareaEl"
@@ -226,7 +324,19 @@
             @keydown="handleComposerKeydown($event, activeRound)"
             @input="onDraftInput(activeRound.type)"
           />
-          <button class="send-button" type="submit" :disabled="!canSubmitRound(activeRound)">
+          <span
+            v-if="draftStatusMessage"
+            class="draft-status"
+            :class="`draft-status-${draftSaveStatus}`"
+          >
+            {{ draftStatusMessage }}
+          </span>
+          <button
+            class="send-button"
+            type="submit"
+            aria-label="提交回答"
+            :disabled="!canSubmitRound(activeRound)"
+          >
             ↑
           </button>
         </form>
@@ -236,11 +346,9 @@
         <header class="info-head">
           <div>
             <span>面试进度</span>
-            <strong>{{
-              currentTimerRound ? `${currentTimerRound.label} · ${currentTimerLabel}` : "等待开始"
-            }}</strong>
+            <strong :class="{ danger: isRoundTimeExpired }">{{ roundTimerLabel }}</strong>
           </div>
-          <button type="button" @click.stop="toggleInfoPanel">收起</button>
+          <button type="button" @click.stop="toggleInfoPanel">隐藏</button>
         </header>
 
         <div class="progress-meter">
@@ -253,6 +361,14 @@
             <dd>{{ state?.target_position || "待恢复" }}</dd>
           </div>
           <div>
+            <dt>面试策略</dt>
+            <dd>{{ strategyLabel }}</dd>
+          </div>
+          <div>
+            <dt>剩余时间</dt>
+            <dd :class="{ danger: isRoundTimeExpired }">{{ remainingTimeLabel }}</dd>
+          </div>
+          <div>
             <dt>当前 Agent</dt>
             <dd>{{ activeRound.interviewer }}</dd>
           </div>
@@ -260,25 +376,7 @@
             <dt>当前轮次</dt>
             <dd>{{ roundStatusText(activeRound.status) }}</dd>
           </div>
-          <div>
-            <dt>记忆系统</dt>
-            <dd>{{ memoryStatusText }}</dd>
-          </div>
-          <div>
-            <dt>Harness</dt>
-            <dd>{{ harnessStatusText }}</dd>
-          </div>
         </dl>
-
-        <div class="mini-rounds" aria-label="轮次进度">
-          <span
-            v-for="round in displayRounds"
-            :key="`mini-${round.type}`"
-            :class="[round.status, { active: round.type === activeRound.type }]"
-          >
-            {{ round.label }}
-          </span>
-        </div>
       </aside>
     </main>
 
@@ -295,9 +393,7 @@
       :class="{ 'is-generating': isGeneratingOverall }"
     >
       <div class="overall-copy">
-        <span>{{
-          isGeneratingOverall ? "正在生成总评报告" : "已完成所有选择的轮次，可以生成总评报告。"
-        }}</span>
+        <span>{{ overallBarText }}</span>
         <div
           v-if="isGeneratingOverall"
           class="overall-progress"
@@ -318,6 +414,66 @@
         {{ isGeneratingOverall ? "生成中" : "生成总评" }}
       </button>
     </div>
+
+    <div v-if="roundConfigTarget" class="round-config-backdrop" @click.self="closeRoundConfig">
+      <section
+        class="round-config-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="round-config-title"
+      >
+        <header>
+          <div>
+            <span>开始本轮</span>
+            <h2 id="round-config-title">{{ roundConfigTarget.label }}</h2>
+          </div>
+          <button type="button" aria-label="关闭" @click="closeRoundConfig">×</button>
+        </header>
+        <p class="round-config-focus">{{ roundConfigTarget.focus }}</p>
+
+        <fieldset>
+          <legend>本轮难度</legend>
+          <div class="round-config-options">
+            <button
+              v-for="option in roundDifficultyOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: roundDifficulty === option.value }"
+              @click="roundDifficulty = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.note }}</small>
+            </button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>本轮限时</legend>
+          <div class="round-config-options">
+            <button
+              v-for="option in roundTimeLimitOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: roundTimeLimitMinutes === option.value }"
+              @click="roundTimeLimitMinutes = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.note }}</small>
+            </button>
+          </div>
+        </fieldset>
+
+        <p class="round-config-note">
+          Agent 会根据回答质量、主题覆盖和剩余时间动态调整题量，并在最后 3 分钟自然收尾。
+        </p>
+        <footer>
+          <button type="button" @click="closeRoundConfig">取消</button>
+          <button class="primary" type="button" :disabled="isBusy" @click="confirmStartRound">
+            {{ isBusy ? "正在开始" : "开始本轮" }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -335,23 +491,29 @@ import { useRoute, useRouter } from "vue-router";
 
 import {
   ApiError,
+  deleteRoundAnswerDraft,
   finishInterviewRound,
   finishMultiRoundInterview,
+  getRoundAnswerDraft,
   getMultiRoundState,
   pauseMultiRoundInterview,
   regenerateRoundQuestion,
+  saveRoundAnswerDraft,
+  saveReviewBookmark,
   type HarnessStatus,
   resumeMultiRoundInterview,
   skipRoundQuestion,
   startInterviewRound,
   submitRoundAnswer as submitRoundAnswerApi,
   type InterviewRound,
+  type InterviewDifficulty,
   type MultiRoundQaEntry,
   type MultiRoundQuestion,
   type MultiRoundState,
   type RoundAnswerResponse,
   type RoundSummary,
   type RoundType,
+  type TimeLimitMinutes,
   type QuestionEvaluation
 } from "../api";
 import {
@@ -367,6 +529,7 @@ type ChatMessage = {
   role: "assistant" | "user";
   text: string;
   roundLabel?: string;
+  answerEvaluation?: QuestionEvaluation;
 };
 
 type RoundCard = {
@@ -379,6 +542,8 @@ type RoundCard = {
   focus: string;
   messages: ChatMessage[];
   elapsedSeconds: number;
+  difficulty: InterviewDifficulty;
+  timeLimitMinutes: TimeLimitMinutes;
   summary: RoundSummary | null;
 };
 
@@ -397,6 +562,41 @@ type FailedRoundAction = {
   showThinking?: boolean;
 };
 
+type DraftSaveStatus = "idle" | "saving" | "saved" | "restored" | "error";
+
+type DraftContext = {
+  interviewId: number;
+  roundId: number;
+  questionId: number;
+  roundType: RoundType;
+};
+
+const DRAFT_SAVE_DELAY_MS = 700;
+const interviewGoalLabels: Record<string, string> = {
+  internship: "实习",
+  campus: "校招",
+  big_tech: "冲刺大厂"
+};
+const difficultyLabels: Record<string, string> = {
+  easy: "简单",
+  normal: "普通",
+  pressure: "压力"
+};
+const roundDifficultyOptions: {
+  value: InterviewDifficulty;
+  label: string;
+  note: string;
+}[] = [
+  { value: "easy", label: "简单", note: "友好引导" },
+  { value: "normal", label: "普通", note: "真实校招节奏" },
+  { value: "pressure", label: "压力", note: "高密度追问" }
+];
+const roundTimeLimitOptions: { value: TimeLimitMinutes; label: string; note: string }[] = [
+  { value: 30, label: "30 分钟", note: "快速摸底" },
+  { value: 45, label: "45 分钟", note: "标准节奏" },
+  { value: 60, label: "60 分钟", note: "完整模拟" }
+];
+
 const route = useRoute();
 const router = useRouter();
 const interviewId = computed(() => Number(route.params.id));
@@ -412,6 +612,11 @@ const isThinkingVisible = ref(false);
 const isGeneratingOverall = ref(false);
 const latestRoundSummary = ref<RoundSummary | null>(null);
 const latestRoundSummaryRoundType = ref<RoundType | null>(null);
+const savingBookmarkQuestionId = ref<number | null>(null);
+const savedBookmarkQuestionIds = ref<Set<number>>(new Set());
+const answerBookmarkMessage = ref("");
+const answerBookmarkError = ref(false);
+const answerBookmarkQuestionId = ref<number | null>(null);
 const streamingRoundType = ref<RoundType | null>(null);
 const messagesByRound = ref<Record<RoundType, ChatMessage[]>>(emptyMessagesByRound());
 const draftTexts = ref<Record<RoundType, string>>(emptyDrafts());
@@ -424,10 +629,19 @@ const stateLoadedAt = ref(Date.now());
 const lastFailedAction = ref<FailedRoundAction | null>(null);
 const switchingRoundType = ref<RoundType | null>(null);
 const roomTheme = ref<"light" | "dark">("light");
-const isInfoPanelCollapsed = ref(false);
+const isInfoPanelCollapsed = ref(window.matchMedia("(max-width: 900px)").matches);
+const draftSaveStatus = ref<DraftSaveStatus>("idle");
+const draftStatusQuestionId = ref<number | null>(null);
+const roundConfigTarget = ref<RoundCard | null>(null);
+const roundDifficulty = ref<InterviewDifficulty>("normal");
+const roundTimeLimitMinutes = ref<TimeLimitMinutes>(45);
+const timeoutFinishingRoundId = ref<number | null>(null);
 let elapsedTimer: number | null = null;
 let thinkingTimer: number | null = null;
 let roundSwitchTimer: number | null = null;
+let draftSaveTimer: number | null = null;
+let draftLoadToken = 0;
+let draftSaveToken = 0;
 let roundAnimationReady = false;
 
 const inProgressRound = computed(
@@ -449,6 +663,8 @@ const displayRounds = computed(() =>
       focus: roundMetas[type].focus,
       messages: messagesByRound.value[type],
       elapsedSeconds: round?.elapsed_seconds || 0,
+      difficulty: round?.difficulty || "normal",
+      timeLimitMinutes: round?.time_limit_minutes || 45,
       summary: round?.summary || null
     } satisfies RoundCard;
   })
@@ -489,6 +705,35 @@ const canToggleInterviewPause = computed(() => {
   }
   return Boolean(inProgressRound.value);
 });
+const roundLimitSeconds = computed(() => (inProgressRound.value?.time_limit_minutes || 45) * 60);
+const elapsedRoundSeconds = computed(() => {
+  if (!inProgressRound.value) {
+    return 0;
+  }
+  const extraSeconds =
+    currentRoundType.value && !isInterviewPaused.value
+      ? Math.floor((elapsedTick.value - stateLoadedAt.value) / 1000)
+      : 0;
+  return (inProgressRound.value.elapsed_seconds || 0) + extraSeconds;
+});
+const remainingSeconds = computed(() =>
+  Math.max(0, roundLimitSeconds.value - elapsedRoundSeconds.value)
+);
+const isInterviewClosed = computed(() =>
+  ["finished", "completed", "cancelled"].includes(state.value?.overall_status || "")
+);
+const isRoundTimeExpired = computed(
+  () => Boolean(inProgressRound.value) && !isInterviewClosed.value && remainingSeconds.value <= 0
+);
+const remainingTimeLabel = computed(() =>
+  isRoundTimeExpired.value ? "已到限时" : formatDuration(remainingSeconds.value)
+);
+const strategyLabel = computed(() => {
+  const goal = state.value?.interview_goal || "campus";
+  const difficulty = activeRound.value?.difficulty || "normal";
+  const minutes = activeRound.value?.timeLimitMinutes || 45;
+  return `${interviewGoalLabels[goal] || goal} · 本轮${difficultyLabels[difficulty] || difficulty} · ${minutes} 分钟`;
+});
 const canFinishOverall = computed(() => {
   if (!state.value || selectedRounds.value.length === 0) {
     return false;
@@ -506,9 +751,27 @@ const currentTimerRound = computed(() => {
   const type = activeRoundType.value || nextStartableRound.value?.round_type || "resume";
   return displayRounds.value.find((round) => round.type === type) || null;
 });
-const currentTimerLabel = computed(() =>
-  currentTimerRound.value ? formatDuration(roundElapsedSeconds(currentTimerRound.value)) : "00:00"
-);
+const roundTimerLabel = computed(() => {
+  if (!state.value) {
+    return "等待开始";
+  }
+  if (isRoundTimeExpired.value) {
+    return "已到限时";
+  }
+  if (!inProgressRound.value && currentTimerRound.value) {
+    return `${currentTimerRound.value.label} · 尚未开始`;
+  }
+  if (currentTimerRound.value) {
+    return `${currentTimerRound.value.label} · 剩余 ${remainingTimeLabel.value}`;
+  }
+  return `剩余 ${remainingTimeLabel.value}`;
+});
+const overallBarText = computed(() => {
+  if (isGeneratingOverall.value) {
+    return "正在生成总评报告";
+  }
+  return "已完成所有选择的轮次，可以生成总评报告。";
+});
 const activeRoundSummary = computed(() => {
   if (!activeRound.value) {
     return null;
@@ -530,30 +793,30 @@ const completionPercent = computed(() => {
 });
 const flowStatus = computed<HarnessStatus | null>(() => state.value?.harness_status || null);
 const isFlowPaused = computed(() => flowStatus.value === "paused");
-const memoryStatusText = computed(() => {
-  if (!state.value) {
-    return "待恢复";
-  }
-  if (state.value.had_degradation) {
-    return "参考使用";
-  }
-  return "已启用";
-});
-const harnessStatusText = computed(() => {
-  const map: Record<string, string> = {
-    pending: "等待启动",
-    running: "运行正常",
-    retrying: "自动重试中",
-    degraded: "备用流程",
-    paused: "已暂停",
-    failed: "步骤失败",
-    completed: "已完成"
-  };
-  return flowStatus.value ? map[flowStatus.value] || flowStatus.value : "运行正常";
-});
 const userFlowNotice = computed<UserFlowNotice | null>(() => {
   if (!state.value) {
     return null;
+  }
+
+  if (isRoundTimeExpired.value) {
+    const hasDraft = Boolean(
+      currentRoundType.value && draftTexts.value[currentRoundType.value].trim()
+    );
+    return {
+      title: "本轮已到限时",
+      text: hasDraft
+        ? "请提交正在作答的当前回答，提交后本轮将自动结束。"
+        : "面试官正在结束本轮并生成评价。",
+      tone: "warning"
+    };
+  }
+
+  if (currentQuestion.value?.is_last_question) {
+    return {
+      title: "这是本轮最后一个问题",
+      text: "提交本题后，本轮面试将结束并生成评价。",
+      tone: "info"
+    };
   }
 
   if (isInterviewPaused.value) {
@@ -616,16 +879,50 @@ const userFlowNotice = computed<UserFlowNotice | null>(() => {
   return null;
 });
 
+const draftStatusMessage = computed(() => {
+  const questionId = currentQuestion.value?.id ?? null;
+  if (!questionId || draftStatusQuestionId.value !== questionId) {
+    return "";
+  }
+  if (draftSaveStatus.value === "saving") {
+    return "草稿保存中";
+  }
+  if (draftSaveStatus.value === "saved") {
+    return "草稿已保存";
+  }
+  if (draftSaveStatus.value === "restored") {
+    return "已恢复上次草稿";
+  }
+  if (draftSaveStatus.value === "error") {
+    return "草稿保存失败，刷新前请先保留答案";
+  }
+  return "";
+});
+
 watch(currentQuestion, (question, previous) => {
   if (previous && previous.id !== question?.id) {
+    clearPendingDraftSave();
     clearDraft(previous.id);
   }
   if (question) {
     const type = roundTypeById(state.value, question.round_id);
     if (type) {
-      draftTexts.value[type] = localStorage.getItem(draftKey(question.id)) || "";
+      const localDraft = localStorage.getItem(draftKey(question.id)) || "";
+      draftTexts.value[type] = localDraft;
+      if (localDraft.trim()) {
+        setDraftStatus("restored", question.id);
+        const context = draftContextForQuestion(question, type);
+        if (context) {
+          scheduleRemoteDraftSave(context);
+        }
+      } else {
+        resetDraftStatus();
+      }
       resizeTextareaAfterRender(type);
+      void loadRemoteDraft(question, type, localDraft);
     }
+  } else {
+    resetDraftStatus();
   }
 });
 
@@ -636,9 +933,18 @@ watch(currentRoundType, (nextType, previousType) => {
   playRoundSwitchAnimation(nextType);
 });
 
+watch(isRoundTimeExpired, (expired) => {
+  if (expired) {
+    void finishExpiredRoundIfReady();
+  }
+});
+
 onMounted(async () => {
   elapsedTimer = window.setInterval(() => {
     elapsedTick.value = Date.now();
+    if (isRoundTimeExpired.value) {
+      void finishExpiredRoundIfReady();
+    }
   }, 1000);
   await loadState();
   await nextTick();
@@ -652,6 +958,7 @@ onBeforeUnmount(() => {
   if (roundSwitchTimer !== null) {
     window.clearTimeout(roundSwitchTimer);
   }
+  clearPendingDraftSave();
   stopThinkingTimer();
 });
 
@@ -672,9 +979,32 @@ async function startRound(round: RoundCard) {
 
   openMenuRound.value = null;
   selectedRoundType.value = round.type;
-  markRoundInProgress(round.id!, round.type);
+  roundDifficulty.value = round.difficulty || "normal";
+  roundTimeLimitMinutes.value = round.timeLimitMinutes || 45;
+  roundConfigTarget.value = round;
+}
+
+function closeRoundConfig() {
+  if (isBusy.value) {
+    return;
+  }
+  roundConfigTarget.value = null;
+}
+
+async function confirmStartRound() {
+  const round = roundConfigTarget.value;
+  if (!round || !canStartRound(round) || round.id === null) {
+    return;
+  }
+
+  resetAnswerBookmarkState();
+  roundConfigTarget.value = null;
+  markRoundInProgress(round.id, round.type, roundDifficulty.value, roundTimeLimitMinutes.value);
   await runRoundAction(round.type, async () => {
-    const payload = await startInterviewRound(interviewId.value, round.id!);
+    const payload = await startInterviewRound(interviewId.value, round.id!, {
+      difficulty: roundDifficulty.value,
+      timeLimitMinutes: roundTimeLimitMinutes.value
+    });
     await applyActionPayload(payload, round.type);
   });
 }
@@ -686,6 +1016,8 @@ async function submitRoundAnswer(round: RoundCard) {
 
   const question = currentQuestion.value;
   const submittedAnswer = draftTexts.value[round.type].trim();
+  clearPendingDraftSave();
+  resetDraftStatus();
   pushMessage(round.type, {
     id: `answer-${question.id}-${Date.now()}`,
     role: "user",
@@ -693,7 +1025,6 @@ async function submitRoundAnswer(round: RoundCard) {
   });
   draftTexts.value[round.type] = "";
   resizeTextareaAfterRender(round.type);
-  clearDraft(question.id);
 
   await runRoundAction(
     round.type,
@@ -711,6 +1042,12 @@ async function submitRoundAnswer(round: RoundCard) {
       retryAction: () => refreshAfterSubmitFailure(round.type)
     }
   );
+  if (operationFailed.value && currentQuestion.value?.id === question.id) {
+    draftTexts.value[round.type] = submittedAnswer;
+    localStorage.setItem(draftKey(question.id), submittedAnswer);
+    setDraftStatus("restored", question.id);
+    resizeTextareaAfterRender(round.type);
+  }
 }
 
 function handleComposerKeydown(event: KeyboardEvent, round: RoundCard) {
@@ -738,10 +1075,9 @@ async function finishRoundFromMenu(round: RoundCard) {
 
   openMenuRound.value = null;
   if (question?.round_id === round.id) {
-    clearDraft(question.id);
-    draftTexts.value[round.type] = "";
+    clearPendingDraftSave();
+    resetDraftStatus();
   }
-  markRoundFinished(round.id, "finished_early");
   await runRoundAction(
     round.type,
     async () => {
@@ -751,6 +1087,41 @@ async function finishRoundFromMenu(round: RoundCard) {
     },
     { initialText: "面试官正在评分，请稍后", delayedText: "面试官正在评分，请稍后" }
   );
+}
+
+async function finishExpiredRoundIfReady() {
+  const round = inProgressRound.value;
+  if (
+    !round ||
+    isInterviewPaused.value ||
+    isBusy.value ||
+    timeoutFinishingRoundId.value === round.id
+  ) {
+    return;
+  }
+  const roundType = round.round_type;
+  if (currentQuestion.value?.round_id === round.id && draftTexts.value[roundType].trim()) {
+    return;
+  }
+
+  timeoutFinishingRoundId.value = round.id;
+  const question = currentQuestion.value;
+  if (question?.round_id === round.id) {
+    clearPendingDraftSave();
+    resetDraftStatus();
+  }
+  try {
+    await runRoundAction(
+      roundType,
+      async () => {
+        const payload = await finishInterviewRound(interviewId.value, round.id, "timeout");
+        await applyActionPayload(payload, roundType);
+      },
+      { initialText: "面试官正在自然收尾", delayedText: "正在生成本轮评价" }
+    );
+  } finally {
+    timeoutFinishingRoundId.value = null;
+  }
 }
 
 async function regenerateQuestionFromMenu(round: RoundCard) {
@@ -765,7 +1136,8 @@ async function regenerateQuestionFromMenu(round: RoundCard) {
   }
 
   openMenuRound.value = null;
-  clearDraft(oldQuestion.id);
+  clearPendingDraftSave();
+  resetDraftStatus();
   await runRoundAction(
     round.type,
     async () => {
@@ -789,7 +1161,8 @@ async function skipQuestionFromMenu(round: RoundCard) {
   }
 
   openMenuRound.value = null;
-  clearDraft(oldQuestion.id);
+  clearPendingDraftSave();
+  resetDraftStatus();
   await runRoundAction(
     round.type,
     async () => {
@@ -845,14 +1218,15 @@ async function exitInterview() {
   await runRoundAction(
     actionType,
     async () => {
-      if (currentQuestion.value) {
-        clearDraft(currentQuestion.value.id);
-        const type = roundTypeById(state.value, currentQuestion.value.round_id);
-        if (type) {
-          draftTexts.value[type] = "";
-        }
+      const question = currentQuestion.value;
+      if (question) {
+        clearPendingDraftSave();
+        resetDraftStatus();
       }
       const report = await finishMultiRoundInterview(interviewId.value, "early");
+      if (question) {
+        clearDraft(question.id);
+      }
       router.push(`/history/${report.interview_id}`);
     },
     undefined,
@@ -931,6 +1305,12 @@ async function applyActionPayload(
 
   latestRoundSummary.value = payload.round_summary || null;
   latestRoundSummaryRoundType.value = fallbackType;
+  if (payload.answer_evaluation) {
+    attachAnswerEvaluation(fallbackType, payload.answer_evaluation);
+    answerBookmarkMessage.value = "";
+    answerBookmarkError.value = false;
+    answerBookmarkQuestionId.value = null;
+  }
   if (payload.question) {
     const questionRoundType = roundTypeById(state.value, payload.question.round_id) || fallbackType;
     currentQuestion.value = payload.question;
@@ -966,13 +1346,26 @@ function applyState(nextState: MultiRoundState) {
   clearMessage();
 }
 
-function markRoundInProgress(roundId: number, roundType: RoundType) {
+function markRoundInProgress(
+  roundId: number,
+  roundType: RoundType,
+  difficulty: InterviewDifficulty,
+  timeLimitMinutes: TimeLimitMinutes
+) {
   if (!state.value) {
     return;
   }
 
   const nextRounds = state.value.rounds.map((item) =>
-    item.id === roundId ? { ...item, status: "in_progress" as const, elapsed_seconds: 0 } : item
+    item.id === roundId
+      ? {
+          ...item,
+          status: "in_progress" as const,
+          elapsed_seconds: 0,
+          difficulty,
+          time_limit_minutes: timeLimitMinutes
+        }
+      : item
   );
   state.value = {
     ...state.value,
@@ -982,23 +1375,6 @@ function markRoundInProgress(roundId: number, roundType: RoundType) {
   };
   stateLoadedAt.value = Date.now();
   elapsedTick.value = Date.now();
-}
-
-function markRoundFinished(roundId: number, status: "completed" | "finished_early" | "cancelled") {
-  if (!state.value) {
-    return;
-  }
-
-  const nextRounds = state.value.rounds.map((item) =>
-    item.id === roundId ? { ...item, status } : item
-  );
-  state.value = {
-    ...state.value,
-    current_round: null,
-    rounds: nextRounds
-  };
-  currentQuestion.value = null;
-  selectedRoundType.value = null;
 }
 
 function hydrateMessages(source: MultiRoundState) {
@@ -1033,7 +1409,8 @@ function hydrateMessages(source: MultiRoundState) {
       hydrated[roundType].push({
         id: `a-${entry.id || `${roundType}-${entry.sequence || answerMessageIndex}`}`,
         role: "user",
-        text: answer
+        text: answer,
+        answerEvaluation: entry.question_evaluation || undefined
       });
     }
   }
@@ -1092,6 +1469,20 @@ function pushMessage(roundType: RoundType, item: ChatMessage) {
   scrollMessagesToEnd(roundType);
 }
 
+function attachAnswerEvaluation(roundType: RoundType, evaluation: QuestionEvaluation) {
+  const questionId = evaluation.question_id;
+  const messages = messagesByRound.value[roundType];
+  const target =
+    typeof questionId === "number"
+      ? [...messages]
+          .reverse()
+          .find((item) => item.role === "user" && item.id.startsWith(`answer-${questionId}-`))
+      : [...messages].reverse().find((item) => item.role === "user");
+  if (target) {
+    target.answerEvaluation = evaluation;
+  }
+}
+
 function roundTypeById(source: MultiRoundState | null, roundId: number): RoundType | null {
   return source?.rounds.find((round) => round.id === roundId)?.round_type || null;
 }
@@ -1146,6 +1537,7 @@ function canStartRound(round: RoundCard) {
   return (
     !isBusy.value &&
     !isInteractionPaused.value &&
+    !isRoundTimeExpired.value &&
     round.id !== null &&
     round.status === "pending" &&
     nextStartableRound.value?.id === round.id
@@ -1178,9 +1570,14 @@ function canSkipQuestion(round: RoundCard) {
 }
 
 function canTypeInRound(round: RoundCard) {
+  const maySubmitExpiredAnswer =
+    isRoundTimeExpired.value &&
+    currentQuestion.value?.round_id === round.id &&
+    Boolean(draftTexts.value[round.type].trim());
   return (
     !isBusy.value &&
     !isInteractionPaused.value &&
+    (!isRoundTimeExpired.value || maySubmitExpiredAnswer) &&
     round.status === "in_progress" &&
     currentQuestion.value?.round_id === round.id
   );
@@ -1225,6 +1622,11 @@ function answerPlaceholder(round: RoundCard) {
   }
   if (isFlowPaused.value) {
     return "面试已暂停，请稍后继续";
+  }
+  if (isRoundTimeExpired.value) {
+    return draftTexts.value[round.type].trim()
+      ? "请提交当前回答，提交后本轮自动结束"
+      : "本轮已到限时，正在生成评价";
   }
   if (round.status === "pending") {
     return "点击 + 开始本轮";
@@ -1311,6 +1713,219 @@ function questionEvaluationText(evaluation: QuestionEvaluation) {
   return evaluation.follow_up_direction || "已完成本题评分。";
 }
 
+function answerQualityTone(evaluation: QuestionEvaluation): string {
+  if (evaluation.status === "fallback" || evaluation.total_score === null) {
+    return "quality-hint";
+  }
+  const score = evaluation.total_score ?? 0;
+  if (score >= 80) {
+    return "quality-strong";
+  }
+  if (score >= 60) {
+    return "quality-steady";
+  }
+  return "quality-needs-work";
+}
+
+function answerQualityLabel(evaluation: QuestionEvaluation): string {
+  if (evaluation.status === "fallback" || evaluation.total_score === null) {
+    return "结构建议";
+  }
+  const score = evaluation.total_score ?? 0;
+  if (score >= 80) {
+    return "表现较好";
+  }
+  if (score >= 60) {
+    return "可以打磨";
+  }
+  return "需要补强";
+}
+
+function answerQualityLead(evaluation: QuestionEvaluation): string {
+  if (evaluation.status === "fallback" || evaluation.total_score === null) {
+    return "本次未生成可靠分数，以下建议仅用于检查回答结构。";
+  }
+  const score = evaluation.total_score ?? 0;
+  if (score >= 80) {
+    return "回答整体扎实，可以继续强化证据和岗位相关性。";
+  }
+  if (score >= 60) {
+    return "回答方向基本成立，建议优先补足下面的关键信息。";
+  }
+  return "回答仍有明显缺口，建议按下面的提示补充后再复盘。";
+}
+
+function answerQualityStrengths(evaluation: QuestionEvaluation): string[] {
+  return uniqueEvaluationText(evaluation.strengths).slice(0, 3);
+}
+
+function answerQualityIssues(evaluation: QuestionEvaluation): string[] {
+  return uniqueEvaluationText(evaluation.issues).slice(0, 4);
+}
+
+function answerQualityEvidence(evaluation: QuestionEvaluation): string[] {
+  return uniqueEvaluationText(evaluation.evidence).slice(0, 3);
+}
+
+function answerQualityDimensions(evaluation: QuestionEvaluation) {
+  return (evaluation.dimension_scores || []).filter(
+    (item) =>
+      item &&
+      typeof item.dimension === "string" &&
+      item.dimension.trim() &&
+      typeof item.score === "number"
+  );
+}
+
+function uniqueEvaluationText(values?: string[]): string[] {
+  return [...new Set((values || []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function hasAnswerQualityDetails(evaluation: QuestionEvaluation): boolean {
+  return Boolean(
+    answerQualityDimensions(evaluation).length ||
+    answerQualityStrengths(evaluation).length ||
+    answerQualityIssues(evaluation).length ||
+    evaluation.follow_up_direction ||
+    answerQualityEvidence(evaluation).length
+  );
+}
+
+function canBookmarkAnswer(evaluation: QuestionEvaluation): boolean {
+  return typeof evaluation.question_id === "number";
+}
+
+function isSavingAnswerBookmark(evaluation: QuestionEvaluation): boolean {
+  return (
+    typeof evaluation.question_id === "number" &&
+    savingBookmarkQuestionId.value === evaluation.question_id
+  );
+}
+
+function answerBookmarkButtonText(evaluation: QuestionEvaluation): string {
+  const questionId = evaluation.question_id;
+  if (typeof questionId !== "number") {
+    return "无法收藏";
+  }
+  if (savingBookmarkQuestionId.value === questionId) {
+    return "加入中";
+  }
+  if (savedBookmarkQuestionIds.value.has(questionId)) {
+    return "已加入复盘";
+  }
+  return "加入复盘";
+}
+
+async function bookmarkAnswerEvaluation(evaluation: QuestionEvaluation) {
+  if (!canBookmarkAnswer(evaluation) || isSavingAnswerBookmark(evaluation)) {
+    return;
+  }
+  const questionId = evaluation.question_id as number;
+  savingBookmarkQuestionId.value = questionId;
+  answerBookmarkMessage.value = "";
+  answerBookmarkError.value = false;
+  answerBookmarkQuestionId.value = questionId;
+  try {
+    const issues = answerQualityIssues(evaluation);
+    const primaryIssue = issues[0] || answerQualityLead(evaluation);
+    const roundType =
+      (evaluation.round_id ? roundTypeById(state.value, evaluation.round_id) : null) ||
+      activeRound.value?.type;
+    await saveReviewBookmark({
+      interview_id: interviewId.value,
+      round_id: evaluation.round_id,
+      question_id: questionId,
+      round_type: roundType,
+      title: clipBookmarkText(primaryIssue, 500),
+      issue: clipBookmarkText(primaryIssue, 1000),
+      suggestion: clipBookmarkText(
+        evaluation.follow_up_direction || issues[1] || primaryIssue,
+        1000
+      ),
+      source_score:
+        typeof evaluation.total_score === "number"
+          ? normalizeBookmarkScore(evaluation.total_score)
+          : undefined,
+      evaluation: reviewBookmarkEvaluation(evaluation)
+    });
+    savedBookmarkQuestionIds.value = new Set([
+      ...Array.from(savedBookmarkQuestionIds.value),
+      questionId
+    ]);
+    answerBookmarkMessage.value = "已加入首页复盘清单";
+  } catch (error) {
+    answerBookmarkMessage.value =
+      error instanceof ApiError ? error.message : "加入复盘失败，请稍后重试。";
+    answerBookmarkError.value = true;
+  } finally {
+    savingBookmarkQuestionId.value = null;
+  }
+}
+
+function resetAnswerBookmarkState() {
+  savingBookmarkQuestionId.value = null;
+  answerBookmarkMessage.value = "";
+  answerBookmarkError.value = false;
+  answerBookmarkQuestionId.value = null;
+}
+
+function clipBookmarkText(value: string | null | undefined, maxLength: number) {
+  const normalized = value?.trim();
+  return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+function reviewBookmarkEvaluation(evaluation: QuestionEvaluation): QuestionEvaluation {
+  return {
+    question_id: evaluation.question_id,
+    round_id: evaluation.round_id,
+    round_type: evaluation.round_type,
+    status: clipBookmarkText(evaluation.status, 32),
+    total_score:
+      typeof evaluation.total_score === "number"
+        ? normalizeBookmarkScore(evaluation.total_score)
+        : evaluation.total_score,
+    dimension_scores: normalizeBookmarkDimensionScores(evaluation.dimension_scores),
+    strengths: evaluation.strengths?.slice(0, 8).map((item) => item.slice(0, 1000)),
+    issues: evaluation.issues?.slice(0, 8).map((item) => item.slice(0, 1000)),
+    evidence: evaluation.evidence?.slice(0, 8).map((item) => item.slice(0, 1000)),
+    should_follow_up: evaluation.should_follow_up,
+    follow_up_direction: clipBookmarkText(evaluation.follow_up_direction, 1000),
+    prompt_version: clipBookmarkText(evaluation.prompt_version, 128),
+    model_name: clipBookmarkText(evaluation.model_name, 128)
+  };
+}
+
+function normalizeBookmarkDimensionScores(value: unknown[] | undefined) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.slice(0, 8).flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    const dimension =
+      typeof record.dimension === "string" ? record.dimension.trim().slice(0, 120) : "";
+    if (!dimension || typeof record.score !== "number") {
+      return [];
+    }
+    return [
+      {
+        dimension,
+        score: normalizeBookmarkScore(record.score),
+        reason:
+          typeof record.reason === "string"
+            ? record.reason.trim().slice(0, 1000) || undefined
+            : undefined
+      }
+    ];
+  });
+}
+
+function normalizeBookmarkScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
 function formatDuration(totalSeconds: number) {
   const normalized = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(normalized / 60);
@@ -1347,21 +1962,151 @@ function clearDraft(questionId: number) {
   localStorage.removeItem(draftKey(questionId));
 }
 
+function draftContextForQuestion(
+  question: MultiRoundQuestion,
+  roundType: RoundType
+): DraftContext | null {
+  if (!Number.isFinite(interviewId.value)) {
+    return null;
+  }
+  return {
+    interviewId: interviewId.value,
+    roundId: question.round_id,
+    questionId: question.id,
+    roundType
+  };
+}
+
+function currentDraftContext(type: RoundType): DraftContext | null {
+  const question = currentQuestion.value;
+  if (!question || roundTypeById(state.value, question.round_id) !== type) {
+    return null;
+  }
+  return draftContextForQuestion(question, type);
+}
+
+function isCurrentDraftContext(context: DraftContext) {
+  const question = currentQuestion.value;
+  return (
+    question?.id === context.questionId &&
+    question.round_id === context.roundId &&
+    interviewId.value === context.interviewId &&
+    roundTypeById(state.value, question.round_id) === context.roundType
+  );
+}
+
+function setDraftStatus(status: DraftSaveStatus, questionId: number) {
+  draftSaveStatus.value = status;
+  draftStatusQuestionId.value = questionId;
+}
+
+function resetDraftStatus() {
+  draftSaveStatus.value = "idle";
+  draftStatusQuestionId.value = null;
+}
+
+function clearPendingDraftSave() {
+  if (draftSaveTimer !== null) {
+    window.clearTimeout(draftSaveTimer);
+    draftSaveTimer = null;
+  }
+  draftSaveToken += 1;
+}
+
 function onDraftInput(type: RoundType) {
   resizeTextarea(type);
-  if (
-    !currentQuestion.value ||
-    roundTypeById(state.value, currentQuestion.value.round_id) !== type
-  ) {
+  const context = currentDraftContext(type);
+  if (!context) {
     return;
   }
 
   const value = draftTexts.value[type];
-  const key = draftKey(currentQuestion.value.id);
+  const key = draftKey(context.questionId);
   if (value.trim()) {
     localStorage.setItem(key, value);
+    setDraftStatus("saving", context.questionId);
   } else {
     localStorage.removeItem(key);
+    resetDraftStatus();
+  }
+  scheduleRemoteDraftSave(context);
+}
+
+async function loadRemoteDraft(question: MultiRoundQuestion, type: RoundType, localDraft: string) {
+  const context = draftContextForQuestion(question, type);
+  if (!context) {
+    return;
+  }
+  const token = ++draftLoadToken;
+  try {
+    const draft = await getRoundAnswerDraft(
+      context.interviewId,
+      context.roundId,
+      context.questionId
+    );
+    if (token !== draftLoadToken || !isCurrentDraftContext(context)) {
+      return;
+    }
+    const remoteDraft = draft.answer || "";
+    const currentText = draftTexts.value[type];
+    if (remoteDraft.trim() && !localDraft.trim() && !currentText.trim()) {
+      draftTexts.value[type] = remoteDraft;
+      localStorage.setItem(draftKey(context.questionId), remoteDraft);
+      setDraftStatus("restored", context.questionId);
+      resizeTextareaAfterRender(type);
+      return;
+    }
+    if (localDraft.trim()) {
+      setDraftStatus("restored", context.questionId);
+      scheduleRemoteDraftSave(context);
+      return;
+    }
+    if (!remoteDraft.trim()) {
+      resetDraftStatus();
+    }
+  } catch {
+    if (isCurrentDraftContext(context) && !localDraft.trim()) {
+      resetDraftStatus();
+    }
+  }
+}
+
+function scheduleRemoteDraftSave(context: DraftContext) {
+  clearPendingDraftSave();
+  const answer = draftTexts.value[context.roundType];
+  draftSaveTimer = window.setTimeout(() => {
+    draftSaveTimer = null;
+    void persistRemoteDraft(context, answer);
+  }, DRAFT_SAVE_DELAY_MS);
+}
+
+async function persistRemoteDraft(context: DraftContext, answer: string) {
+  if (!isCurrentDraftContext(context)) {
+    return;
+  }
+  const token = ++draftSaveToken;
+  const hasContent = Boolean(answer.trim());
+  if (hasContent) {
+    setDraftStatus("saving", context.questionId);
+  }
+  try {
+    if (hasContent) {
+      await saveRoundAnswerDraft(context.interviewId, context.roundId, context.questionId, answer);
+    } else {
+      await deleteRoundAnswerDraft(context.interviewId, context.roundId, context.questionId);
+    }
+    if (token !== draftSaveToken || !isCurrentDraftContext(context)) {
+      return;
+    }
+    if (hasContent) {
+      setDraftStatus("saved", context.questionId);
+    } else {
+      resetDraftStatus();
+    }
+  } catch {
+    if (isCurrentDraftContext(context)) {
+      setDraftStatus("error", context.questionId);
+    }
   }
 }
 
@@ -1479,11 +2224,11 @@ function clearMessage() {
   position: relative;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
   height: 100%;
   max-height: 100%;
   min-height: 0;
-  padding: 24px 28px;
+  padding: 18px 20px;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 8%, rgba(59, 156, 255, 0.12), transparent 28%),
@@ -1546,7 +2291,7 @@ function clearMessage() {
 
 .room-header {
   display: flex;
-  gap: 20px;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
   min-width: 0;
@@ -1554,24 +2299,12 @@ function clearMessage() {
 
 .room-title {
   min-width: 0;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0;
 }
 
 .room-title h1 {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(16px, 1.2vw, 18px);
+  font-size: clamp(18px, 1.4vw, 22px);
   font-weight: 800;
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -1579,15 +2312,15 @@ function clearMessage() {
 
 .room-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
   flex-shrink: 0;
 }
 
 .theme-toggle,
 .panel-toggle {
-  min-height: 46px;
-  padding: 0 18px;
+  min-height: 40px;
+  padding: 0 14px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1612,8 +2345,9 @@ function clearMessage() {
 }
 
 .round-board {
-  display: flex;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
   align-items: stretch;
   min-width: 0;
   width: 100%;
@@ -1626,29 +2360,23 @@ function clearMessage() {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   grid-template-rows: auto auto;
-  gap: 2px 8px;
-  flex: 1 1 0;
+  gap: 3px 10px;
   min-width: 0;
-  min-height: 56px;
-  padding: 8px;
+  min-height: 60px;
+  padding: 10px 12px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--panel) 92%, var(--soft));
   color: var(--ink);
   cursor: default;
-  opacity: 0.72;
-  transform: scale(0.985);
-  transform-origin: center;
+  opacity: 0.76;
+  text-align: left;
   transition:
-    flex-basis 520ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    flex-grow 520ms cubic-bezier(0.2, 0.8, 0.2, 1),
     border-color 280ms ease,
     background-color 280ms ease,
     box-shadow 280ms ease,
-    opacity 280ms ease,
-    transform 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: transform;
+    opacity 280ms ease;
 }
 
 .round-card[data-round="resume"] {
@@ -1673,11 +2401,9 @@ function clearMessage() {
 }
 
 .round-card.is-current {
-  flex: 1.08 1 0;
   border-color: var(--round-accent);
   background: var(--panel-strong);
-  box-shadow: 0 16px 34px color-mix(in srgb, var(--round-accent) 18%, transparent);
-  transform: translateY(-2px) scale(1);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--round-accent) 14%, transparent);
 }
 
 .is-dark .round-card {
@@ -1688,10 +2414,6 @@ function clearMessage() {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--round-accent) 45%, transparent),
     0 16px 34px color-mix(in srgb, var(--round-accent) 18%, transparent);
-}
-
-.round-card.is-current:not(.is-switching) {
-  animation: round-breathe 5.2s ease-in-out infinite;
 }
 
 .round-card.is-switching {
@@ -1805,8 +2527,8 @@ function clearMessage() {
 
 .room-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 292px;
+  gap: 16px;
   height: 100%;
   min-height: 0;
   transition: grid-template-columns 220ms ease;
@@ -1824,7 +2546,7 @@ function clearMessage() {
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: 16px;
   background: var(--panel-strong);
   box-shadow: var(--shadow-md);
 }
@@ -1832,10 +2554,10 @@ function clearMessage() {
 .round-messages {
   display: grid;
   align-content: start;
-  gap: 28px;
+  gap: 20px;
   min-height: 0;
   overflow-y: auto;
-  padding: 28px 34px 34px;
+  padding: 22px 24px 26px;
   scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
 }
 
@@ -1845,8 +2567,8 @@ function clearMessage() {
 
 .message-row {
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 
@@ -1856,8 +2578,8 @@ function clearMessage() {
 }
 
 .message-row img {
-  width: 50px;
-  height: 50px;
+  width: 42px;
+  height: 42px;
   border-radius: 999px;
   object-fit: cover;
   box-shadow: 0 10px 20px rgba(59, 86, 150, 0.1);
@@ -1869,9 +2591,9 @@ function clearMessage() {
 
 .bubble {
   width: fit-content;
-  max-width: min(720px, 82%);
-  padding: 20px 28px;
-  border-radius: 16px;
+  max-width: min(760px, 86%);
+  padding: 16px 20px;
+  border-radius: 14px;
   color: var(--ink);
   line-height: 1.75;
   box-shadow: 0 1px 0 rgba(31, 68, 120, 0.04);
@@ -1914,20 +2636,22 @@ function clearMessage() {
 .round-composer {
   position: relative;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 48px;
-  gap: 14px;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  gap: 10px;
   align-items: center;
   margin: 0;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-right: 0;
   border-bottom: 0;
   border-left: 0;
-  border-radius: 0 0 20px 20px;
+  border-radius: 0 0 16px 16px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
 }
 
 .round-composer textarea {
+  grid-column: 2;
+  grid-row: 1;
   width: 100%;
   min-height: 46px;
   max-height: 132px;
@@ -1949,18 +2673,40 @@ function clearMessage() {
 .send-button {
   display: grid;
   place-items: center;
-  width: 48px;
-  min-height: 48px;
+  width: 42px;
+  min-height: 42px;
   padding: 0;
-  border-radius: 14px;
-  font-size: 24px;
+  border-radius: 12px;
+  font-size: 20px;
   font-weight: 800;
   line-height: 1;
 }
 
 .composer-plus {
+  grid-column: 1;
+  grid-row: 1;
   background: color-mix(in srgb, var(--brand-500) 9%, var(--panel));
   color: var(--brand-500);
+}
+
+.send-button {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.draft-status {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: start;
+  min-height: 16px;
+  margin: -8px 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.draft-status-error {
+  color: var(--danger);
 }
 
 .send-button {
@@ -2005,11 +2751,11 @@ function clearMessage() {
 .info-panel {
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 14px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: 16px;
   background: var(--panel-strong);
   box-shadow: var(--shadow-md);
   opacity: 1;
@@ -2029,26 +2775,31 @@ function clearMessage() {
   gap: 12px;
   align-items: start;
   justify-content: space-between;
-  padding: 28px 32px 0;
+  padding: 20px 20px 0;
 }
 
 .info-head div {
   display: grid;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
 }
 
 .info-head span {
   color: var(--ink);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
 }
 
 .info-head strong {
   color: var(--accent);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+.info-head strong.danger,
+.info-list dd.danger {
+  color: var(--danger);
 }
 
 .info-head button {
@@ -2059,8 +2810,8 @@ function clearMessage() {
 }
 
 .progress-meter {
-  height: 8px;
-  margin: 0 32px;
+  height: 6px;
+  margin: 0 20px;
   overflow: hidden;
   border-radius: 999px;
   background: color-mix(in srgb, var(--muted) 16%, transparent);
@@ -2077,66 +2828,35 @@ function clearMessage() {
 .info-list {
   display: grid;
   gap: 0;
-  margin: 0 32px;
+  margin: 0 20px 20px;
 }
 
 .info-list div {
   display: grid;
   gap: 6px;
-  padding: 16px 0;
+  padding: 12px 0;
   border-top: 1px solid var(--line);
 }
 
 .info-list dt {
   color: var(--ink);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 800;
 }
 
 .info-list dd {
   margin: 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
   overflow-wrap: anywhere;
-}
-
-.mini-rounds {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 0 32px 28px;
-}
-
-.mini-rounds span {
-  min-width: 0;
-  padding: 8px 10px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mini-rounds span.active,
-.mini-rounds span.in_progress {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 800;
-}
-
-.mini-rounds span.completed,
-.mini-rounds span.finished_early {
-  color: #22a06b;
 }
 
 .state-strip,
 .failure-strip,
 .current-round-bar,
 .overall-bar,
+.answer-quality-panel,
 .summary-panel {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -2201,6 +2921,251 @@ function clearMessage() {
 .failure-strip button {
   min-height: 32px;
   padding: 4px 10px;
+}
+
+.answer-quality-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 32px 14px;
+  padding: 14px 16px;
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent 58%),
+    var(--panel);
+}
+
+.answer-quality-panel.answer-quality-inline {
+  margin: -2px 0 2px 54px;
+}
+
+.answer-quality-panel.quality-strong {
+  border-color: color-mix(in srgb, #22a06b 38%, var(--line));
+}
+
+.answer-quality-panel.quality-needs-work {
+  border-color: color-mix(in srgb, #df4d5f 42%, var(--line));
+}
+
+.answer-quality-panel.quality-hint {
+  border-color: color-mix(in srgb, #e6962a 38%, var(--line));
+}
+
+.answer-quality-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.answer-quality-score span,
+.answer-quality-score em {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: normal;
+}
+
+.answer-quality-score strong {
+  color: var(--ink);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.answer-quality-panel p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.answer-quality-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.answer-quality-section h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.answer-quality-dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.answer-quality-dimension-grid article {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+}
+
+.answer-quality-dimension-grid article > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.answer-quality-dimension-grid strong,
+.answer-quality-dimension-grid span {
+  font-size: 12px;
+}
+
+.answer-quality-dimension-grid span {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.answer-quality-dimension-grid article p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.answer-quality-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.answer-quality-detail-grid > section {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-strong) 68%, transparent);
+}
+
+.quality-strengths h4 {
+  color: #16875a;
+}
+
+.quality-issues h4 {
+  color: #c0364a;
+}
+
+.quality-strengths li::before {
+  background: #22a06b;
+}
+
+.quality-issues li::before {
+  background: #df4d5f;
+}
+
+.answer-quality-next-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel-strong));
+}
+
+.answer-quality-next-step strong,
+.answer-quality-next-step span,
+.answer-quality-panel summary {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.answer-quality-next-step strong {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.answer-quality-next-step span {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.answer-quality-panel details {
+  color: var(--muted);
+}
+
+.answer-quality-panel summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.answer-quality-panel details ul {
+  margin-top: 8px;
+}
+
+.answer-quality-panel .quality-empty {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.answer-quality-panel ul {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.answer-quality-panel li {
+  position: relative;
+  padding-left: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.answer-quality-panel li::before {
+  position: absolute;
+  top: 0.72em;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  content: "";
+}
+
+.answer-quality-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.answer-quality-actions span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.answer-quality-actions span.error {
+  color: #c0364a;
+}
+
+.answer-quality-actions button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.answer-quality-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
 }
 
 .summary-panel {
@@ -2437,17 +3402,6 @@ function clearMessage() {
   }
 }
 
-@keyframes round-breathe {
-  0%,
-  100% {
-    transform: translateY(-1px) scale(1);
-  }
-
-  50% {
-    transform: translateY(-1.5px) scale(1.004);
-  }
-}
-
 @keyframes interviewer-idle {
   0%,
   100% {
@@ -2522,6 +3476,121 @@ function clearMessage() {
   }
 }
 
+.round-config-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 58%);
+  backdrop-filter: blur(4px);
+}
+
+.round-config-modal {
+  width: min(680px, 100%);
+  padding: 26px;
+  border: 1px solid #dbe3ee;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 24%);
+}
+
+.round-config-modal > header,
+.round-config-modal > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.round-config-modal > header span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.round-config-modal h2 {
+  margin: 4px 0 0;
+}
+
+.round-config-modal > header > button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  font-size: 22px;
+}
+
+.round-config-focus,
+.round-config-note {
+  color: #64748b;
+  line-height: 1.65;
+}
+
+.round-config-modal fieldset {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.round-config-modal legend {
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.round-config-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.round-config-options button {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #1e293b;
+  text-align: left;
+}
+
+.round-config-options button.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.round-config-options small {
+  color: #64748b;
+}
+
+.round-config-note {
+  margin: 18px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f1f5f9;
+}
+
+.round-config-modal > footer {
+  justify-content: flex-end;
+}
+
+.round-config-modal > footer button {
+  min-width: 96px;
+  padding: 10px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.round-config-modal > footer .primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
 @media (max-width: 1180px) {
   .multi-stage {
     gap: 12px;
@@ -2557,7 +3626,7 @@ function clearMessage() {
   }
 
   .room-main {
-    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) 260px;
     gap: 16px;
   }
 
@@ -2574,13 +3643,17 @@ function clearMessage() {
     margin-left: 24px;
   }
 
+  .answer-quality-panel.answer-quality-inline {
+    margin-right: 0;
+    margin-left: 0;
+  }
+
   .round-composer {
     margin-right: 0;
     margin-left: 0;
   }
 
-  .info-head,
-  .mini-rounds {
+  .info-head {
     padding-right: 22px;
     padding-left: 22px;
   }
@@ -2593,6 +3666,10 @@ function clearMessage() {
 }
 
 @media (max-width: 900px) {
+  .answer-quality-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   .multi-stage {
     height: auto;
     max-height: none;
@@ -2626,18 +3703,10 @@ function clearMessage() {
     max-width: none;
   }
 
-  .round-card.is-current {
-    flex: 1 1 auto;
-  }
-
   .room-main,
   .multi-stage.info-collapsed .room-main {
     grid-template-columns: 1fr;
     gap: 14px;
-  }
-
-  .info-panel {
-    order: -1;
   }
 
   .conversation-panel {
@@ -2648,6 +3717,14 @@ function clearMessage() {
 @media (max-width: 640px) {
   .multi-stage {
     padding: 12px;
+  }
+
+  .round-config-modal {
+    padding: 20px;
+  }
+
+  .round-config-options {
+    grid-template-columns: 1fr;
   }
 
   .room-title h1 {
@@ -2718,6 +3795,7 @@ function clearMessage() {
   }
 
   .summary-panel,
+  .answer-quality-panel,
   .failure-strip,
   .current-round-bar {
     margin-right: 12px;

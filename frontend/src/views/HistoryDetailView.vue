@@ -5,7 +5,7 @@
         <p class="detail-breadcrumb">
           <RouterLink to="/history">历史记录</RouterLink><span>/</span>面试详情
         </p>
-        <h1>面试详情 <i aria-hidden="true">✦</i></h1>
+        <h1>面试复盘</h1>
       </div>
       <div class="header-actions">
         <RouterLink class="detail-button" to="/history"
@@ -18,58 +18,24 @@
 
     <div v-if="detail" class="detail-page">
       <section class="overview-panel" aria-label="面试概览">
-        <div class="overview-art" aria-hidden="true">
-          <img :src="historyHeroBoy" alt="" />
-          <span class="art-glow"></span>
-          <span class="art-spark spark-one">✦</span>
-          <span class="art-spark spark-two">✦</span>
-        </div>
         <div class="position-copy">
-          <span>面试岗位 <i aria-hidden="true">✦</i></span>
+          <span>面试岗位</span>
           <h2>{{ detail.target_position || "目标岗位" }}</h2>
-          <p>代码筑基，系统赋能，创造无限可能 <b aria-hidden="true">✦</b></p>
+          <div class="overview-meta">
+            <span>开始于 {{ formatDateTime(detail.started_at) }}</span>
+            <span>结束于 {{ formatDateTime(detail.ended_at) }}</span>
+            <span>简历 #{{ detail.resume.id }}</span>
+          </div>
         </div>
-        <dl class="summary-metrics">
-          <div class="score-metric">
-            <dt>最终综合评分</dt>
-            <dd>
-              <span class="metric-icon trophy">♛</span
-              ><strong class="final-score-value">{{ finalScoreNumber }}<em>/100</em></strong>
-            </dd>
-            <small>综合评分</small>
-          </div>
+        <div class="score-summary">
           <div>
-            <dt>状态</dt>
-            <dd>
-              <span class="metric-icon success">✓</span
-              ><strong>{{ statusText(detail.overall_status || detail.status) }}</strong>
-            </dd>
-            <small>面试已完成</small>
+            <span>综合评分</span>
+            <strong>{{ finalScoreNumber }}<em>/100</em></strong>
           </div>
-          <div>
-            <dt>开始时间</dt>
-            <dd>
-              <span class="metric-icon">◫</span
-              ><strong>{{ formatDatePart(detail.started_at) }}</strong>
-            </dd>
-            <small>{{ formatTimePart(detail.started_at) }}</small>
-          </div>
-          <div>
-            <dt>结束时间</dt>
-            <dd>
-              <span class="metric-icon violet">◫</span
-              ><strong>{{ formatDatePart(detail.ended_at) }}</strong>
-            </dd>
-            <small>{{ formatTimePart(detail.ended_at) }}</small>
-          </div>
-          <div>
-            <dt>简历编号</dt>
-            <dd>
-              <span class="metric-icon document">▤</span><strong>#{{ detail.resume.id }}</strong>
-            </dd>
-            <small>本次投递简历</small>
-          </div>
-        </dl>
+          <span class="overview-status">{{
+            statusText(detail.overall_status || detail.status)
+          }}</span>
+        </div>
       </section>
 
       <section
@@ -82,9 +48,54 @@
           <strong>{{ reportReliabilityNotice.title }}</strong>
           <p>{{ reportReliabilityNotice.text }}</p>
         </div>
-        <div class="notice-character" aria-hidden="true">
-          <img :src="historyNoticeGirl" alt="" />
-        </div>
+      </section>
+
+      <section v-if="detail.feedback_report" class="report-insights" aria-label="综合结论">
+        <article
+          v-if="detail.feedback_report?.recommendation || detail.feedback_report?.final_conclusion"
+          class="report-info-card conclusion-card"
+        >
+          <div class="report-card-heading">
+            <span>结</span>
+            <div>
+              <small>综合结论</small>
+              <h2>录用建议</h2>
+            </div>
+          </div>
+          <p>
+            {{
+              detail.feedback_report.final_conclusion ||
+              detail.feedback_report.recommendation ||
+              "暂无建议"
+            }}
+          </p>
+          <div class="conclusion-meta">
+            <span v-if="detail.feedback_report.confidence"
+              >置信度 · {{ confidenceText(detail.feedback_report.confidence) }}</span
+            >
+            <span v-if="detail.feedback_report.job_match">{{
+              detail.feedback_report.job_match
+            }}</span>
+          </div>
+        </article>
+
+        <article
+          v-if="detail.feedback_report?.ability_analysis?.length"
+          class="report-info-card analysis-card"
+        >
+          <div class="report-card-heading">
+            <span>析</span>
+            <div>
+              <small>能力拆解</small>
+              <h2>能力分析</h2>
+            </div>
+          </div>
+          <ul>
+            <li v-for="item in detail.feedback_report.ability_analysis" :key="item">
+              {{ item }}
+            </li>
+          </ul>
+        </article>
       </section>
 
       <section v-if="reportQuality" class="report-quality-panel" aria-label="报告可信度与得分依据">
@@ -254,54 +265,6 @@
         class="report-detail-section"
         aria-label="面试报告详情"
       >
-        <section class="report-insights" aria-label="综合结论">
-          <article
-            v-if="detail.feedback_report.recommendation || detail.feedback_report.final_conclusion"
-            class="report-info-card conclusion-card"
-          >
-            <div class="report-card-heading">
-              <span>✦</span>
-              <div>
-                <small>综合结论</small>
-                <h2>录用建议</h2>
-              </div>
-            </div>
-            <p>
-              {{
-                detail.feedback_report.final_conclusion ||
-                detail.feedback_report.recommendation ||
-                "暂无建议"
-              }}
-            </p>
-            <div class="conclusion-meta">
-              <span v-if="detail.feedback_report.confidence"
-                >置信度 · {{ confidenceText(detail.feedback_report.confidence) }}</span
-              >
-              <span v-if="detail.feedback_report.job_match">{{
-                detail.feedback_report.job_match
-              }}</span>
-            </div>
-          </article>
-
-          <article
-            v-if="detail.feedback_report.ability_analysis?.length"
-            class="report-info-card analysis-card"
-          >
-            <div class="report-card-heading">
-              <span>◇</span>
-              <div>
-                <small>能力拆解</small>
-                <h2>能力分析</h2>
-              </div>
-            </div>
-            <ul>
-              <li v-for="item in detail.feedback_report.ability_analysis" :key="item">
-                {{ item }}
-              </li>
-            </ul>
-          </article>
-        </section>
-
         <section class="growth-grid" aria-label="优势与成长建议">
           <article class="growth-card strengths">
             <div class="growth-title">
@@ -333,6 +296,73 @@
             </ul>
             <p v-else>报告中暂未返回建议项。</p>
           </article>
+        </section>
+
+        <section
+          v-if="detail.feedback_report"
+          class="report-bookmark-panel"
+          aria-label="生成复盘收藏"
+        >
+          <div class="report-bookmark-heading">
+            <span>R</span>
+            <div>
+              <small>复盘任务</small>
+              <h2>将报告问题加入复盘收藏</h2>
+            </div>
+          </div>
+          <p>
+            {{
+              reportBookmarkCandidateCount > 0
+                ? `预计生成 ${reportBookmarkCandidateCount} 条复盘收藏`
+                : "当前报告暂无可生成的复盘问题"
+            }}
+          </p>
+          <div class="report-bookmark-actions">
+            <button
+              type="button"
+              :disabled="isCreatingReportBookmarks || reportBookmarkCandidateCount === 0"
+              @click="createReportBookmarks"
+            >
+              {{ isCreatingReportBookmarks ? "生成中" : "批量加入复盘" }}
+            </button>
+            <RouterLink to="/review-bookmarks">查看复盘收藏</RouterLink>
+          </div>
+          <p
+            v-if="reportBookmarkMessage"
+            class="report-bookmark-message"
+            :class="{ error: reportBookmarkError }"
+          >
+            {{ reportBookmarkMessage }}
+          </p>
+        </section>
+
+        <section v-if="practiceItems.length" class="practice-panel" aria-label="薄弱项专项再练">
+          <div class="practice-heading">
+            <span>↻</span>
+            <div>
+              <small>专项再练</small>
+              <h2>按薄弱项开始新面试</h2>
+            </div>
+          </div>
+          <div class="practice-list">
+            <article v-for="item in practiceItems" :key="item.key">
+              <div>
+                <small>{{ item.sourceLabel }}</small>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.suggestion || "围绕该薄弱项补充更具体的案例、行动和结果。" }}</p>
+              </div>
+              <button
+                type="button"
+                :disabled="isCreatingPractice"
+                @click="startWeaknessPractice(item)"
+              >
+                {{ activePracticeKey === item.key ? "创建中" : "专项再练" }}
+              </button>
+            </article>
+          </div>
+          <p v-if="practiceMessage" class="practice-message" :class="{ error: practiceError }">
+            {{ practiceMessage }}
+          </p>
         </section>
 
         <section v-if="detailedFeedback" class="diagnosis-section" aria-label="详细问题诊断">
@@ -509,35 +539,44 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import {
   ApiError,
+  createReviewBookmarksFromReport,
+  createWeaknessPractice,
   getDashboardSummary,
   getHistoryDetail,
   type DashboardSummary,
   type HistoryDetail,
   type InterviewRound,
   type MultiRoundQaEntry,
+  type ProblemDiagnosis,
   type QuestionEvaluation,
   type ReportQualitySummary,
+  type RoundReview,
   type RoundScore,
   type RoundType
 } from "../api";
-import historyChartMascot from "../assets/history-detail/history-chart-mascot.png";
-import historyHeroBoy from "../assets/history-detail/history-hero-boy.png";
-import historyNoticeGirl from "../assets/history-detail/history-notice-girl.png";
-import hrInterviewer from "../assets/interviewers/hr-interviewer.png";
-import managerInterviewer from "../assets/interviewers/manager-interviewer.png";
-import resumeInterviewer from "../assets/interviewers/resume-interviewer.png";
-import technicalInterviewer from "../assets/interviewers/technical-interviewer.png";
+import historyChartMascot from "../assets/history-detail/history-chart-mascot.webp";
+import hrInterviewer from "../assets/interviewers/hr-interviewer.webp";
+import managerInterviewer from "../assets/interviewers/manager-interviewer.webp";
+import resumeInterviewer from "../assets/interviewers/resume-interviewer.webp";
+import technicalInterviewer from "../assets/interviewers/technical-interviewer.webp";
 
 const route = useRoute();
+const router = useRouter();
 const detail = ref<HistoryDetail | null>(null);
 const dashboard = ref<DashboardSummary | null>(null);
 const message = ref("");
 const hasError = ref(false);
 const expandedRoundType = ref<RoundType | null>(null);
+const activePracticeKey = ref<string | null>(null);
+const practiceMessage = ref("");
+const practiceError = ref(false);
+const isCreatingReportBookmarks = ref(false);
+const reportBookmarkMessage = ref("");
+const reportBookmarkError = ref(false);
 const orderedRoundTypes: RoundType[] = ["resume", "technical", "manager", "hr"];
 const roundMeta: Record<RoundType, { image: string; interviewer: string; icon: string }> = {
   resume: { image: resumeInterviewer, interviewer: "简历官小A", icon: "▤" },
@@ -618,6 +657,45 @@ const qualityMetrics = computed(() => {
     }
   ];
 });
+type WeaknessPracticeItem = {
+  key: string;
+  title: string;
+  weakness: string;
+  suggestion?: string;
+  roundType?: RoundType;
+  sourceLabel: string;
+};
+
+const isCreatingPractice = computed(() => activePracticeKey.value !== null);
+const reportBookmarkCandidateCount = computed(() => {
+  const diagnosis = detailedFeedback.value?.problem_diagnosis || [];
+  if (diagnosis.length > 0) {
+    return Math.min(
+      diagnosis.filter((item) => String(item.severity || "").toLowerCase() === "high").length,
+      6
+    );
+  }
+  return Math.min(detail.value?.feedback_report?.weaknesses?.length || 0, 6);
+});
+const practiceItems = computed<WeaknessPracticeItem[]>(() => {
+  const items: WeaknessPracticeItem[] = [];
+  for (const item of detailedFeedback.value?.problem_diagnosis || []) {
+    items.push(problemDiagnosisPracticeItem(item));
+  }
+  for (const review of detailedFeedback.value?.round_reviews || []) {
+    items.push(...roundReviewPracticeItems(review));
+  }
+  for (const [index, weakness] of (detail.value?.feedback_report?.weaknesses || []).entries()) {
+    items.push({
+      key: `weakness-${index}-${weakness}`,
+      title: weakness,
+      weakness,
+      suggestion: detail.value?.feedback_report?.suggestions?.[index],
+      sourceLabel: "总评不足"
+    });
+  }
+  return dedupePracticeItems(items).slice(0, 6);
+});
 
 const abilityValues = computed(() => {
   const scoreByType = Object.fromEntries(
@@ -693,9 +771,98 @@ async function loadTrend() {
   }
 }
 
+async function startWeaknessPractice(item: WeaknessPracticeItem) {
+  const currentDetail = detail.value;
+  if (!currentDetail || isCreatingPractice.value) {
+    return;
+  }
+  activePracticeKey.value = item.key;
+  practiceMessage.value = "";
+  practiceError.value = false;
+  try {
+    const interview = await createWeaknessPractice(currentDetail.interview_id, {
+      weakness: item.weakness,
+      suggestion: item.suggestion,
+      roundType: item.roundType
+    });
+    router.push({ name: "multi-round-interview", params: { id: interview.id } });
+  } catch (error) {
+    practiceMessage.value =
+      error instanceof ApiError ? error.message : "专项再练创建失败，请稍后重试。";
+    practiceError.value = true;
+  } finally {
+    activePracticeKey.value = null;
+  }
+}
+
+async function createReportBookmarks() {
+  const currentDetail = detail.value;
+  if (
+    !currentDetail ||
+    isCreatingReportBookmarks.value ||
+    reportBookmarkCandidateCount.value === 0
+  ) {
+    return;
+  }
+  isCreatingReportBookmarks.value = true;
+  reportBookmarkMessage.value = "";
+  reportBookmarkError.value = false;
+  try {
+    const result = await createReviewBookmarksFromReport(currentDetail.interview_id);
+    reportBookmarkMessage.value = `已生成/更新 ${result.created_count} 条复盘收藏。`;
+  } catch (error) {
+    reportBookmarkMessage.value =
+      error instanceof ApiError ? error.message : "复盘收藏生成失败，请稍后重试。";
+    reportBookmarkError.value = true;
+  } finally {
+    isCreatingReportBookmarks.value = false;
+  }
+}
+
 function toggleRound(type: RoundType) {
   expandedRoundType.value = expandedRoundType.value === type ? null : type;
 }
+
+function problemDiagnosisPracticeItem(item: ProblemDiagnosis): WeaknessPracticeItem {
+  return {
+    key: `diagnosis-${item.title}`,
+    title: item.title,
+    weakness: item.title,
+    suggestion: item.suggestion,
+    sourceLabel: severityText(item.severity)
+  };
+}
+
+function roundReviewPracticeItems(review: RoundReview): WeaknessPracticeItem[] {
+  const roundType = asRoundType(review.round_type);
+  return (review.issues || []).slice(0, 2).map((issue, index) => ({
+    key: `round-${review.round_type}-${index}-${issue}`,
+    title: `${roundLabel(review.round_type)}：${issue}`,
+    weakness: issue,
+    suggestion: review.suggestions?.[index] || review.suggestions?.[0],
+    roundType: roundType || undefined,
+    sourceLabel: roundLabel(review.round_type)
+  }));
+}
+
+function dedupePracticeItems(items: WeaknessPracticeItem[]): WeaknessPracticeItem[] {
+  const seen = new Set<string>();
+  const result: WeaknessPracticeItem[] = [];
+  for (const item of items) {
+    const key = `${item.roundType || "all"}:${item.weakness.trim()}`;
+    if (!item.weakness.trim() || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function asRoundType(value: string): RoundType | null {
+  return orderedRoundTypes.includes(value as RoundType) ? (value as RoundType) : null;
+}
+
 function statusText(status: string): string {
   return (
     (
@@ -826,12 +993,6 @@ function questionText(entry: MultiRoundQaEntry): string {
 }
 function answerText(entry: MultiRoundQaEntry): string {
   return entry.answer || entry.answer_text || entry.user_answer || "暂无回答";
-}
-function formatDatePart(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString("zh-CN") : "暂无";
-}
-function formatTimePart(value: string | null): string {
-  return value ? new Date(value).toLocaleTimeString("zh-CN", { hour12: false }) : "暂无时间";
 }
 function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "暂无";
@@ -1661,6 +1822,12 @@ function formatDuration(seconds: number): string {
   }
   .round-score-grid {
     gap: 10px;
+  }
+  .practice-list article {
+    grid-template-columns: 1fr;
+  }
+  .practice-list button {
+    width: 100%;
   }
   .chart-card {
     padding: 16px 12px;
@@ -2602,6 +2769,428 @@ function formatDuration(seconds: number): string {
   font-size: 13px;
 }
 
+.report-bookmark-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 18px;
+  align-items: center;
+  padding: 20px 22px;
+  border: 1px solid #dce8f1;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgb(251 254 255 / 97%), rgb(247 255 250 / 94%));
+  box-shadow: 0 12px 32px rgb(40 93 77 / 7%);
+}
+
+.report-bookmark-heading {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  min-width: 0;
+}
+
+.report-bookmark-heading > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #eaf8ef;
+  color: #168552;
+  font-weight: 950;
+}
+
+.report-bookmark-heading small {
+  display: block;
+  color: #718097;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.report-bookmark-heading h2 {
+  margin: 0;
+  color: #121a3e;
+  font-size: 18px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+
+.report-bookmark-panel > p:not(.report-bookmark-message) {
+  margin: 0 0 0 53px;
+  color: #536078;
+  font-size: 13px;
+}
+
+.report-bookmark-actions {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.report-bookmark-actions button {
+  min-height: 38px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #20a568, #3d8af2);
+  color: #fff;
+  font-weight: 900;
+}
+
+.report-bookmark-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.report-bookmark-actions a {
+  color: #2f67c7;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.report-bookmark-message {
+  grid-column: 1 / -1;
+  margin: 3px 0 0;
+  color: #357455;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.report-bookmark-message.error {
+  color: #c84e5f;
+}
+
+.practice-panel {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid #dfe6f7;
+  border-radius: 17px;
+  background: linear-gradient(135deg, rgb(249 252 255 / 96%), rgb(255 255 255 / 94%));
+  box-shadow: 0 12px 34px rgb(51 65 111 / 6%);
+}
+
+.practice-heading {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+}
+
+.practice-heading > span {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #eef7ff;
+  color: #3581e8;
+  font-weight: 950;
+}
+
+.practice-heading small {
+  display: block;
+  color: #7a849e;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.practice-heading h2 {
+  margin: 0;
+  color: #11183f;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.practice-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.practice-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 118px;
+  padding: 15px;
+  border: 1px solid #e7ebf5;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.practice-list small {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  margin-bottom: 7px;
+  padding: 3px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf5ff;
+  color: #3577d4;
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.practice-list strong {
+  display: block;
+  color: #1d2748;
+  font-size: 15px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.practice-list p {
+  margin: 7px 0 0;
+  color: #4d5874;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.practice-list button {
+  min-width: 94px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #3b9cff, #7567f8);
+  color: #fff;
+  font-weight: 900;
+}
+
+.practice-list button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.practice-message {
+  margin: 0;
+  color: #3d4864;
+  font-size: 13px;
+}
+
+.practice-message.error {
+  color: #c84e5f;
+}
+
+/* Product-focused report hierarchy */
+.detail-workspace {
+  gap: 18px;
+  padding: 24px 28px 32px;
+  overflow: visible;
+  background: #f6f8fb;
+}
+
+.detail-workspace::before,
+.detail-workspace::after {
+  display: none;
+}
+
+.detail-heading {
+  align-items: center;
+  min-height: 0;
+  padding: 0;
+}
+
+.detail-heading h1 {
+  font-size: 28px;
+  letter-spacing: -0.5px;
+}
+
+.header-actions {
+  padding: 0;
+}
+
+.detail-button {
+  min-width: 124px;
+  min-height: 40px;
+  border-color: #d3dce9;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.detail-button:hover {
+  transform: none;
+}
+
+.detail-page {
+  gap: 16px;
+}
+
+.overview-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 28px;
+  align-items: center;
+  min-height: 0;
+  padding: 26px 28px;
+  overflow: visible;
+  border-color: #dfe5ed;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgb(38 52 89 / 6%);
+  animation: none;
+}
+
+.position-copy {
+  grid-column: auto;
+  padding: 0;
+}
+
+.position-copy > span {
+  color: #68748a;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.position-copy h2 {
+  margin: 5px 0 12px;
+  font-size: clamp(25px, 2.2vw, 34px);
+  white-space: normal;
+}
+
+.overview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.overview-meta span {
+  color: #6d778b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.score-summary {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  min-width: 238px;
+  padding-left: 28px;
+  border-left: 1px solid #e5eaf0;
+}
+
+.score-summary > div {
+  display: grid;
+  gap: 2px;
+}
+
+.score-summary > div > span {
+  color: #6d778b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.score-summary strong {
+  color: #435be8;
+  font-size: 42px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.score-summary em {
+  margin-left: 3px;
+  color: #78829a;
+  font-size: 14px;
+  font-style: normal;
+}
+
+.overview-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eaf7f0;
+  color: #19704d;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.reliability-alert {
+  min-height: 0;
+  padding: 17px 20px;
+  animation: none;
+}
+
+.notice-character {
+  display: none;
+}
+
+.report-insights {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 14px;
+}
+
+.report-info-card,
+.growth-card,
+.report-quality-panel,
+.practice-panel,
+.report-bookmark-panel {
+  box-shadow: none;
+}
+
+.report-info-card {
+  min-height: 0;
+  padding: 20px;
+}
+
+.conclusion-card {
+  border-color: #d9def7;
+  background: #f7f8ff;
+}
+
+.report-quality-panel {
+  gap: 14px;
+  padding: 20px;
+  border-radius: 15px;
+  background: #fff;
+  animation: none;
+}
+
+.quality-heading strong {
+  width: auto;
+  height: auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: #f1f2ff;
+  font-size: 17px;
+}
+
+.quality-metrics article {
+  min-height: 76px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.quality-metrics b {
+  font-size: 20px;
+}
+
+.round-score-card,
+.chart-card,
+.growth-card {
+  box-shadow: none;
+  animation: none;
+}
+
+.growth-card {
+  min-height: 170px;
+  padding: 20px;
+}
+
 .memory-footnote {
   display: flex;
   gap: 9px;
@@ -2621,12 +3210,66 @@ function formatDuration(seconds: number): string {
   .growth-grid {
     grid-template-columns: 1fr;
   }
+  .practice-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 700px) {
+  .detail-workspace {
+    padding: 18px 14px 24px;
+  }
+
+  .detail-heading {
+    align-items: flex-start;
+  }
+
+  .detail-heading h1 {
+    font-size: 24px;
+  }
+
+  .detail-button {
+    min-width: 0;
+    padding: 0 12px;
+  }
+
+  .overview-panel {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 20px;
+  }
+
+  .overview-meta {
+    display: grid;
+    gap: 5px;
+  }
+
+  .score-summary {
+    justify-content: space-between;
+    min-width: 0;
+    padding: 16px 0 0;
+    border-top: 1px solid #e5eaf0;
+    border-left: 0;
+  }
+
   .quality-metrics,
   .score-source-list article {
     grid-template-columns: 1fr;
+  }
+
+  .report-bookmark-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .report-bookmark-panel > p:not(.report-bookmark-message) {
+    margin-left: 0;
+  }
+
+  .report-bookmark-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .quality-heading {

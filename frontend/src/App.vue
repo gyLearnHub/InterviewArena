@@ -1,10 +1,62 @@
 <template>
   <RouterView v-if="!showWorkspaceShell" />
 
-  <div v-else class="app-shell" :class="{ 'nav-collapsed': navCollapsed }">
-    <aside class="side-nav" aria-label="主导航">
+  <div
+    v-else
+    class="app-shell"
+    :class="{ 'nav-collapsed': navCollapsed, 'mobile-nav-open': mobileNavOpen }"
+  >
+    <header class="mobile-nav-bar">
+      <RouterLink
+        class="brand mobile-brand"
+        to="/dashboard"
+        aria-label="InterviewArena 工作台"
+        @click="closeMobileNav()"
+      >
+        <span class="brand-mark">IA</span>
+        <span class="brand-copy">
+          <strong>InterviewArena</strong>
+          <small>Campus AI Interview Lab</small>
+        </span>
+      </RouterLink>
+      <button
+        ref="mobileMenuButton"
+        class="nav-collapse-button mobile-menu-button"
+        type="button"
+        aria-label="打开主导航"
+        aria-controls="mobile-primary-navigation"
+        :aria-expanded="mobileNavOpen"
+        @click="openMobileNav"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 6h16" />
+          <path d="M4 12h16" />
+          <path d="M4 18h16" />
+        </svg>
+      </button>
+    </header>
+
+    <button
+      v-if="mobileNavOpen"
+      class="mobile-nav-backdrop"
+      type="button"
+      aria-label="关闭主导航"
+      @click="closeMobileNav(true)"
+    ></button>
+
+    <aside
+      id="mobile-primary-navigation"
+      class="side-nav"
+      :class="{ 'mobile-open': mobileNavOpen }"
+      aria-label="主导航"
+    >
       <div class="side-nav-head">
-        <RouterLink class="brand" to="/dashboard" aria-label="InterviewArena 工作台">
+        <RouterLink
+          class="brand"
+          to="/dashboard"
+          aria-label="InterviewArena 工作台"
+          @click="closeMobileNav()"
+        >
           <span class="brand-mark">IA</span>
           <span class="brand-copy">
             <strong>InterviewArena</strong>
@@ -12,7 +64,7 @@
           </span>
         </RouterLink>
         <button
-          class="nav-collapse-button"
+          class="nav-collapse-button desktop-collapse-button"
           type="button"
           :aria-label="navCollapsed ? '展开导航' : '折叠导航'"
           :aria-pressed="navCollapsed"
@@ -24,9 +76,21 @@
             <path d="M4 18h16" />
           </svg>
         </button>
+        <button
+          ref="mobileCloseButton"
+          class="nav-collapse-button mobile-close-button"
+          type="button"
+          aria-label="关闭主导航"
+          @click="closeMobileNav(true)"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12" />
+            <path d="m18 6-12 12" />
+          </svg>
+        </button>
       </div>
 
-      <nav class="nav-list">
+      <nav class="nav-list" @click="closeMobileNav()">
         <section class="nav-section" aria-label="面试">
           <p class="nav-section-label">面试</p>
           <RouterLink :class="{ active: route.name === 'dashboard' }" to="/dashboard">
@@ -61,18 +125,29 @@
           </RouterLink>
         </section>
 
-        <section class="nav-section" aria-label="系统状态">
-          <p class="nav-section-label">系统状态</p>
-          <RouterLink :class="{ active: isHarnessRoute }" to="/harness">
+        <section class="nav-section" aria-label="成长">
+          <p class="nav-section-label">成长</p>
+          <RouterLink :class="{ active: isReviewBookmarkRoute }" to="/review-bookmarks">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
-                <path d="M4 18V6" />
-                <path d="M9 18v-8" />
-                <path d="M14 18v-5" />
-                <path d="M19 18V8" />
+                <path d="M6 4h12v16l-6-3-6 3z" />
+                <path d="M9 9h6" />
+                <path d="M9 13h4" />
               </svg>
             </span>
-            <span class="nav-text">Harness 状态</span>
+            <span class="nav-text">复盘收藏</span>
+          </RouterLink>
+          <RouterLink :class="{ active: isMemoryRoute }" to="/memories">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 4v16" />
+                <path d="M8 7a4 4 0 0 1 4-3 4 4 0 0 1 4 3" />
+                <path d="M8 17a4 4 0 0 0 4 3 4 4 0 0 0 4-3" />
+                <path d="M5 10h14" />
+                <path d="M5 14h14" />
+              </svg>
+            </span>
+            <span class="nav-text">我的记忆</span>
           </RouterLink>
         </section>
 
@@ -107,9 +182,10 @@
             <span class="chevron" aria-hidden="true"></span>
           </button>
 
-          <div v-if="showAccountMenu" class="account-menu" role="menu">
+          <div v-if="showAccountMenu" class="account-menu" role="menu" @click="closeMobileNav()">
             <button type="button" role="menuitem" @click="openProfileDialog">个人资料</button>
             <button type="button" role="menuitem" @click="openSettingsDialog">设置</button>
+            <button type="button" role="menuitem" @click="openAdvancedDiagnostics">高级诊断</button>
             <button type="button" role="menuitem" @click="openLogoutDialog">退出登录</button>
           </div>
         </div>
@@ -439,7 +515,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
@@ -474,6 +550,9 @@ const NOTIFICATION_PAGE_SIZE = 10;
 const NOTIFICATION_POLL_INTERVAL_MS = 60000;
 const authVersion = ref(0);
 const navCollapsed = ref(readNavCollapsedPreference());
+const mobileNavOpen = ref(false);
+const mobileMenuButton = ref<HTMLButtonElement | null>(null);
+const mobileCloseButton = ref<HTMLButtonElement | null>(null);
 const showAccountMenu = ref(false);
 const activeDialog = ref<"profile" | "settings" | "logout" | "notifications" | "">("");
 const profileLoading = ref(false);
@@ -523,13 +602,18 @@ function refreshAuthState(): void {
 }
 
 watch(() => [route.fullPath, authVersion.value], refreshAuthState, { flush: "sync" });
+watch(
+  () => route.fullPath,
+  () => closeMobileNav()
+);
 const showWorkspaceShell = computed(() => loggedIn.value && route.name !== "login");
 const isDashboardShell = computed(() => route.name === "dashboard");
 const isInterviewRoute = computed(() =>
   ["interview-entry", "multi-round-interview"].includes(String(route.name))
 );
 const isHistoryRoute = computed(() => ["history", "history-detail"].includes(String(route.name)));
-const isHarnessRoute = computed(() => route.name === "harness-status");
+const isReviewBookmarkRoute = computed(() => route.name === "review-bookmarks");
+const isMemoryRoute = computed(() => route.name === "memories");
 const isHelpRoute = computed(() => route.name === "help-center");
 const showTopToolbar = computed(
   () =>
@@ -546,7 +630,9 @@ const pageMeta = computed(() => {
     "interview-entry": { title: "新建面试", kicker: "配置多轮模拟面试" },
     history: { title: "历史记录", kicker: "复盘与继续训练" },
     "history-detail": { title: "面试详情", kicker: "单场面试复盘" },
-    "harness-status": { title: "Harness 状态", kicker: "系统运行与恢复状态" },
+    "review-bookmarks": { title: "复盘收藏", kicker: "错题与专项训练" },
+    memories: { title: "我的记忆", kicker: "个性化记忆管理" },
+    "harness-status": { title: "高级诊断", kicker: "面试运行与恢复信息" },
     "help-center": { title: "帮助中心", kicker: "使用说明与常见问题" }
   };
   return meta[String(route.name)] || { title: "InterviewArena", kicker: "AI Interview Lab" };
@@ -620,6 +706,7 @@ onMounted(() => {
   document.addEventListener("click", closeAccountMenu);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("focus", handleWindowFocus);
+  window.addEventListener("keydown", handleMobileNavKeydown);
   window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
 });
 
@@ -627,6 +714,7 @@ onUnmounted(() => {
   document.removeEventListener("click", closeAccountMenu);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   window.removeEventListener("focus", handleWindowFocus);
+  window.removeEventListener("keydown", handleMobileNavKeydown);
   window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   clearSettingsMessageTimer();
   stopClearMemoryPolling();
@@ -664,6 +752,29 @@ function toggleNavCollapsed() {
   }
 }
 
+async function openMobileNav() {
+  mobileNavOpen.value = true;
+  await nextTick();
+  mobileCloseButton.value?.focus();
+}
+
+function closeMobileNav(restoreFocus = false) {
+  if (!mobileNavOpen.value) {
+    return;
+  }
+  mobileNavOpen.value = false;
+  closeAccountMenu();
+  if (restoreFocus) {
+    void nextTick(() => mobileMenuButton.value?.focus());
+  }
+}
+
+function handleMobileNavKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && mobileNavOpen.value) {
+    closeMobileNav(true);
+  }
+}
+
 function toggleAccountMenu() {
   showAccountMenu.value = !showAccountMenu.value;
 }
@@ -689,6 +800,12 @@ function openSettingsDialog() {
   clearSettingsMessage();
   void loadSettings();
   void refreshClearStatus(false);
+}
+
+function openAdvancedDiagnostics() {
+  closeAccountMenu();
+  closeMobileNav();
+  void router.push({ name: "harness-status" });
 }
 
 function openLogoutDialog() {
@@ -741,7 +858,7 @@ async function loadProfile() {
     } else {
       profileForm.username = hydratedProfile.username;
     }
-    saveAuth("", hydratedProfile);
+    saveAuth(hydratedProfile);
     authVersion.value += 1;
   } catch (error) {
     showProfileError(error instanceof ApiError ? error.message : "个人资料加载失败。");
@@ -762,7 +879,7 @@ async function saveProfile() {
     const hydratedProfile = normalizeProfile(profile, displayNameToSave);
     hydrateProfileForm(hydratedProfile);
     profileDirty.value = false;
-    saveAuth("", hydratedProfile);
+    saveAuth(hydratedProfile);
     authVersion.value += 1;
     profileMessage.value = "个人资料已保存。";
     profileHasError.value = false;
@@ -797,7 +914,7 @@ async function uploadProfileAvatar(event: Event) {
       profileForm.username = hydratedProfile.username;
       profileForm.avatarUrl = hydratedProfile.avatar_url || "";
     }
-    saveAuth("", hydratedProfile);
+    saveAuth(hydratedProfile);
     authVersion.value += 1;
     profileMessage.value = "头像已更新。";
     profileHasError.value = false;
@@ -1093,9 +1210,9 @@ function notificationTypeLabel(type: string) {
     report: "评分报告",
     memory_system: "记忆系统",
     memory: "记忆系统",
-    harness_exception: "Harness 异常",
-    harness_error: "Harness 异常",
-    harness: "Harness 异常",
+    harness_exception: "面试运行异常",
+    harness_error: "面试运行异常",
+    harness: "面试运行异常",
     system: "系统通知",
     system_notice: "系统通知"
   };
@@ -1993,6 +2110,12 @@ async function logout() {
   grid-template-columns: var(--shell-sidebar-collapsed-width) minmax(0, 1fr);
 }
 
+.mobile-nav-bar,
+.mobile-close-button,
+.mobile-nav-backdrop {
+  display: none;
+}
+
 .side-nav {
   position: sticky;
   top: 0;
@@ -2758,6 +2881,7 @@ async function logout() {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .side-nav,
   .nav-collapse-button,
   .toolbar-icon,
   .icon-button,
@@ -2776,17 +2900,144 @@ async function logout() {
     overflow: visible;
   }
 
+  .app-shell.mobile-nav-open {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .mobile-nav-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 64px;
+    padding: 8px 16px;
+    border-bottom: 1px solid rgb(199 208 220 / 72%);
+    background: rgb(255 255 255 / 92%);
+    box-shadow: 0 8px 24px rgb(31 68 120 / 8%);
+    backdrop-filter: blur(16px);
+  }
+
+  .mobile-brand {
+    min-height: 48px;
+  }
+
+  .mobile-brand .brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+
+  .mobile-brand .brand-copy strong {
+    font-size: 16px;
+  }
+
+  .mobile-menu-button,
+  .mobile-close-button {
+    display: grid;
+    flex: 0 0 auto;
+  }
+
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: block;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgb(23 32 51 / 38%);
+    box-shadow: none;
+    backdrop-filter: blur(5px);
+    transform: none;
+  }
+
+  .mobile-nav-backdrop:hover,
+  .mobile-nav-backdrop:focus-visible {
+    border: 0;
+    box-shadow: none;
+    outline: 0;
+    transform: none;
+  }
+
   .side-nav {
-    position: static;
-    height: auto;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    width: min(320px, calc(100vw - 48px));
+    height: 100vh;
+    height: 100dvh;
+    padding: 18px 14px;
+    overflow: hidden;
+    box-shadow: 24px 0 60px rgb(23 32 51 / 18%);
+    transform: translateX(calc(-100% - 24px));
+    transition: transform 220ms var(--ease-standard, ease);
+  }
+
+  .side-nav.mobile-open {
+    transform: translateX(0);
   }
 
   .side-nav-head {
     grid-template-columns: minmax(0, 1fr) 38px;
   }
 
+  .desktop-collapse-button {
+    display: none;
+  }
+
   .nav-list {
     grid-template-columns: 1fr;
+  }
+
+  .app-shell.nav-collapsed .side-nav {
+    padding: 18px 14px;
+  }
+
+  .app-shell.nav-collapsed .side-nav-head {
+    grid-template-columns: minmax(0, 1fr) 38px;
+  }
+
+  .app-shell.nav-collapsed .brand {
+    grid-template-columns: 44px minmax(0, 1fr);
+    justify-items: initial;
+  }
+
+  .app-shell.nav-collapsed .brand-copy,
+  .app-shell.nav-collapsed .nav-section-label,
+  .app-shell.nav-collapsed .nav-text,
+  .app-shell.nav-collapsed .account-card strong,
+  .app-shell.nav-collapsed .chevron {
+    display: initial;
+  }
+
+  .app-shell.nav-collapsed .brand-copy {
+    display: grid;
+  }
+
+  .app-shell.nav-collapsed .nav-list a,
+  .app-shell.nav-collapsed .nav-action {
+    grid-template-columns: 24px minmax(0, 1fr);
+    justify-items: initial;
+    padding: 0 12px;
+  }
+
+  .app-shell.nav-collapsed .account-card {
+    grid-template-columns: 38px minmax(0, 1fr) 20px;
+    justify-items: initial;
+    padding: 9px 10px;
+  }
+
+  .app-shell.nav-collapsed .account-menu {
+    right: 0;
+    bottom: calc(100% + 10px);
+    left: auto;
   }
 
   .top-toolbar {

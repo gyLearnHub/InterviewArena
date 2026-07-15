@@ -1,9 +1,9 @@
 import type { RoundType } from "./api";
 
-import hrAvatar from "./assets/interviewers/hr-interviewer.png";
-import managerAvatar from "./assets/interviewers/manager-interviewer.png";
-import resumeAvatar from "./assets/interviewers/resume-interviewer.png";
-import technicalAvatar from "./assets/interviewers/technical-interviewer.png";
+import hrAvatar from "./assets/interviewers/hr-interviewer.webp";
+import managerAvatar from "./assets/interviewers/manager-interviewer.webp";
+import resumeAvatar from "./assets/interviewers/resume-interviewer.webp";
+import technicalAvatar from "./assets/interviewers/technical-interviewer.webp";
 
 export type RoundMeta = {
   label: string;
