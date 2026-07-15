@@ -1,6 +1,6 @@
 # InterviewArena
 
-InterviewArena 是一个前后端分离的 AI 多轮面试练习项目。后端使用 FastAPI + MySQL，前端使用 Vue 3 + Vite，支持简历上传解析、多轮面试、历史记录、通知、记忆检索、质量追踪和演进/回放相关能力。
+InterviewArena 是一个前后端分离的 AI 多轮面试练习项目。后端使用 FastAPI + MySQL，前端使用 Vue 3 + Vite，支持简历上传解析、多轮面试、历史记录、通知、记忆检索、质量追踪和运行诊断能力。
 
 ## 技术栈
 
@@ -137,5 +137,6 @@ E2E 工作流位于 `.github/workflows/e2e.yml`。它可以在 GitHub Actions �
 
 - 不要提交真实 `.env`、上传文件、构建产物、缓存目录或本地测试报告；这些已经在 `.gitignore` 中忽略。
 - `backend/requirements.txt` 是运行依赖，`backend/requirements-dev.txt` 是开发和测试依赖。
-- 后端启动时会按配置执行迁移；测试环境会跳过启动迁移。
-- 前端构建输出里有多张较大的 PNG，首屏性能优化可以作为后续任务处理。
+- 自主进化默认关闭；确认模型调用成本和运行策略后，可设置 `EVOLUTION_ENABLED=true` 启用。
+- 本地默认在后端启动时执行迁移，测试环境会跳过；生产环境建议在发布流程中显式执行迁移，并设置 `AUTO_MIGRATE_ON_STARTUP=false`。
+- 发布前应在生产环境配置独立的 `JWT_SECRET_KEY`、数据库凭据和模型 API 密钥，并保持 `AUTH_COOKIE_SECURE=true`。
