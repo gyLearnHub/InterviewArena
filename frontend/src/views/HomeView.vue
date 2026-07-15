@@ -299,6 +299,7 @@ import {
 } from "../api";
 import dashboardHeroAgent from "../assets/dashboard-hero-agent.webp";
 import { AUTH_CHANGED_EVENT, getUser, type AuthUser } from "../auth";
+import { formatDate } from "../formatters";
 
 const user = ref<AuthUser | null>(getUser());
 const router = useRouter();
@@ -581,10 +582,6 @@ function practiceStatusText(status: string): string {
 
 function roundName(roundType: string): string {
   return roundMeta[roundType]?.name || roundType;
-}
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "暂无时间";
 }
 
 onMounted(() => {

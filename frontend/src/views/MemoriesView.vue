@@ -131,6 +131,7 @@
 import { computed, onMounted, ref } from "vue";
 
 import { ApiError, deleteManagedMemory, listManagedMemories, type ManagedMemoryItem } from "../api";
+import { formatDate } from "../formatters";
 
 const MEMORY_PAGE_SIZE = 100;
 const memories = ref<ManagedMemoryItem[]>([]);
@@ -282,10 +283,6 @@ function indexStatusLabel(status: string): string {
 
 function confidenceText(confidence: number): string {
   return `${Math.round(Math.max(0, Math.min(confidence, 1)) * 100)}%`;
-}
-
-function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : "暂无时间";
 }
 
 onMounted(() => {

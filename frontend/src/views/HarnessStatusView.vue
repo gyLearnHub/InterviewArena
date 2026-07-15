@@ -365,6 +365,7 @@ import metricStatusAsset from "../assets/harness/metric-status.png";
 import rulesEmptyAsset from "../assets/harness/rules-empty.png";
 import syncGlyphAsset from "../assets/harness/sync-glyph.png";
 import traceEmptyAsset from "../assets/harness/trace-empty.png";
+import { formatDate } from "../formatters";
 
 type RuleRow = {
   name: string;
@@ -791,10 +792,6 @@ function ruleName(name: string): string {
     pending: "输出校验"
   };
   return map[name] || name;
-}
-
-function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : "暂无时间";
 }
 
 function formatTime(value?: string | null): string {

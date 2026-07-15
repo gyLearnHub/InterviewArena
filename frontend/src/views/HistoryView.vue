@@ -170,6 +170,7 @@ import {
   type HistoryItem,
   type ReportListItem
 } from "../api";
+import { formatDate } from "../formatters";
 
 const props = withDefaults(defineProps<{ mode?: "history" | "reports" }>(), {
   mode: "history"
@@ -408,10 +409,6 @@ function reportReliabilityLabel(item: DisplayItem): string {
 
 function formatScore(score: number | null): string {
   return score === null ? "未出分" : `${score} 分`;
-}
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "暂无时间";
 }
 
 function scoreSortValue(score: number | null): number {
