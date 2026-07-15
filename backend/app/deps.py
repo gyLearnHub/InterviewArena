@@ -17,11 +17,10 @@ def get_user_repository() -> Iterator[UserRepository]:
 UserRepositoryDep = Depends(get_user_repository)
 
 
-def get_current_user(
+def get_authenticated_user_id(
     request: Request = None,  # type: ignore[assignment]
     authorization: str | None = Header(default=None),
-    users: UserRepository = UserRepositoryDep,
-) -> UserRecord:
+) -> int:
     settings = get_settings()
     auth_cookie = request.cookies.get(settings.auth_cookie_name) if request is not None else None
     token = auth_cookie or _extract_bearer_token(authorization)
@@ -31,8 +30,18 @@ def get_current_user(
     subject = payload.get("sub")
     if not isinstance(subject, str) or not subject.isdigit():
         raise AppError(ErrorCode.UNAUTHORIZED, status.HTTP_401_UNAUTHORIZED)
+    return int(subject)
 
-    user = users.get_by_id(int(subject))
+
+AuthenticatedUserIdDep = Depends(get_authenticated_user_id)
+
+
+def get_current_user(
+    user_id: int = AuthenticatedUserIdDep,
+    users: UserRepository = UserRepositoryDep,
+) -> UserRecord:
+    user = users.get_by_id(user_id)
+
     if user is None:
         raise AppError(ErrorCode.UNAUTHORIZED, status.HTTP_401_UNAUTHORIZED)
     return user

@@ -281,7 +281,7 @@ def test_login_failure_store_prunes_expired_entries_and_caps_capacity(
 
 def test_current_user_requires_login() -> None:
     with pytest.raises(AppError) as error_info:
-        get_current_user(authorization=None, users=FakeUserRepository())  # type: ignore[arg-type]
+        deps_module.get_authenticated_user_id(authorization=None)
 
     assert error_info.value.status_code == 401
     assert error_info.value.code == ErrorCode.UNAUTHORIZED
@@ -366,8 +366,11 @@ def test_current_user_accepts_legacy_bearer_token() -> None:
     assert login_response.username == "alice"
     assert login_response.display_name == "alice"
 
+    user_id = deps_module.get_authenticated_user_id(
+        authorization=f"Bearer {create_access_token(1)}"
+    )
     current_user = get_current_user(
-        authorization=f"Bearer {create_access_token(1)}",
+        user_id=user_id,
         users=repository,  # type: ignore[arg-type]
     )
     me_response = read_current_user(current_user)

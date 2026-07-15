@@ -40,7 +40,15 @@ def test_memory_preference_api_persists_across_requests(monkeypatch) -> None:
 
 
 def test_memory_preference_api_requires_valid_login() -> None:
+    repository_calls = 0
+
+    def unexpected_repository() -> None:
+        nonlocal repository_calls
+        repository_calls += 1
+        raise AssertionError("unauthenticated requests must not access the user repository")
+
     app = create_app()
+    app.dependency_overrides[get_user_repository] = unexpected_repository
     client = TestClient(app, raise_server_exceptions=False)
 
     missing = client.get("/api/user/preferences")
@@ -48,6 +56,7 @@ def test_memory_preference_api_requires_valid_login() -> None:
 
     assert missing.status_code == 401
     assert invalid.status_code == 401
+    assert repository_calls == 0
 
 
 def test_memory_preference_update_failure_does_not_change_stored_state(monkeypatch) -> None:
