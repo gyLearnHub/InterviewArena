@@ -3,6 +3,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from app.repositories.weakness_practice_progress import (
+    WeaknessPracticeProgressRecord as WeaknessPracticeProgressRecord,
+)
+from app.repositories.weakness_practice_progress import (
+    to_weakness_practice_progress as _to_weakness_practice_progress,
+)
+
 
 @dataclass(frozen=True)
 class ResumeRecord:
@@ -24,6 +31,9 @@ class InterviewRecord:
     mode: str = "multi_round"
     job_description: str | None = None
     selected_rounds: list[str] | None = None
+    interview_goal: str = "campus"
+    difficulty: str = "normal"
+    time_limit_minutes: int = 45
     current_round: str | None = None
     overall_status: str = "created"
     last_active_at: datetime | None = None
@@ -34,7 +44,8 @@ class InterviewRecord:
     last_recovered_at: datetime | None = None
     last_harness_error: str | None = None
     had_degradation: bool = False
-    version_bundle_id: int | None = None
+    job_family_key: str | None = None
+    harness_bundle_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +65,16 @@ class QARecord:
 
 
 @dataclass(frozen=True)
+class AnswerDraftRecord:
+    user_id: int
+    interview_id: int
+    round_id: int
+    question_id: int
+    answer: str
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class InterviewRoundRecord:
     id: int
     interview_id: int
@@ -70,6 +91,8 @@ class InterviewRoundRecord:
     is_reference_only: bool
     started_at: datetime | None
     ended_at: datetime | None
+    difficulty: str = "normal"
+    time_limit_minutes: int = 45
     execution_status: str | None = None
     retry_count: int = 0
 
@@ -96,6 +119,7 @@ class InterviewRepository:
     def __init__(self, connection: Any) -> None:
         self.connection = connection
         self._column_cache: dict[str, set[str]] = {}
+        self._table_cache: dict[str, bool] = {}
 
     def commit(self) -> None:
         self.connection.commit()
@@ -121,17 +145,27 @@ class InterviewRepository:
         mode: str = "multi_round",
         job_description: str | None = None,
         selected_rounds: list[str] | None = None,
-        version_bundle_id: int | None = None,
+        interview_goal: str = "campus",
+        difficulty: str = "normal",
+        time_limit_minutes: int = 45,
     ) -> InterviewRecord:
         selected_rounds_json = (
             json.dumps(selected_rounds, ensure_ascii=False) if selected_rounds is not None else None
         )
-        optional_columns = self._existing_columns("interviews", ["version_bundle_id"])
-        has_version_bundle = (
-            version_bundle_id is not None and "version_bundle_id" in optional_columns
+        optional_columns = self._existing_columns(
+            "interviews",
+            ["interview_goal", "difficulty", "time_limit_minutes"],
         )
-        version_column = ", version_bundle_id" if has_version_bundle else ""
-        version_value = ", %s" if has_version_bundle else ""
+        optional_values = [
+            ("interview_goal", interview_goal),
+            ("difficulty", difficulty),
+            ("time_limit_minutes", time_limit_minutes),
+        ]
+        optional_values = [
+            (column, value) for column, value in optional_values if column in optional_columns
+        ]
+        optional_column_sql = "".join(f", {column}" for column, _ in optional_values)
+        optional_value_sql = "".join(", %s" for _ in optional_values)
         params: list[Any] = [
             user_id,
             resume_id,
@@ -144,17 +178,16 @@ class InterviewRepository:
             "created",
             0,
         ]
-        if has_version_bundle:
-            params.append(version_bundle_id)
+        params.extend(value for _, value in optional_values)
         with self.connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 INSERT INTO interviews (
                     user_id, resume_id, target_position, status, question_count, mode,
                     job_description, selected_rounds, overall_status,
-                    elapsed_seconds{version_column}
+                    elapsed_seconds{optional_column_sql}
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s{version_value})
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s{optional_value_sql})
                 """,
                 tuple(params),
             )
@@ -171,8 +204,10 @@ class InterviewRepository:
             mode=mode,
             job_description=job_description,
             selected_rounds=selected_rounds,
+            interview_goal=interview_goal,
+            difficulty=difficulty,
+            time_limit_minutes=time_limit_minutes,
             overall_status="created",
-            version_bundle_id=version_bundle_id,
         )
 
     def get_interview_for_user(
@@ -190,7 +225,11 @@ class InterviewRepository:
                     "last_recovered_at",
                     "last_harness_error",
                     "had_degradation",
-                    "version_bundle_id",
+                    "interview_goal",
+                    "difficulty",
+                    "time_limit_minutes",
+                    "job_family_key",
+                    "harness_bundle_id",
                 ],
             )
             optional_select = "".join(f", {column}" for column in optional_columns)
@@ -522,6 +561,89 @@ class InterviewRepository:
             report_reliability_status=str(row.get("report_reliability_status") or "normal"),
         )
 
+    def create_weakness_practice_progress(
+        self,
+        *,
+        user_id: int,
+        source_interview_id: int,
+        practice_interview_id: int,
+        weakness_title: str,
+        weakness_key: str,
+        suggestion: str | None,
+        round_type: str | None,
+        source_score: int | None,
+    ) -> WeaknessPracticeProgressRecord:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO weakness_practice_progress (
+                    user_id, source_interview_id, practice_interview_id, weakness_title,
+                    weakness_key, suggestion, round_type, status, source_score
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    user_id,
+                    source_interview_id,
+                    practice_interview_id,
+                    weakness_title,
+                    weakness_key,
+                    suggestion,
+                    round_type,
+                    "pending",
+                    source_score,
+                ),
+            )
+            record_id = int(cursor.lastrowid)
+        return WeaknessPracticeProgressRecord(
+            id=record_id,
+            user_id=user_id,
+            source_interview_id=source_interview_id,
+            practice_interview_id=practice_interview_id,
+            weakness_title=weakness_title,
+            weakness_key=weakness_key,
+            suggestion=suggestion,
+            round_type=round_type,
+            status="pending",
+            source_score=source_score,
+        )
+
+    def get_weakness_practice_progress_by_practice(
+        self,
+        practice_interview_id: int,
+    ) -> WeaknessPracticeProgressRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, user_id, source_interview_id, practice_interview_id, weakness_title,
+                       weakness_key, suggestion, round_type, status, source_score,
+                       practice_score, last_practiced_at, created_at, updated_at
+                FROM weakness_practice_progress
+                WHERE practice_interview_id = %s
+                """,
+                (practice_interview_id,),
+            )
+            row = cursor.fetchone()
+        return _to_weakness_practice_progress(row)
+
+    def update_weakness_practice_progress_result(
+        self,
+        *,
+        practice_interview_id: int,
+        status: str,
+        practice_score: int,
+        last_practiced_at: datetime,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE weakness_practice_progress
+                SET status = %s, practice_score = %s, last_practiced_at = %s
+                WHERE practice_interview_id = %s
+                """,
+                (status, practice_score, last_practiced_at, practice_interview_id),
+            )
+
     def create_rounds(self, rounds: list[dict[str, Any]]) -> list[InterviewRoundRecord]:
         created: list[InterviewRoundRecord] = []
         with self.connection.cursor() as cursor:
@@ -530,9 +652,10 @@ class InterviewRepository:
                     """
                     INSERT INTO interview_rounds (
                         interview_id, agent_type, round_type, status, min_main_questions,
-                        max_main_questions, min_total_questions, max_total_questions
+                        max_main_questions, min_total_questions, max_total_questions,
+                        difficulty, time_limit_minutes
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         item["interview_id"],
@@ -543,6 +666,8 @@ class InterviewRepository:
                         item["max_main_questions"],
                         item["min_total_questions"],
                         item["max_total_questions"],
+                        item.get("difficulty", "normal"),
+                        item.get("time_limit_minutes", 45),
                     ),
                 )
                 created.append(
@@ -562,6 +687,8 @@ class InterviewRepository:
                         is_reference_only=False,
                         started_at=None,
                         ended_at=None,
+                        difficulty=str(item.get("difficulty") or "normal"),
+                        time_limit_minutes=int(item.get("time_limit_minutes") or 45),
                         execution_status=str(item.get("execution_status") or "pending"),
                         retry_count=int(item.get("retry_count") or 0),
                     )
@@ -572,7 +699,7 @@ class InterviewRepository:
         with self.connection.cursor() as cursor:
             optional_columns = self._existing_columns(
                 "interview_rounds",
-                ["execution_status", "retry_count"],
+                ["difficulty", "time_limit_minutes", "execution_status", "retry_count"],
             )
             optional_select = "".join(f", {column}" for column in optional_columns)
             cursor.execute(
@@ -594,7 +721,7 @@ class InterviewRepository:
         with self.connection.cursor() as cursor:
             optional_columns = self._existing_columns(
                 "interview_rounds",
-                ["execution_status", "retry_count"],
+                ["difficulty", "time_limit_minutes", "execution_status", "retry_count"],
             )
             optional_select = "".join(f", {column}" for column in optional_columns)
             cursor.execute(
@@ -610,6 +737,23 @@ class InterviewRepository:
             )
             row = cursor.fetchone()
         return _to_round(row) if row is not None else None
+
+    def configure_round(
+        self,
+        interview_id: int,
+        round_id: int,
+        difficulty: str,
+        time_limit_minutes: int,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE interview_rounds
+                SET difficulty = %s, time_limit_minutes = %s
+                WHERE id = %s AND interview_id = %s AND status = 'pending'
+                """,
+                (difficulty, time_limit_minutes, round_id, interview_id),
+            )
 
     def mark_round_started(
         self,
@@ -692,9 +836,7 @@ class InterviewRepository:
         paused_at: datetime | None,
     ) -> None:
         paused_seconds = (
-            max(0, int((resumed_at - paused_at).total_seconds()))
-            if paused_at is not None
-            else 0
+            max(0, int((resumed_at - paused_at).total_seconds())) if paused_at is not None else 0
         )
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -792,6 +934,75 @@ class InterviewRepository:
             row = cursor.fetchone()
         return _to_qa(row)
 
+    def get_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> AnswerDraftRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT user_id, interview_id, round_id, question_id, answer, updated_at
+                FROM interview_answer_drafts
+                WHERE user_id = %s
+                  AND interview_id = %s
+                  AND round_id = %s
+                  AND question_id = %s
+                """,
+                (user_id, interview_id, round_id, question_id),
+            )
+            row = cursor.fetchone()
+        return _to_answer_draft(row)
+
+    def upsert_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+        answer: str,
+    ) -> AnswerDraftRecord:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO interview_answer_drafts (
+                    user_id, interview_id, round_id, question_id, answer
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    interview_id = VALUES(interview_id),
+                    round_id = VALUES(round_id),
+                    answer = VALUES(answer),
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, interview_id, round_id, question_id, answer),
+            )
+        record = self.get_answer_draft(user_id, interview_id, round_id, question_id)
+        if record is None:
+            raise RuntimeError("answer draft was not saved")
+        return record
+
+    def delete_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM interview_answer_drafts
+                WHERE user_id = %s
+                  AND interview_id = %s
+                  AND round_id = %s
+                  AND question_id = %s
+                """,
+                (user_id, interview_id, round_id, question_id),
+            )
+
     def finish_round(
         self,
         interview_id: int,
@@ -862,7 +1073,14 @@ class InterviewRepository:
                     elapsed_seconds = %s
                 WHERE id = %s
                 """,
-                ("finished", "finished", ended_at, ended_at, elapsed_seconds, interview_id),
+                (
+                    "finished",
+                    "finished",
+                    ended_at,
+                    ended_at,
+                    elapsed_seconds,
+                    interview_id,
+                ),
             )
 
     def update_interview_harness(
@@ -905,6 +1123,62 @@ class InterviewRepository:
             values["retry_count"] = retry_count
         self._update_existing_columns("interview_rounds", round_id, values)
 
+    def create_skill_call_trace(
+        self,
+        *,
+        user_id: int,
+        interview_id: int,
+        round_id: int | None,
+        question_id: int | None,
+        trace_id: str,
+        round_type: str,
+        stage: str,
+        skill_name: str,
+        selection_source: str,
+        selection_reason: str,
+        input_summary: dict[str, Any],
+        output_summary: dict[str, Any],
+        structured_signals: list[dict[str, Any]],
+        confidence: float | None,
+        llm_enhanced: bool,
+        elapsed_ms: int,
+        error_message: str | None = None,
+    ) -> int | None:
+        if not self._table_exists("skill_call_traces"):
+            return None
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO skill_call_traces (
+                    trace_id, user_id, interview_id, round_id, question_id, round_type,
+                    stage, skill_name, selection_source, selection_reason, input_summary,
+                    output_summary, structured_signals, confidence, llm_enhanced,
+                    elapsed_ms, error_message
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    trace_id,
+                    user_id,
+                    interview_id,
+                    round_id,
+                    question_id,
+                    round_type,
+                    stage,
+                    skill_name,
+                    selection_source,
+                    selection_reason[:500],
+                    json.dumps(input_summary, ensure_ascii=False),
+                    json.dumps(output_summary, ensure_ascii=False),
+                    json.dumps(structured_signals, ensure_ascii=False),
+                    confidence,
+                    bool(llm_enhanced),
+                    elapsed_ms,
+                    error_message[:1000] if error_message else None,
+                ),
+            )
+            return int(cursor.lastrowid)
+
     def _existing_columns(self, table: str, candidates: list[str]) -> set[str]:
         if table not in {"interviews", "interview_rounds", "feedback_reports"}:
             return set()
@@ -920,6 +1194,18 @@ class InterviewRepository:
                 self._column_cache[table] = set()
         available = self._column_cache[table]
         return {column for column in candidates if column in available}
+
+    def _table_exists(self, table: str) -> bool:
+        if table not in {"skill_call_traces"}:
+            return False
+        if table not in self._table_cache:
+            try:
+                with self.connection.cursor() as cursor:
+                    cursor.execute("SHOW TABLES LIKE %s", (table,))
+                    self._table_cache[table] = cursor.fetchone() is not None
+            except Exception:
+                self._table_cache[table] = False
+        return self._table_cache[table]
 
     def _update_existing_columns(self, table: str, record_id: int, values: dict[str, Any]) -> None:
         columns = self._existing_columns(table, list(values.keys()))
@@ -964,6 +1250,9 @@ def _to_interview(row: dict[str, Any] | None) -> InterviewRecord | None:
         mode=str(row.get("mode") or "multi_round"),
         job_description=row.get("job_description"),
         selected_rounds=_json_string_list(selected_rounds) if selected_rounds is not None else None,
+        interview_goal=str(row.get("interview_goal") or "campus"),
+        difficulty=str(row.get("difficulty") or "normal"),
+        time_limit_minutes=int(row.get("time_limit_minutes") or 45),
         current_round=row.get("current_round"),
         overall_status=str(row.get("overall_status") or row["status"]),
         last_active_at=row.get("last_active_at"),
@@ -976,8 +1265,9 @@ def _to_interview(row: dict[str, Any] | None) -> InterviewRecord | None:
         last_recovered_at=row.get("last_recovered_at"),
         last_harness_error=row.get("last_harness_error"),
         had_degradation=bool(row.get("had_degradation", False)),
-        version_bundle_id=(
-            int(row["version_bundle_id"]) if row.get("version_bundle_id") is not None else None
+        job_family_key=row.get("job_family_key"),
+        harness_bundle_id=(
+            int(row["harness_bundle_id"]) if row.get("harness_bundle_id") is not None else None
         ),
     )
 
@@ -1011,6 +1301,22 @@ def _to_qa(row: dict[str, Any] | None) -> QARecord | None:
     )
 
 
+def _to_answer_draft(row: dict[str, Any] | None) -> AnswerDraftRecord | None:
+    if row is None:
+        return None
+    updated_at = row.get("updated_at")
+    if not isinstance(updated_at, datetime):
+        updated_at = datetime.utcnow()
+    return AnswerDraftRecord(
+        user_id=int(row["user_id"]),
+        interview_id=int(row["interview_id"]),
+        round_id=int(row["round_id"]),
+        question_id=int(row["question_id"]),
+        answer=str(row.get("answer") or ""),
+        updated_at=updated_at,
+    )
+
+
 def _to_round(row: dict[str, Any]) -> InterviewRoundRecord:
     summary = row.get("summary")
     return InterviewRoundRecord(
@@ -1029,6 +1335,8 @@ def _to_round(row: dict[str, Any]) -> InterviewRoundRecord:
         is_reference_only=bool(row.get("is_reference_only")),
         started_at=row.get("started_at"),
         ended_at=row.get("ended_at"),
+        difficulty=str(row.get("difficulty") or "normal"),
+        time_limit_minutes=int(row.get("time_limit_minutes") or 45),
         execution_status=row.get("execution_status"),
         retry_count=int(row.get("retry_count") or 0),
     )

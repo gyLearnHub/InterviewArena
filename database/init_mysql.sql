@@ -18,30 +18,6 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uk_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS evolution_version_bundles (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    bundle_key VARCHAR(128) NOT NULL,
-    parent_bundle_id BIGINT UNSIGNED NULL,
-    scope_type VARCHAR(32) NOT NULL DEFAULT 'global',
-    scope_key VARCHAR(128) NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'candidate',
-    risk_level VARCHAR(32) NOT NULL DEFAULT 'low',
-    content_hash CHAR(64) NOT NULL,
-    diff JSON NOT NULL,
-    validation_summary JSON NOT NULL,
-    rollback_point JSON NULL,
-    created_by_run_id BIGINT UNSIGNED NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    activated_at DATETIME NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_evolution_version_bundles_key (bundle_key),
-    KEY idx_evolution_version_bundles_scope_status (scope_type, scope_key, status),
-    KEY idx_evolution_version_bundles_parent (parent_bundle_id),
-    CONSTRAINT fk_evolution_version_bundles_parent
-        FOREIGN KEY (parent_bundle_id) REFERENCES evolution_version_bundles (id)
-        ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS resumes (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -90,6 +66,8 @@ CREATE TABLE IF NOT EXISTS resume_parse_tasks (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME NULL,
     completed_at DATETIME NULL,
+    processing_token CHAR(32) NULL,
+    heartbeat_at DATETIME NULL,
     PRIMARY KEY (id),
     KEY idx_resume_parse_tasks_user_created (user_id, created_at, id),
     KEY idx_resume_parse_tasks_status_created (status, created_at),
@@ -111,7 +89,17 @@ CREATE TABLE IF NOT EXISTS interviews (
     mode VARCHAR(32) NOT NULL DEFAULT 'multi_round',
     job_description TEXT NULL,
     selected_rounds JSON NULL,
-    version_bundle_id BIGINT UNSIGNED NULL,
+    interview_goal VARCHAR(32) NOT NULL DEFAULT 'campus',
+    difficulty VARCHAR(32) NOT NULL DEFAULT 'normal',
+    time_limit_minutes INT NOT NULL DEFAULT 45,
+    job_family_key VARCHAR(128) NULL,
+    harness_bundle_id BIGINT UNSIGNED NULL,
+    harness_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    last_checkpoint_id BIGINT UNSIGNED NULL,
+    recovery_count INT NOT NULL DEFAULT 0,
+    last_recovered_at DATETIME NULL,
+    last_harness_error VARCHAR(1000) NULL,
+    had_degradation TINYINT(1) NOT NULL DEFAULT 0,
     current_round VARCHAR(32) NULL,
     overall_status VARCHAR(32) NOT NULL DEFAULT 'created',
     started_at DATETIME NULL,
@@ -123,41 +111,16 @@ CREATE TABLE IF NOT EXISTS interviews (
     PRIMARY KEY (id),
     KEY idx_interviews_user_id (user_id),
     KEY idx_interviews_resume_id (resume_id),
-    KEY idx_interviews_version_bundle_id (version_bundle_id),
     KEY idx_interviews_status_started_at (status, started_at),
     KEY idx_interviews_mode_overall_status (mode, overall_status),
+    KEY idx_interviews_job_family_finished (job_family_key, overall_status, ended_at, id),
+    KEY idx_interviews_harness_bundle (harness_bundle_id),
     CONSTRAINT fk_interviews_user_id
         FOREIGN KEY (user_id) REFERENCES users (id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_interviews_resume_id
         FOREIGN KEY (resume_id) REFERENCES resumes (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_interviews_version_bundle_id
-        FOREIGN KEY (version_bundle_id) REFERENCES evolution_version_bundles (id)
         ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS evolution_artifacts (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    bundle_id BIGINT UNSIGNED NOT NULL,
-    artifact_type VARCHAR(64) NOT NULL,
-    artifact_key VARCHAR(128) NOT NULL,
-    version VARCHAR(64) NOT NULL,
-    content JSON NOT NULL,
-    content_hash CHAR(64) NOT NULL,
-    parent_artifact_id BIGINT UNSIGNED NULL,
-    diff JSON NOT NULL,
-    risk_level VARCHAR(32) NOT NULL DEFAULT 'low',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_evolution_artifacts_bundle_key (bundle_id, artifact_type, artifact_key),
-    KEY idx_evolution_artifacts_parent (parent_artifact_id),
-    CONSTRAINT fk_evolution_artifacts_bundle_id
-        FOREIGN KEY (bundle_id) REFERENCES evolution_version_bundles (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_artifacts_parent
-        FOREIGN KEY (parent_artifact_id) REFERENCES evolution_artifacts (id)
-        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS interview_rounds (
@@ -174,6 +137,10 @@ CREATE TABLE IF NOT EXISTS interview_rounds (
     result VARCHAR(32) NULL,
     summary JSON NULL,
     is_reference_only TINYINT(1) NOT NULL DEFAULT 0,
+    difficulty VARCHAR(32) NOT NULL DEFAULT 'normal',
+    time_limit_minutes INT NOT NULL DEFAULT 45,
+    execution_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    retry_count INT NOT NULL DEFAULT 0,
     started_at DATETIME NULL,
     ended_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -191,6 +158,9 @@ CREATE TABLE IF NOT EXISTS interview_operation_tasks (
     interview_id BIGINT UNSIGNED NOT NULL,
     round_id BIGINT UNSIGNED NULL,
     operation VARCHAR(64) NOT NULL,
+    payload_json JSON NULL,
+    processing_token CHAR(32) NULL,
+    heartbeat_at DATETIME NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'pending',
     result_json JSON NULL,
     error_code VARCHAR(64) NULL,
@@ -201,6 +171,7 @@ CREATE TABLE IF NOT EXISTS interview_operation_tasks (
     PRIMARY KEY (id),
     KEY idx_interview_operation_tasks_user_created (user_id, created_at, id),
     KEY idx_interview_operation_tasks_interview_id (interview_id),
+    KEY idx_interview_operation_tasks_status_created (status, created_at, id),
     CONSTRAINT fk_interview_operation_tasks_user_id
         FOREIGN KEY (user_id) REFERENCES users (id)
         ON DELETE CASCADE ON UPDATE CASCADE,
@@ -246,6 +217,71 @@ CREATE TABLE IF NOT EXISTS interview_qa (
         ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS interview_answer_drafts (
+    user_id BIGINT UNSIGNED NOT NULL,
+    interview_id BIGINT UNSIGNED NOT NULL,
+    round_id BIGINT UNSIGNED NOT NULL,
+    question_id BIGINT UNSIGNED NOT NULL,
+    answer TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, question_id),
+    UNIQUE KEY uk_interview_answer_drafts_question (question_id),
+    KEY idx_interview_answer_drafts_interview (interview_id),
+    KEY idx_interview_answer_drafts_round (round_id),
+    CONSTRAINT fk_interview_answer_drafts_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_interview_answer_drafts_interview_id
+        FOREIGN KEY (interview_id) REFERENCES interviews (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_interview_answer_drafts_round_id
+        FOREIGN KEY (round_id) REFERENCES interview_rounds (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_interview_answer_drafts_question_id
+        FOREIGN KEY (question_id) REFERENCES interview_qa (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS skill_call_traces (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    trace_id VARCHAR(64) NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    interview_id BIGINT UNSIGNED NOT NULL,
+    round_id BIGINT UNSIGNED NULL,
+    question_id BIGINT UNSIGNED NULL,
+    round_type VARCHAR(32) NOT NULL,
+    stage VARCHAR(32) NOT NULL,
+    skill_name VARCHAR(128) NOT NULL,
+    selection_source VARCHAR(32) NOT NULL,
+    selection_reason VARCHAR(500) NOT NULL,
+    input_summary JSON NOT NULL,
+    output_summary JSON NOT NULL,
+    structured_signals JSON NOT NULL,
+    confidence DECIMAL(5,4) NULL,
+    llm_enhanced TINYINT(1) NOT NULL DEFAULT 0,
+    elapsed_ms INT UNSIGNED NOT NULL DEFAULT 0,
+    error_message VARCHAR(1000) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_skill_call_traces_interview_created (interview_id, created_at),
+    KEY idx_skill_call_traces_round_created (round_id, created_at),
+    KEY idx_skill_call_traces_trace (trace_id),
+    KEY idx_skill_call_traces_skill (skill_name, created_at),
+    CONSTRAINT fk_skill_call_traces_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_skill_call_traces_interview_id
+        FOREIGN KEY (interview_id) REFERENCES interviews (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_skill_call_traces_round_id
+        FOREIGN KEY (round_id) REFERENCES interview_rounds (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_skill_call_traces_question_id
+        FOREIGN KEY (question_id) REFERENCES interview_qa (id)
+        ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS feedback_reports (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     interview_id BIGINT UNSIGNED NOT NULL,
@@ -261,12 +297,86 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
     confidence VARCHAR(16) NULL,
     reference_note VARCHAR(255) NULL,
     used_candidate_memory TINYINT(1) NOT NULL DEFAULT 0,
+    report_reliability_status VARCHAR(32) NOT NULL DEFAULT 'normal',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_feedback_reports_interview_id (interview_id),
     CONSTRAINT fk_feedback_reports_interview_id
         FOREIGN KEY (interview_id) REFERENCES interviews (id)
         ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS weakness_practice_progress (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    source_interview_id BIGINT UNSIGNED NULL,
+    practice_interview_id BIGINT UNSIGNED NOT NULL,
+    weakness_title VARCHAR(500) NOT NULL,
+    weakness_key CHAR(64) NOT NULL,
+    suggestion TEXT NULL,
+    round_type VARCHAR(32) NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    source_score INT NULL,
+    practice_score INT NULL,
+    last_practiced_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_weakness_practice_interview (practice_interview_id),
+    KEY idx_weakness_practice_user_key (user_id, weakness_key),
+    KEY idx_weakness_practice_source (source_interview_id),
+    CONSTRAINT fk_weakness_practice_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_weakness_practice_source_interview_id
+        FOREIGN KEY (source_interview_id) REFERENCES interviews (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_weakness_practice_practice_interview_id
+        FOREIGN KEY (practice_interview_id) REFERENCES interviews (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS review_bookmarks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    bookmark_key CHAR(64) NOT NULL,
+    source_interview_id BIGINT UNSIGNED NULL,
+    target_position VARCHAR(255) NOT NULL,
+    round_id BIGINT UNSIGNED NULL,
+    round_type VARCHAR(32) NULL,
+    question_id BIGINT UNSIGNED NULL,
+    title VARCHAR(500) NOT NULL,
+    issue TEXT NOT NULL,
+    suggestion TEXT NULL,
+    question TEXT NULL,
+    answer TEXT NULL,
+    evaluation JSON NULL,
+    source_score INT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    practice_interview_id BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_review_bookmarks_user_key (user_id, bookmark_key),
+    KEY idx_review_bookmarks_user_updated (user_id, updated_at),
+    KEY idx_review_bookmarks_source_interview (source_interview_id),
+    KEY idx_review_bookmarks_question (question_id),
+    KEY idx_review_bookmarks_practice (practice_interview_id),
+    CONSTRAINT fk_review_bookmarks_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_review_bookmarks_source_interview_id
+        FOREIGN KEY (source_interview_id) REFERENCES interviews (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_review_bookmarks_round_id
+        FOREIGN KEY (round_id) REFERENCES interview_rounds (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_review_bookmarks_question_id
+        FOREIGN KEY (question_id) REFERENCES interview_qa (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_review_bookmarks_practice_interview_id
+        FOREIGN KEY (practice_interview_id) REFERENCES interviews (id)
+        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS candidate_memories (
@@ -444,6 +554,29 @@ CREATE TABLE IF NOT EXISTS notifications (
         ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS user_feedback_submissions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    feedback_type VARCHAR(32) NOT NULL,
+    content TEXT NOT NULL,
+    rating TINYINT UNSIGNED NULL,
+    interview_id BIGINT UNSIGNED NULL,
+    round_id BIGINT UNSIGNED NULL,
+    question_id BIGINT UNSIGNED NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'new',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_user_feedback_user_created (user_id, created_at, id),
+    KEY idx_user_feedback_status_created (status, created_at, id),
+    KEY idx_user_feedback_interview (interview_id),
+    KEY idx_user_feedback_round (round_id),
+    KEY idx_user_feedback_question (question_id),
+    CONSTRAINT fk_user_feedback_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS rag_audit_logs (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     request_id VARCHAR(64) NOT NULL,
@@ -504,22 +637,6 @@ CREATE TABLE IF NOT EXISTS evaluation_records (
         FOREIGN KEY (interview_id) REFERENCES interviews (id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-ALTER TABLE interviews
-    ADD COLUMN IF NOT EXISTS version_bundle_id BIGINT UNSIGNED NULL,
-    ADD COLUMN IF NOT EXISTS harness_status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    ADD COLUMN IF NOT EXISTS last_checkpoint_id BIGINT UNSIGNED NULL,
-    ADD COLUMN IF NOT EXISTS recovery_count INT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS last_recovered_at DATETIME NULL,
-    ADD COLUMN IF NOT EXISTS last_harness_error VARCHAR(1000) NULL,
-    ADD COLUMN IF NOT EXISTS had_degradation TINYINT(1) NOT NULL DEFAULT 0;
-
-ALTER TABLE interview_rounds
-    ADD COLUMN IF NOT EXISTS execution_status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    ADD COLUMN IF NOT EXISTS retry_count INT NOT NULL DEFAULT 0;
-
-ALTER TABLE feedback_reports
-    ADD COLUMN IF NOT EXISTS report_reliability_status VARCHAR(32) NOT NULL DEFAULT 'normal';
 
 CREATE TABLE IF NOT EXISTS harness_traces (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -618,43 +735,11 @@ CREATE TABLE IF NOT EXISTS harness_checkpoints (
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS harness_replay_runs (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id BIGINT UNSIGNED NOT NULL,
-    interview_id BIGINT UNSIGNED NOT NULL,
-    source_trace_id BIGINT UNSIGNED NOT NULL,
-    new_trace_id BIGINT UNSIGNED NULL,
-    mode VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    parameters JSON NOT NULL,
-    result_snapshot JSON NULL,
-    diff_summary JSON NOT NULL,
-    error_message VARCHAR(1000) NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at DATETIME NULL,
-    PRIMARY KEY (id),
-    KEY idx_harness_replay_runs_source (source_trace_id),
-    KEY idx_harness_replay_runs_interview_created (interview_id, created_at),
-    CONSTRAINT fk_harness_replay_runs_user_id
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_harness_replay_runs_interview_id
-        FOREIGN KEY (interview_id) REFERENCES interviews (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_harness_replay_runs_source_trace_id
-        FOREIGN KEY (source_trace_id) REFERENCES harness_traces (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_harness_replay_runs_new_trace_id
-        FOREIGN KEY (new_trace_id) REFERENCES harness_traces (id)
-        ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS harness_rule_evaluations (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
     interview_id BIGINT UNSIGNED NOT NULL,
     trace_id BIGINT UNSIGNED NULL,
-    replay_run_id BIGINT UNSIGNED NULL,
     rule_name VARCHAR(128) NOT NULL,
     status VARCHAR(32) NOT NULL,
     severity VARCHAR(32) NOT NULL,
@@ -674,9 +759,6 @@ CREATE TABLE IF NOT EXISTS harness_rule_evaluations (
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_harness_rule_evaluations_trace_id
         FOREIGN KEY (trace_id) REFERENCES harness_traces (id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_harness_rule_evaluations_replay_run_id
-        FOREIGN KEY (replay_run_id) REFERENCES harness_replay_runs (id)
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -709,186 +791,161 @@ CREATE TABLE IF NOT EXISTS harness_improvement_candidates (
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS evolution_quality_signals (
+CREATE TABLE IF NOT EXISTS harness_artifact_bundles (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id BIGINT UNSIGNED NOT NULL,
-    interview_id BIGINT UNSIGNED NOT NULL,
-    version_bundle_id BIGINT UNSIGNED NULL,
-    job_family VARCHAR(128) NULL,
-    signal_type VARCHAR(64) NOT NULL,
-    severity VARCHAR(32) NOT NULL DEFAULT 'info',
-    metrics JSON NOT NULL,
-    hard_trigger TINYINT(1) NOT NULL DEFAULT 0,
-    threshold_trigger TINYINT(1) NOT NULL DEFAULT 0,
-    source_refs JSON NOT NULL,
+    bundle_key VARCHAR(191) NOT NULL,
+    user_id BIGINT UNSIGNED NULL,
+    job_family_key VARCHAR(128) NOT NULL,
+    parent_bundle_id BIGINT UNSIGNED NULL,
+    generation INT UNSIGNED NOT NULL DEFAULT 1,
+    status VARCHAR(32) NOT NULL DEFAULT 'candidate',
+    is_active TINYINT(1) NOT NULL DEFAULT 0,
+    active_scope_key VARCHAR(255)
+        GENERATED ALWAYS AS (
+            CASE WHEN is_active = 1 THEN CONCAT(COALESCE(user_id, 0), ':', job_family_key) ELSE NULL END
+        ) VIRTUAL,
+    activation_reason VARCHAR(500) NULL,
+    baseline_quality DECIMAL(8,6) NULL,
+    observation_count INT UNSIGNED NOT NULL DEFAULT 0,
+    consecutive_failures INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    activated_at DATETIME NULL,
+    rolled_back_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_harness_artifact_bundles_key (bundle_key),
+    UNIQUE KEY uk_harness_artifact_bundles_one_active (active_scope_key),
+    KEY idx_harness_artifact_bundles_active (user_id, job_family_key, is_active, activated_at),
+    KEY idx_harness_artifact_bundles_parent (parent_bundle_id),
+    KEY idx_harness_artifact_bundles_user (user_id),
+    CONSTRAINT fk_harness_artifact_bundles_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_harness_artifact_bundles_parent
+        FOREIGN KEY (parent_bundle_id) REFERENCES harness_artifact_bundles (id)
+        ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS harness_artifacts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    bundle_id BIGINT UNSIGNED NOT NULL,
+    artifact_key VARCHAR(128) NOT NULL,
+    artifact_type VARCHAR(32) NOT NULL,
+    content JSON NOT NULL,
+    content_hash CHAR(64) NOT NULL,
+    change_summary VARCHAR(1000) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_evolution_quality_signals_interview_type (interview_id, signal_type),
-    KEY idx_evolution_quality_signals_user_created (user_id, created_at),
-    KEY idx_evolution_quality_signals_bundle_created (version_bundle_id, created_at),
-    KEY idx_evolution_quality_signals_trigger (hard_trigger, threshold_trigger, severity),
-    CONSTRAINT fk_evolution_quality_signals_user_id
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_quality_signals_interview_id
-        FOREIGN KEY (interview_id) REFERENCES interviews (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_quality_signals_version_bundle_id
-        FOREIGN KEY (version_bundle_id) REFERENCES evolution_version_bundles (id)
-        ON DELETE SET NULL ON UPDATE CASCADE
+    UNIQUE KEY uk_harness_artifacts_bundle_key (bundle_id, artifact_key),
+    KEY idx_harness_artifacts_key (artifact_key, bundle_id),
+    CONSTRAINT fk_harness_artifacts_bundle_id
+        FOREIGN KEY (bundle_id) REFERENCES harness_artifact_bundles (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS evolution_runs (
+CREATE TABLE IF NOT EXISTS harness_evolution_runs (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NULL,
-    dedupe_key VARCHAR(191) NULL,
-    trigger_type VARCHAR(32) NOT NULL,
-    trigger_reason VARCHAR(1000) NOT NULL,
-    scope_type VARCHAR(32) NOT NULL DEFAULT 'global',
-    scope_key VARCHAR(128) NULL,
-    sample_count INT NOT NULL DEFAULT 0,
-    data_scope JSON NOT NULL,
-    anonymization_status VARCHAR(32) NOT NULL DEFAULT 'not_required',
-    audit_metadata JSON NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at DATETIME NULL,
-    error_message VARCHAR(1000) NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_evolution_runs_dedupe_key (dedupe_key),
-    KEY idx_evolution_runs_user_started (user_id, started_at),
-    KEY idx_evolution_runs_status_started (status, started_at),
-    KEY idx_evolution_runs_trigger_started (trigger_type, started_at),
-    KEY idx_evolution_runs_scope (scope_type, scope_key),
-    CONSTRAINT fk_evolution_runs_user_id
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS evolution_candidates (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    run_id BIGINT UNSIGNED NOT NULL,
-    candidate_type VARCHAR(64) NOT NULL,
-    target_artifact_key VARCHAR(128) NULL,
-    risk_level VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending_validation',
-    proposal JSON NOT NULL,
-    diff JSON NOT NULL,
-    impact_scope JSON NOT NULL,
-    root_cause JSON NOT NULL,
+    job_family_key VARCHAR(128) NOT NULL,
+    trigger_sequence INT UNSIGNED NOT NULL,
+    trigger_interview_count INT UNSIGNED NOT NULL,
+    source_interview_ids JSON NOT NULL,
+    baseline_bundle_id BIGINT UNSIGNED NOT NULL,
+    candidate_bundle_id BIGINT UNSIGNED NULL,
+    candidate_artifact_key VARCHAR(128) NULL,
+    candidate_artifact_type VARCHAR(32) NULL,
+    diagnosis JSON NULL,
+    proposal JSON NULL,
     validation_summary JSON NULL,
-    approval_status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    approved_by BIGINT UNSIGNED NULL,
-    approved_at DATETIME NULL,
-    manual_note TEXT NULL,
-    rollback_point JSON NULL,
-    application_result JSON NULL,
+    decision_summary JSON NULL,
+    anonymization_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
+    max_retries INT UNSIGNED NOT NULL DEFAULT 3,
+    next_retry_at DATETIME NULL,
+    processing_token CHAR(32) NULL,
+    started_at DATETIME NULL,
+    heartbeat_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    trigger_cursor_ended_at DATETIME NULL,
+    trigger_cursor_interview_id BIGINT UNSIGNED NULL,
+    error_message VARCHAR(1000) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_evolution_candidates_run_id (run_id),
-    KEY idx_evolution_candidates_status_risk (status, risk_level),
-    KEY idx_evolution_candidates_type (candidate_type),
-    CONSTRAINT fk_evolution_candidates_run_id
-        FOREIGN KEY (run_id) REFERENCES evolution_runs (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-ALTER TABLE evolution_runs
-    ADD COLUMN IF NOT EXISTS user_id BIGINT UNSIGNED NULL,
-    ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(191) NULL,
-    ADD COLUMN IF NOT EXISTS audit_metadata JSON NULL;
-
-ALTER TABLE evolution_candidates
-    ADD COLUMN IF NOT EXISTS application_result JSON NULL;
-
-CREATE TABLE IF NOT EXISTS evolution_validation_runs (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    candidate_id BIGINT UNSIGNED NOT NULL,
-    validation_type VARCHAR(64) NOT NULL,
-    status VARCHAR(32) NOT NULL,
-    sample_count INT NOT NULL DEFAULT 0,
-    baseline_bundle_id BIGINT UNSIGNED NULL,
-    candidate_bundle_id BIGINT UNSIGNED NULL,
-    hard_rule_result JSON NOT NULL,
-    soft_rule_diff JSON NOT NULL,
-    schema_result JSON NOT NULL,
-    api_contract_result JSON NOT NULL,
-    report_quality_diff JSON NOT NULL,
-    repeat_rate_diff JSON NOT NULL,
-    score_distribution_diff JSON NOT NULL,
-    test_result JSON NOT NULL,
-    details JSON NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_evolution_validation_runs_candidate (candidate_id, created_at),
-    KEY idx_evolution_validation_runs_status (status),
-    CONSTRAINT fk_evolution_validation_runs_candidate_id
-        FOREIGN KEY (candidate_id) REFERENCES evolution_candidates (id)
+    UNIQUE KEY uk_harness_evolution_runs_trigger (user_id, job_family_key, trigger_sequence),
+    KEY idx_harness_evolution_runs_claim (status, next_retry_at, created_at),
+    KEY idx_harness_evolution_runs_user_family (user_id, job_family_key, created_at),
+    KEY idx_harness_evolution_runs_baseline (baseline_bundle_id),
+    KEY idx_harness_evolution_runs_candidate (candidate_bundle_id),
+    CONSTRAINT fk_harness_evolution_runs_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_harness_evolution_runs_baseline
+        FOREIGN KEY (baseline_bundle_id) REFERENCES harness_artifact_bundles (id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_validation_runs_baseline_bundle_id
-        FOREIGN KEY (baseline_bundle_id) REFERENCES evolution_version_bundles (id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_validation_runs_candidate_bundle_id
-        FOREIGN KEY (candidate_bundle_id) REFERENCES evolution_version_bundles (id)
+    CONSTRAINT fk_harness_evolution_runs_candidate
+        FOREIGN KEY (candidate_bundle_id) REFERENCES harness_artifact_bundles (id)
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS evolution_audit_events (
+CREATE TABLE IF NOT EXISTS harness_evolution_samples (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    event_type VARCHAR(100) NOT NULL,
-    run_id BIGINT UNSIGNED NULL,
-    candidate_id BIGINT UNSIGNED NULL,
-    validation_run_id BIGINT UNSIGNED NULL,
-    version_bundle_id BIGINT UNSIGNED NULL,
-    actor_user_id BIGINT UNSIGNED NULL,
-    metadata JSON NOT NULL,
+    run_id BIGINT UNSIGNED NOT NULL,
+    sample_key VARCHAR(128) NOT NULL,
+    sample_type VARCHAR(32) NOT NULL,
+    source_interview_id BIGINT UNSIGNED NULL,
+    input_payload JSON NOT NULL,
+    baseline_output JSON NULL,
+    candidate_output JSON NULL,
+    objective_metrics JSON NOT NULL,
+    judge_results JSON NOT NULL,
+    winner VARCHAR(32) NULL,
+    hard_gate_status VARCHAR(32) NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_evolution_audit_events_run_created (run_id, created_at),
-    KEY idx_evolution_audit_events_candidate_created (candidate_id, created_at),
-    KEY idx_evolution_audit_events_type_created (event_type, created_at),
-    KEY idx_evolution_audit_events_actor_created (actor_user_id, created_at),
-    CONSTRAINT fk_evolution_audit_events_run_id
-        FOREIGN KEY (run_id) REFERENCES evolution_runs (id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_audit_events_candidate_id
-        FOREIGN KEY (candidate_id) REFERENCES evolution_candidates (id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_audit_events_validation_run_id
-        FOREIGN KEY (validation_run_id) REFERENCES evolution_validation_runs (id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_audit_events_version_bundle_id
-        FOREIGN KEY (version_bundle_id) REFERENCES evolution_version_bundles (id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT fk_evolution_audit_events_actor_user_id
-        FOREIGN KEY (actor_user_id) REFERENCES users (id)
+    UNIQUE KEY uk_harness_evolution_samples_key (run_id, sample_key),
+    KEY idx_harness_evolution_samples_run_type (run_id, sample_type),
+    CONSTRAINT fk_harness_evolution_samples_run_id
+        FOREIGN KEY (run_id) REFERENCES harness_evolution_runs (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_harness_evolution_samples_interview_id
+        FOREIGN KEY (source_interview_id) REFERENCES interviews (id)
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO evolution_version_bundles (
-    bundle_key, parent_bundle_id, scope_type, scope_key, status, risk_level,
-    content_hash, diff, validation_summary, rollback_point, activated_at
-)
-VALUES (
-    'global-default-v3.2-bootstrap',
-    NULL,
-    'global',
-    NULL,
-    'active',
-    'low',
-    SHA2('global-default-v3.2-bootstrap', 256),
-    JSON_OBJECT('reason', 'v3.2 bootstrap default bundle'),
-    JSON_OBJECT('status', 'bootstrap', 'phase', 'stage_1'),
-    JSON_OBJECT('type', 'bootstrap_default'),
-    CURRENT_TIMESTAMP
-);
+CREATE TABLE IF NOT EXISTS harness_evolution_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    run_id BIGINT UNSIGNED NULL,
+    bundle_id BIGINT UNSIGNED NULL,
+    event_type VARCHAR(64) NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_harness_evolution_events_run_created (run_id, created_at),
+    KEY idx_harness_evolution_events_bundle_created (bundle_id, created_at),
+    CONSTRAINT fk_harness_evolution_events_run_id
+        FOREIGN KEY (run_id) REFERENCES harness_evolution_runs (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_harness_evolution_events_bundle_id
+        FOREIGN KEY (bundle_id) REFERENCES harness_artifact_bundles (id)
+        ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-UPDATE interviews
-SET version_bundle_id = (
-    SELECT id
-    FROM evolution_version_bundles
-    WHERE bundle_key = 'global-default-v3.2-bootstrap'
-    LIMIT 1
-)
-WHERE version_bundle_id IS NULL;
+CREATE TABLE IF NOT EXISTS harness_evolution_observations (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    bundle_id BIGINT UNSIGNED NOT NULL,
+    interview_id BIGINT UNSIGNED NOT NULL,
+    quality_score DECIMAL(8,6) NOT NULL,
+    hard_error TINYINT(1) NOT NULL DEFAULT 0,
+    metrics JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_harness_evolution_observations_interview (bundle_id, interview_id),
+    KEY idx_harness_evolution_observations_bundle_created (bundle_id, created_at),
+    CONSTRAINT fk_harness_evolution_observations_bundle_id
+        FOREIGN KEY (bundle_id) REFERENCES harness_artifact_bundles (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_harness_evolution_observations_interview_id
+        FOREIGN KEY (interview_id) REFERENCES interviews (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

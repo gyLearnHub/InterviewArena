@@ -20,13 +20,14 @@ class BaseRoundAgent:
         effective_memories: list[JSONDict] | None = None,
         question_kind: str | None = None,
     ) -> AgentQuestion:
+        question_strategy = self._question_strategy(resume, qa_history, question_kind)
         payload = self.llm_client.generate_question(
             resume={
                 **resume,
                 "_interview_round": self.spec.round_type,
                 "_evaluation_dimensions": self.spec.dimensions,
                 "_effective_memories": effective_memories or [],
-                "_question_strategy": self._question_strategy(qa_history, question_kind),
+                "_question_strategy": question_strategy,
             },
             target_position=target_position,
             qa_history=qa_history,
@@ -46,6 +47,12 @@ class BaseRoundAgent:
         ):
             question_type = self._fallback_question_type(qa_history)
             question = self._fallback_question(qa_history, question_kind or "main")
+        question_type, question = self._apply_resume_project_rotation(
+            question_type,
+            question,
+            question_strategy,
+            question_kind or "main",
+        )
         if _is_duplicate_question(question, qa_history):
             question_type = self._fallback_question_type(qa_history)
             question = self._fallback_question(qa_history, question_kind or "main")
@@ -62,15 +69,21 @@ class BaseRoundAgent:
         round_record: InterviewRoundRecord,
         qa_history: list[QARecord],
         latest_question_score: Any | None = None,
+        remaining_seconds: int | None = None,
+        closing_window_seconds: int = 180,
+        resume: JSONDict | None = None,
     ) -> bool:
         counts = count_questions(qa_history)
         if counts["total"] >= round_record.max_total_questions:
             return True
-        if counts["total"] < round_record.min_total_questions:
-            return False
-        if counts["main"] < round_record.min_main_questions:
-            return False
+        if remaining_seconds is not None and remaining_seconds <= closing_window_seconds:
+            return True
         if not self._has_core_topic_coverage(qa_history):
+            return False
+        if self.spec.round_type == "resume" and not _has_resume_project_coverage(
+            resume or {},
+            qa_history,
+        ):
             return False
         if _score_requires_more_signal(latest_question_score):
             return False
@@ -78,6 +91,7 @@ class BaseRoundAgent:
 
     def _question_strategy(
         self,
+        resume: JSONDict,
         qa_history: list[JSONDict],
         question_kind: str | None,
     ) -> JSONDict:
@@ -88,9 +102,19 @@ class BaseRoundAgent:
             for item in active_history[-4:]
             if item.get("question_type")
         ]
+        project_titles = _resume_project_titles(resume)
+        covered_projects = _covered_projects(project_titles, active_history)
+        uncovered_projects = [
+            title for title in project_titles if title not in covered_projects
+        ]
+        recent_project = _most_recent_project(project_titles, active_history)
+        next_project = uncovered_projects[0] if uncovered_projects else _next_project(
+            project_titles,
+            recent_project,
+        )
         return {
             "question_kind": question_kind or "main",
-            "min_total_questions": self.spec.min_total_questions,
+            "min_total_questions": 0,
             "max_total_questions": self.spec.max_total_questions,
             "current_total_questions": len(active_history),
             "current_main_questions": sum(
@@ -105,16 +129,48 @@ class BaseRoundAgent:
                 topic for topic in self.spec.core_topics if topic not in covered_topics
             ],
             "recent_question_types": recent_question_types,
+            "project_titles": project_titles,
+            "covered_projects": covered_projects,
+            "uncovered_projects": uncovered_projects,
+            "next_project": next_project,
+            "project_rotation_required": bool(
+                self.spec.round_type == "resume"
+                and question_kind != "follow_up"
+                and uncovered_projects
+            ),
             "rule_summary": (
                 "主问题和追问交叉推进；单个主题连续追问原则上不超过2次；"
-                "不得重复已问问题；最低题量前不得结束，最高题量必须结束。"
+                "不得重复已问问题；题量没有硬性下限，按回答质量、覆盖面和剩余时间决定；"
+                "最高题量必须结束。"
             ),
         }
 
+    def _apply_resume_project_rotation(
+        self,
+        question_type: str,
+        question: str,
+        strategy: JSONDict,
+        question_kind: str,
+    ) -> tuple[str, str]:
+        if self.spec.round_type != "resume" or question_kind == "follow_up":
+            return question_type, question
+        target = str(strategy.get("next_project") or "").strip()
+        if not target:
+            return question_type, question
+        must_cover_unasked = bool(strategy.get("project_rotation_required"))
+        if not must_cover_unasked and not _is_project_question(question_type, question):
+            return question_type, question
+        if _question_mentions_project(question, target):
+            return question_type, question
+        return (
+            "project_understanding",
+            f"我们切换到简历中的「{target}」。请说明这个项目的背景、你的具体职责，"
+            "以及最能证明项目结果的一项产出。",
+        )
+
     def _has_core_topic_coverage(self, qa_history: list[QARecord]) -> bool:
         history_items = [
-            {"question_type": qa.question_type, "question": qa.question}
-            for qa in qa_history
+            {"question_type": qa.question_type, "question": qa.question} for qa in qa_history
         ]
         covered_topics = _covered_topics_from_items(self.spec.core_topics, history_items)
         return len(covered_topics) >= len(self.spec.core_topics)
@@ -128,9 +184,7 @@ class BaseRoundAgent:
         topic = uncovered_topics[0] if uncovered_topics else "另一个核心评价维度"
         if question_kind == "follow_up":
             return f"围绕刚才的回答，请补充一个能验证「{topic}」的具体细节或判断依据。"
-        return (
-            f"我们切换到「{topic}」。请结合一个不同于前面问题的具体场景，说明你的做法和结果。"
-        )
+        return f"我们切换到「{topic}」。请结合一个不同于前面问题的具体场景，说明你的做法和结果。"
 
     def _fallback_question_type(self, qa_history: list[JSONDict]) -> str:
         covered_topics = _covered_topics_from_items(
@@ -185,11 +239,7 @@ def count_questions(qa_history: list[QARecord]) -> dict[str, int]:
 
 
 def _active_history_items(qa_history: list[JSONDict]) -> list[JSONDict]:
-    return [
-        item
-        for item in qa_history
-        if str(item.get("question_status") or "active") == "active"
-    ]
+    return [item for item in qa_history if str(item.get("question_status") or "active") == "active"]
 
 
 def _covered_topics_from_items(
@@ -207,13 +257,81 @@ def _covered_topics_from_items(
     return covered
 
 
+def _resume_project_titles(resume: JSONDict) -> list[str]:
+    projects = resume.get("project_experience")
+    if not isinstance(projects, list):
+        return []
+    titles: list[str] = []
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        title = next(
+            (
+                str(project.get(key) or "").strip()
+                for key in ("name", "project_name", "title")
+                if str(project.get(key) or "").strip()
+            ),
+            "",
+        )
+        if title and title not in titles:
+            titles.append(title)
+    return titles
+
+
+def _covered_projects(project_titles: list[str], qa_history: list[JSONDict]) -> list[str]:
+    return [
+        title
+        for title in project_titles
+        if any(
+            _question_mentions_project(str(item.get("question") or ""), title)
+            for item in qa_history
+        )
+    ]
+
+
+def _most_recent_project(project_titles: list[str], qa_history: list[JSONDict]) -> str | None:
+    for item in reversed(qa_history):
+        question = str(item.get("question") or "")
+        for title in project_titles:
+            if _question_mentions_project(question, title):
+                return title
+    return None
+
+
+def _next_project(project_titles: list[str], recent_project: str | None) -> str | None:
+    if not project_titles:
+        return None
+    if recent_project not in project_titles:
+        return project_titles[0]
+    index = project_titles.index(recent_project)
+    return project_titles[(index + 1) % len(project_titles)]
+
+
+def _has_resume_project_coverage(resume: JSONDict, qa_history: list[QARecord]) -> bool:
+    project_titles = _resume_project_titles(resume)
+    if not project_titles:
+        return True
+    history_items = [{"question": qa.question} for qa in qa_history]
+    return len(_covered_projects(project_titles, history_items)) == len(project_titles)
+
+
+def _question_mentions_project(question: str, project_title: str) -> bool:
+    normalized_question = _normalize_question(question)
+    normalized_title = _normalize_question(project_title)
+    return bool(normalized_title and normalized_title in normalized_question)
+
+
+def _is_project_question(question_type: str, question: str) -> bool:
+    text = f"{question_type} {question}".lower()
+    return any(marker in text for marker in ("project", "项目", "作品", "系统"))
+
+
 def _is_duplicate_question(question: str, qa_history: list[JSONDict]) -> bool:
     normalized = _normalize_question(question)
     if not normalized:
         return False
     return any(
-        normalized == _normalize_question(str(item.get("question") or ""))
-        for item in qa_history
+        normalized == _normalize_question(str(item.get("question") or "")) for item in qa_history
     )
 
 

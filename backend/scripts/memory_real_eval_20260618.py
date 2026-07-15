@@ -461,7 +461,6 @@ def eval_residue_counts(connection: Any, user_id: int) -> dict[str, int]:
                 "rag_audit_logs",
                 "harness_traces",
                 "harness_checkpoints",
-                "harness_replay_runs",
                 "harness_rule_evaluations",
             ]:
                 cursor.execute(
@@ -541,9 +540,6 @@ def cleanup_eval_data(connection: Any, user_id: int, *, dry_run: bool) -> dict[s
         cleanup["deleted"]["harness_trace_events"] = _delete_trace_events(cursor, trace_ids)
         cleanup["deleted"]["harness_rule_evaluations"] = _delete_by_interviews(
             cursor, "harness_rule_evaluations", interview_ids
-        )
-        cleanup["deleted"]["harness_replay_runs"] = _delete_by_interviews(
-            cursor, "harness_replay_runs", interview_ids
         )
         cleanup["deleted"]["harness_checkpoints"] = _delete_by_interviews(
             cursor, "harness_checkpoints", interview_ids

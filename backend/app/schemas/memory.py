@@ -43,6 +43,36 @@ class MemoryClearStatusResponse(BaseModel):
     error_message: str | None = None
 
 
+class ManagedMemoryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    memory_type: str
+    title: str
+    content: str
+    confidence: float
+    status: MemoryStatus
+    index_status: MemoryIndexStatus
+    source_interview_id: int | None = None
+    source_round_id: int | None = None
+    target_position: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ManagedMemoryListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ManagedMemoryItem]
+    total: int
+    active_count: int
+    pending_review_count: int
+    limit: int
+    offset: int
+    next_offset: int | None = None
+
+
 class RetrievedMemory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

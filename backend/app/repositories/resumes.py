@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+ACTIVE_INTERVIEW_DEPENDENCY_STATUSES = ("created", "in_progress", "paused")
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,8 @@ class ResumeParseTaskRecord:
     created_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    processing_token: str | None = None
+    heartbeat_at: datetime | None = None
 
 
 class ResumeRepository:
@@ -105,7 +110,7 @@ class ResumeRepository:
                 SELECT id, user_id, original_file_path, display_name, content_hash,
                        structured_data, is_default, created_at, deleted_at
                 FROM resumes
-                WHERE user_id = %s AND content_hash = %s
+                WHERE user_id = %s AND content_hash = %s AND deleted_at IS NULL
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -259,33 +264,80 @@ class ResumeRepository:
         return self.get_detail_for_user(resume_id, user_id)
 
     def soft_delete_for_user(self, resume_id: int, user_id: int) -> bool:
+        status_placeholders = _placeholders(ACTIVE_INTERVIEW_DEPENDENCY_STATUSES)
         with self.connection.cursor() as cursor:
             cursor.execute(
-                """
-                UPDATE resumes
-                SET deleted_at = CURRENT_TIMESTAMP, is_default = 0, default_key = NULL
-                WHERE id = %s AND user_id = %s AND deleted_at IS NULL
+                f"""
+                UPDATE resumes r
+                SET deleted_at = CURRENT_TIMESTAMP,
+                    is_default = 0,
+                    default_key = NULL,
+                    original_file_path = '',
+                    structured_data = JSON_OBJECT(),
+                    content_hash = NULL
+                WHERE r.id = %s
+                  AND r.user_id = %s
+                  AND r.deleted_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM interviews i
+                      WHERE i.resume_id = r.id
+                        AND i.user_id = r.user_id
+                        AND (
+                            i.status IN ({status_placeholders})
+                            OR i.overall_status IN ({status_placeholders})
+                        )
+                  )
                 """,
-                (resume_id, user_id),
+                (
+                    resume_id,
+                    user_id,
+                    *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+                    *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+                ),
             )
             return int(cursor.rowcount) > 0
 
-    def restore_for_user(self, resume_id: int, user_id: int) -> ResumeRecord | None:
+    def get_original_file_path_for_user(self, resume_id: int, user_id: int) -> str | None:
         with self.connection.cursor() as cursor:
-            self._lock_user_resumes(cursor, user_id)
-            is_default = not self._has_active_resume_with_cursor(cursor, user_id)
             cursor.execute(
-                """
-                UPDATE resumes
-                SET deleted_at = NULL, is_default = %s, default_key = %s
-                WHERE id = %s AND user_id = %s
-                """,
-                (_bool_int(is_default), _default_key(is_default), resume_id, user_id),
+                "SELECT original_file_path FROM resumes "
+                "WHERE id = %s AND user_id = %s AND deleted_at IS NULL",
+                (resume_id, user_id),
             )
-            updated = int(cursor.rowcount) > 0
-        if not updated:
-            return None
-        return self.get_by_id_for_user(resume_id, user_id)
+            row = cursor.fetchone()
+        return str(row["original_file_path"]) if row is not None else None
+
+    def has_unfinished_interview_for_resume(self, resume_id: int, user_id: int) -> bool:
+        return self.has_active_interview_dependency_for_resume(resume_id, user_id)
+
+    def has_active_interview_dependency_for_resume(
+        self,
+        resume_id: int,
+        user_id: int,
+    ) -> bool:
+        status_placeholders = _placeholders(ACTIVE_INTERVIEW_DEPENDENCY_STATUSES)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT 1
+                FROM interviews
+                WHERE resume_id = %s
+                  AND user_id = %s
+                  AND (
+                      status IN ({status_placeholders})
+                      OR overall_status IN ({status_placeholders})
+                  )
+                LIMIT 1
+                """,
+                (
+                    resume_id,
+                    user_id,
+                    *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+                    *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+                ),
+            )
+            return cursor.fetchone() is not None
 
     def create_parse_task(
         self,
@@ -308,6 +360,51 @@ class ResumeRepository:
             raise RuntimeError("created resume parse task is missing")
         return task
 
+    def get_or_create_completed_parse_task(
+        self,
+        *,
+        user_id: int,
+        original_file_path: str,
+        content_hash: str,
+        resume_id: int,
+    ) -> ResumeParseTaskRecord:
+        with self.connection.cursor() as cursor:
+            self._lock_user_resumes(cursor, user_id)
+            cursor.execute(
+                """
+                SELECT id, user_id, original_file_path, content_hash, status, resume_id,
+                       error_message, created_at, started_at, completed_at,
+                       processing_token, heartbeat_at
+                FROM resume_parse_tasks
+                WHERE user_id = %s
+                  AND content_hash = %s
+                  AND resume_id = %s
+                  AND status = 'completed'
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (user_id, content_hash, resume_id),
+            )
+            row = cursor.fetchone()
+            if row is not None:
+                return _to_parse_task(row)
+
+            cursor.execute(
+                """
+                INSERT INTO resume_parse_tasks (
+                    user_id, original_file_path, content_hash, status, resume_id, completed_at
+                )
+                VALUES (%s, %s, %s, 'completed', %s, UTC_TIMESTAMP())
+                """,
+                (user_id, original_file_path, content_hash, resume_id),
+            )
+            task_id = int(cursor.lastrowid)
+
+        task = self.get_parse_task_for_user(task_id, user_id)
+        if task is None:
+            raise RuntimeError("created completed resume parse task is missing")
+        return task
+
     def get_parse_task_for_user(
         self,
         task_id: int,
@@ -317,7 +414,8 @@ class ResumeRepository:
             cursor.execute(
                 """
                 SELECT id, user_id, original_file_path, content_hash, status, resume_id,
-                       error_message, created_at, started_at, completed_at
+                       error_message, created_at, started_at, completed_at,
+                       processing_token, heartbeat_at
                 FROM resume_parse_tasks
                 WHERE id = %s AND user_id = %s
                 """,
@@ -326,39 +424,203 @@ class ResumeRepository:
             row = cursor.fetchone()
         return _to_parse_task(row) if row is not None else None
 
-    def mark_parse_task_processing(self, task_id: int) -> bool:
+    def get_active_parse_task_by_content_hash(
+        self,
+        user_id: int,
+        content_hash: str,
+    ) -> ResumeParseTaskRecord | None:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                UPDATE resume_parse_tasks
-                SET status = 'processing', started_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND status = 'pending'
+                SELECT id, user_id, original_file_path, content_hash, status, resume_id,
+                       error_message, created_at, started_at, completed_at,
+                       processing_token, heartbeat_at
+                FROM resume_parse_tasks
+                WHERE user_id = %s
+                  AND content_hash = %s
+                  AND status IN ('pending', 'processing')
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (user_id, content_hash),
+            )
+            row = cursor.fetchone()
+        return _to_parse_task(row) if row is not None else None
+
+    def get_parse_task(self, task_id: int) -> ResumeParseTaskRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, user_id, original_file_path, content_hash, status, resume_id,
+                       error_message, created_at, started_at, completed_at,
+                       processing_token, heartbeat_at
+                FROM resume_parse_tasks
+                WHERE id = %s
                 """,
                 (task_id,),
             )
+            row = cursor.fetchone()
+        return _to_parse_task(row) if row is not None else None
+
+    def claim_due_parse_task(
+        self,
+        processing_timeout_seconds: int,
+    ) -> ResumeParseTaskRecord | None:
+        timeout_seconds = max(1, processing_timeout_seconds)
+        processing_token = uuid4().hex
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE resume_parse_tasks
+                SET status = 'failed',
+                    error_message = 'processing_timeout',
+                    processing_token = NULL,
+                    heartbeat_at = NULL,
+                    completed_at = UTC_TIMESTAMP()
+                WHERE status = 'processing'
+                  AND (
+                      COALESCE(heartbeat_at, started_at) IS NULL
+                      OR COALESCE(heartbeat_at, started_at) <= DATE_SUB(
+                          UTC_TIMESTAMP(), INTERVAL %s SECOND
+                      )
+                  )
+                """,
+                (timeout_seconds,),
+            )
+            cursor.execute(
+                """
+                UPDATE resume_parse_tasks
+                SET id = LAST_INSERT_ID(id),
+                    status = 'processing',
+                    started_at = UTC_TIMESTAMP(),
+                    processing_token = %s,
+                    heartbeat_at = UTC_TIMESTAMP(),
+                    completed_at = NULL,
+                    error_message = NULL
+                WHERE status = 'pending'
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                (processing_token,),
+            )
+            if int(cursor.rowcount) != 1:
+                return None
+            cursor.execute("SELECT LAST_INSERT_ID() AS task_id")
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            task_id = int(row["task_id"])
+        return self.get_parse_task(task_id)
+
+    def mark_parse_task_processing(self, task_id: int) -> bool:
+        processing_token = uuid4().hex
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE resume_parse_tasks
+                SET status = 'processing',
+                    started_at = UTC_TIMESTAMP(),
+                    processing_token = %s,
+                    heartbeat_at = UTC_TIMESTAMP(),
+                    completed_at = NULL,
+                    error_message = NULL
+                WHERE id = %s AND status = 'pending'
+                """,
+                (processing_token, task_id),
+            )
             return int(cursor.rowcount) > 0
 
-    def mark_parse_task_completed(self, task_id: int, resume_id: int) -> None:
+    def heartbeat_parse_task(self, task_id: int, processing_token: str) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE resume_parse_tasks
-                SET status = 'completed', resume_id = %s, completed_at = CURRENT_TIMESTAMP
+                SET heartbeat_at = UTC_TIMESTAMP()
                 WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
                 """,
-                (resume_id, task_id),
+                (task_id, processing_token),
             )
+            return int(cursor.rowcount) > 0
 
-    def mark_parse_task_failed(self, task_id: int, error_message: str) -> None:
+    def complete_parse_task(
+        self,
+        task_id: int,
+        processing_token: str,
+        structured_data: dict[str, Any],
+    ) -> ResumeRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT user_id, original_file_path, content_hash
+                FROM resume_parse_tasks
+                WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
+                FOR UPDATE
+                """,
+                (task_id, processing_token),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        resume = self.create(
+            user_id=int(row["user_id"]),
+            original_file_path=str(row["original_file_path"]),
+            structured_data=structured_data,
+            content_hash=str(row["content_hash"]),
+        )
+        if not self.mark_parse_task_completed(task_id, resume.id, processing_token):
+            raise RuntimeError("resume parse task lease was lost during completion")
+        return resume
+
+    def mark_parse_task_completed(
+        self,
+        task_id: int,
+        resume_id: int,
+        processing_token: str,
+    ) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE resume_parse_tasks
-                SET status = 'failed', error_message = %s, completed_at = CURRENT_TIMESTAMP
+                SET status = 'completed',
+                    resume_id = %s,
+                    error_message = NULL,
+                    processing_token = NULL,
+                    heartbeat_at = NULL,
+                    completed_at = UTC_TIMESTAMP()
                 WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
                 """,
-                (error_message[:1000], task_id),
+                (resume_id, task_id, processing_token),
             )
+            return int(cursor.rowcount) > 0
+
+    def mark_parse_task_failed(
+        self,
+        task_id: int,
+        error_message: str,
+        processing_token: str,
+    ) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE resume_parse_tasks
+                SET status = 'failed',
+                    error_message = %s,
+                    processing_token = NULL,
+                    heartbeat_at = NULL,
+                    completed_at = UTC_TIMESTAMP()
+                WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
+                """,
+                (error_message[:1000], task_id, processing_token),
+            )
+            return int(cursor.rowcount) > 0
 
     def _lock_user_resumes(self, cursor: Any, user_id: int) -> None:
         cursor.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user_id,))
@@ -426,6 +688,8 @@ def _to_parse_task(row: dict[str, Any]) -> ResumeParseTaskRecord:
         created_at=row.get("created_at"),
         started_at=row.get("started_at"),
         completed_at=row.get("completed_at"),
+        processing_token=row.get("processing_token"),
+        heartbeat_at=row.get("heartbeat_at"),
     )
 
 
@@ -443,3 +707,7 @@ def _default_key(is_default: bool) -> str | None:
 
 def _bool_int(value: bool) -> int:
     return 1 if value else 0
+
+
+def _placeholders(values: tuple[str, ...]) -> str:
+    return ", ".join(["%s"] * len(values))

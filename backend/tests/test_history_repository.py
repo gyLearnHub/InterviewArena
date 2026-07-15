@@ -2,10 +2,19 @@ from typing import Any
 
 from app.repositories.history import HistoryRepository
 
+DEFAULT_RECORDING_TABLES: set[str] = set()
+
 
 class RecordingCursor:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        existing_tables: set[str] | None = None,
+    ) -> None:
         self.statements: list[str] = []
+        self.existing_tables = (
+            set(DEFAULT_RECORDING_TABLES) if existing_tables is None else existing_tables
+        )
+        self.last_statement = ""
         self.rowcount = 0
 
     def __enter__(self) -> "RecordingCursor":
@@ -16,13 +25,25 @@ class RecordingCursor:
 
     def execute(self, sql: str, _params: Any = None) -> None:
         normalized = " ".join(sql.split())
+        self.last_statement = normalized
         self.statements.append(normalized)
         self.rowcount = 1 if normalized.startswith("DELETE FROM interviews") else 0
 
+    def fetchall(self) -> list[dict[str, Any]]:
+        table_prefix = "SHOW COLUMNS FROM "
+        if self.last_statement.startswith(table_prefix):
+            table = self.last_statement[len(table_prefix) :]
+            if table in self.existing_tables:
+                return [{"Field": "id"}]
+        return []
+
 
 class RecordingConnection:
-    def __init__(self) -> None:
-        self.cursor_instance = RecordingCursor()
+    def __init__(
+        self,
+        existing_tables: set[str] | None = None,
+    ) -> None:
+        self.cursor_instance = RecordingCursor(existing_tables)
 
     def cursor(self) -> RecordingCursor:
         return self.cursor_instance
@@ -162,6 +183,16 @@ def test_delete_history_item_breaks_qa_parent_links_before_deleting_qa() -> None
     )
 
 
+def test_delete_history_item_detaches_user_feedback_before_interview_data() -> None:
+    connection = RecordingConnection()
+    HistoryRepository(connection).delete_by_id_for_user(10, 1)
+
+    statements = connection.cursor_instance.statements
+    detach_index = _index_of(statements, "UPDATE user_feedback_submissions SET interview_id = NULL")
+    assert detach_index < _index_of(statements, "DELETE qa FROM interview_qa")
+    assert detach_index < _index_of(statements, "DELETE FROM interviews")
+
+
 def test_delete_history_item_removes_harness_records_before_interview() -> None:
     connection = RecordingConnection()
     repository = HistoryRepository(connection)
@@ -174,19 +205,13 @@ def test_delete_history_item_removes_harness_records_before_interview() -> None:
         "DELETE mt FROM memory_tasks",
         "DELETE ral FROM rag_audit_logs",
         "DELETE n FROM notifications",
-        "DELETE eqs FROM evolution_quality_signals",
         "UPDATE interviews SET last_checkpoint_id = NULL",
         "DELETE hte FROM harness_trace_events",
         "DELETE hre FROM harness_rule_evaluations",
         "DELETE hc FROM harness_checkpoints",
-        "DELETE hrr FROM harness_replay_runs",
         "DELETE ht FROM harness_traces",
     ]:
         assert _index_of(statements, text) < interview_delete_index
-    assert _index_of(statements, "DELETE hrr FROM harness_replay_runs") < _index_of(
-        statements,
-        "DELETE ht FROM harness_traces",
-    )
 
 
 def test_clear_history_breaks_qa_parent_links_before_deleting_qa() -> None:
@@ -206,6 +231,16 @@ def test_clear_history_breaks_qa_parent_links_before_deleting_qa() -> None:
     )
 
 
+def test_clear_history_detaches_user_feedback_before_interview_data() -> None:
+    connection = RecordingConnection()
+    HistoryRepository(connection).delete_all_by_user(1)
+
+    statements = connection.cursor_instance.statements
+    detach_index = _index_of(statements, "UPDATE user_feedback_submissions SET interview_id = NULL")
+    assert detach_index < _index_of(statements, "DELETE qa FROM interview_qa")
+    assert detach_index < _index_of(statements, "DELETE FROM interviews")
+
+
 def test_clear_history_removes_harness_records_before_interviews() -> None:
     connection = RecordingConnection()
     repository = HistoryRepository(connection)
@@ -218,12 +253,10 @@ def test_clear_history_removes_harness_records_before_interviews() -> None:
         "DELETE mt FROM memory_tasks",
         "DELETE ral FROM rag_audit_logs",
         "DELETE n FROM notifications",
-        "DELETE eqs FROM evolution_quality_signals",
         "UPDATE interviews SET last_checkpoint_id = NULL",
         "DELETE hte FROM harness_trace_events",
         "DELETE hre FROM harness_rule_evaluations",
         "DELETE hc FROM harness_checkpoints",
-        "DELETE hrr FROM harness_replay_runs",
         "DELETE ht FROM harness_traces",
     ]:
         assert _index_of(statements, text) < interview_delete_index
@@ -259,6 +292,83 @@ def test_clear_history_removes_context_records_before_rounds_and_qa() -> None:
     assert _index_of(statements, "DELETE mt FROM memory_tasks") < round_delete_index
     assert _index_of(statements, "DELETE ral FROM rag_audit_logs") < round_delete_index
     assert _index_of(statements, "DELETE n FROM notifications") < qa_delete_index
+
+
+def test_delete_history_item_removes_skill_call_traces_before_interview_records() -> None:
+    connection = RecordingConnection(existing_tables={"skill_call_traces"})
+    repository = HistoryRepository(connection)
+
+    repository.delete_by_id_for_user(10, 1)
+
+    statements = connection.cursor_instance.statements
+    trace_delete_index = _index_of(statements, "DELETE sct FROM skill_call_traces")
+    assert trace_delete_index < _index_of(statements, "DELETE qa FROM interview_qa")
+    assert trace_delete_index < _index_of(statements, "DELETE ir FROM interview_rounds")
+    assert trace_delete_index < _index_of(statements, "DELETE FROM interviews")
+
+
+def test_clear_history_removes_skill_call_traces_before_interview_records() -> None:
+    connection = RecordingConnection(existing_tables={"skill_call_traces"})
+    repository = HistoryRepository(connection)
+
+    repository.delete_all_by_user(1)
+
+    statements = connection.cursor_instance.statements
+    trace_delete_index = _index_of(statements, "DELETE sct FROM skill_call_traces")
+    assert trace_delete_index < _index_of(statements, "DELETE qa FROM interview_qa")
+    assert trace_delete_index < _index_of(statements, "DELETE ir FROM interview_rounds")
+    assert trace_delete_index < _index_of(statements, "DELETE FROM interviews")
+
+
+def test_delete_history_scrubs_autonomous_evolution_samples_and_events() -> None:
+    evolution_tables = {
+        "harness_evolution_runs",
+        "harness_evolution_samples",
+        "harness_evolution_events",
+    }
+    connection = RecordingConnection(existing_tables=evolution_tables)
+
+    HistoryRepository(connection).delete_by_id_for_user(10, 1)
+
+    statements = connection.cursor_instance.statements
+    interview_delete_index = _index_of(statements, "DELETE FROM interviews")
+    assert (
+        _index_of(statements, "DELETE hes FROM harness_evolution_samples")
+        < interview_delete_index
+    )
+    assert (
+        _index_of(statements, "DELETE hee FROM harness_evolution_events")
+        < interview_delete_index
+    )
+
+
+def test_evolution_run_source_ids_are_scrubbed_without_changing_trigger_cursor() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.updates: list[tuple[str, Any]] = []
+
+        def execute(self, sql: str, params: Any = None) -> None:
+            self.updates.append((" ".join(sql.split()), params))
+
+    cursor = Cursor()
+
+    HistoryRepository._remove_interview_ids_from_evolution_runs(
+        cursor,
+        [{"id": 7, "source_interview_ids": "[9, 10, 11]"}],
+        {10},
+    )
+
+    assert cursor.updates == [
+        (
+            (
+                "UPDATE harness_evolution_runs SET source_interview_ids = %s, "
+                "diagnosis = NULL, "
+                "proposal = JSON_OBJECT('scrubbed_after_source_deletion', true) "
+                "WHERE id = %s"
+            ),
+            ("[9, 11]", 7),
+        )
+    ]
 
 
 def test_get_history_detail_loads_multi_round_children() -> None:

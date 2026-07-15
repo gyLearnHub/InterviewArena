@@ -1,16 +1,22 @@
 import inspect
 import subprocess
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
-from app.api.resumes import get_resume_parser, get_resume_repository, upload_resume
+from app.api.resumes import (
+    get_resume_parser,
+    get_resume_repository,
+    resume_content_hash,
+)
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.deps import get_current_user
 from app.repositories.resumes import (
+    ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
     ResumeDetailRecord,
     ResumeParseTaskRecord,
     ResumeRecord,
@@ -20,6 +26,8 @@ from app.repositories.resumes import (
 from app.repositories.users import UserRecord
 from app.services import resume_parser as resume_parser_module
 from app.services.resume_parser import ResumeParserService, convert_doc_to_docx, extract_docx_text
+from app.services.resumes import ACTIVE_INTERVIEW_DELETE_MESSAGE, ResumeService
+from app.services.usage_limits import usage_limiter
 from docx import Document
 from fastapi.testclient import TestClient
 from main import create_app
@@ -48,6 +56,13 @@ def make_docx_bytes(text: str = "张三\nPython 开发") -> bytes:
     document.add_paragraph(text)
     document.save(buffer)
     return buffer.getvalue()
+
+
+def test_resume_content_hash_changes_when_parser_version_changes() -> None:
+    content = b"same resume bytes"
+
+    assert resume_content_hash(content) == resume_content_hash(content)
+    assert resume_content_hash(content) != sha256(content).hexdigest()
 
 
 def make_textbox_docx_bytes(text: str) -> bytes:
@@ -113,6 +128,8 @@ class FakeResumeRepository:
         self.create_error: Exception | None = None
         self.list_by_user_calls = 0
         self.parse_tasks: list[ResumeParseTaskRecord] = []
+        self.unfinished_interview_resume_ids: set[tuple[int, int]] = set()
+        self.parser: ResumeParserService | None = None
 
     def create(
         self,
@@ -217,6 +234,9 @@ class FakeResumeRepository:
                             **record.__dict__,
                             "deleted_at": datetime_for_tests(),
                             "is_default": False,
+                            "original_file_path": "",
+                            "structured_data": {},
+                            "content_hash": None,
                         }
                     )
                 )
@@ -226,26 +246,21 @@ class FakeResumeRepository:
         self.created = updated
         return deleted
 
-    def restore_for_user(self, resume_id: int, user_id: int) -> ResumeRecord | None:
-        restored: ResumeRecord | None = None
-        updated: list[ResumeRecord] = []
-        is_default = not any(
-            record.user_id == user_id and record.deleted_at is None for record in self.created
-        )
+    def get_original_file_path_for_user(self, resume_id: int, user_id: int) -> str | None:
         for record in self.created:
-            if record.id == resume_id and record.user_id == user_id:
-                restored = ResumeRecord(
-                    **{
-                        **record.__dict__,
-                        "deleted_at": None,
-                        "is_default": is_default,
-                    }
-                )
-                updated.append(restored)
-            else:
-                updated.append(record)
-        self.created = updated
-        return restored
+            if record.id == resume_id and record.user_id == user_id and record.deleted_at is None:
+                return record.original_file_path
+        return None
+
+    def has_unfinished_interview_for_resume(self, resume_id: int, user_id: int) -> bool:
+        return self.has_active_interview_dependency_for_resume(resume_id, user_id)
+
+    def has_active_interview_dependency_for_resume(
+        self,
+        resume_id: int,
+        user_id: int,
+    ) -> bool:
+        return (resume_id, user_id) in self.unfinished_interview_resume_ids
 
     def create_parse_task(
         self,
@@ -265,6 +280,40 @@ class FakeResumeRepository:
         self.parse_tasks.append(task)
         return task
 
+    def get_or_create_completed_parse_task(
+        self,
+        *,
+        user_id: int,
+        original_file_path: str,
+        content_hash: str,
+        resume_id: int,
+    ) -> ResumeParseTaskRecord:
+        existing = next(
+            (
+                task
+                for task in reversed(self.parse_tasks)
+                if task.user_id == user_id
+                and task.content_hash == content_hash
+                and task.resume_id == resume_id
+                and task.status == "completed"
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
+        task = ResumeParseTaskRecord(
+            id=self.next_task_id,
+            user_id=user_id,
+            original_file_path=original_file_path,
+            content_hash=content_hash,
+            status="completed",
+            resume_id=resume_id,
+            completed_at=datetime_for_tests(),
+        )
+        self.next_task_id += 1
+        self.parse_tasks.append(task)
+        return task
+
     def get_parse_task_for_user(
         self,
         task_id: int,
@@ -272,6 +321,25 @@ class FakeResumeRepository:
     ) -> ResumeParseTaskRecord | None:
         return next(
             (task for task in self.parse_tasks if task.id == task_id and task.user_id == user_id),
+            None,
+        )
+
+    def get_parse_task(self, task_id: int) -> ResumeParseTaskRecord | None:
+        return next((task for task in self.parse_tasks if task.id == task_id), None)
+
+    def get_active_parse_task_by_content_hash(
+        self,
+        user_id: int,
+        content_hash: str,
+    ) -> ResumeParseTaskRecord | None:
+        return next(
+            (
+                task
+                for task in reversed(self.parse_tasks)
+                if task.user_id == user_id
+                and task.content_hash == content_hash
+                and task.status in {"pending", "processing"}
+            ),
             None,
         )
 
@@ -290,6 +358,41 @@ class FakeResumeRepository:
             for task in self.parse_tasks
         ]
 
+    def mark_parse_task_processing(self, task_id: int) -> bool:
+        updated = False
+        tasks: list[ResumeParseTaskRecord] = []
+        for task in self.parse_tasks:
+            if task.id == task_id and task.status == "pending":
+                tasks.append(
+                    ResumeParseTaskRecord(
+                        **{
+                            **task.__dict__,
+                            "status": "processing",
+                            "started_at": datetime_for_tests(),
+                        }
+                    )
+                )
+                updated = True
+            else:
+                tasks.append(task)
+        self.parse_tasks = tasks
+        return updated
+
+    def mark_parse_task_failed(self, task_id: int, error_message: str) -> None:
+        self.parse_tasks = [
+            ResumeParseTaskRecord(
+                **{
+                    **task.__dict__,
+                    "status": "failed",
+                    "error_message": error_message,
+                    "completed_at": datetime_for_tests(),
+                }
+            )
+            if task.id == task_id
+            else task
+            for task in self.parse_tasks
+        ]
+
 
 @pytest.fixture()
 def resume_client(tmp_path: Path) -> tuple[TestClient, FakeResumeRepository, FakeLLMClient]:
@@ -297,6 +400,7 @@ def resume_client(tmp_path: Path) -> tuple[TestClient, FakeResumeRepository, Fak
     llm_client = FakeLLMClient()
     settings = Settings(upload_dir=str(tmp_path / "resume"))
     parser = ResumeParserService(llm_client=llm_client, settings=settings)
+    repository.parser = parser
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: UserRecord(
         id=42,
@@ -308,13 +412,46 @@ def resume_client(tmp_path: Path) -> tuple[TestClient, FakeResumeRepository, Fak
     return TestClient(app), repository, llm_client
 
 
+def read_parse_task(
+    client: TestClient,
+    repository: FakeResumeRepository,
+    enqueue_response: Any,
+) -> dict[str, Any]:
+    assert enqueue_response.status_code == 202
+    task_id = int(enqueue_response.json()["task_id"])
+    task = repository.get_parse_task_for_user(task_id, 42)
+    if task is None:
+        task = repository.get_parse_task(task_id)
+    assert task is not None
+    if task.status == "pending":
+        assert repository.parser is not None
+        repository.mark_parse_task_processing(task_id)
+        try:
+            structured_data = repository.parser.parse(Path(task.original_file_path))
+            resume = repository.create(
+                user_id=task.user_id,
+                original_file_path=task.original_file_path,
+                structured_data=structured_data,
+                content_hash=task.content_hash,
+            )
+            repository.mark_parse_task_completed(task_id, resume.id)
+        except Exception as exc:
+            Path(task.original_file_path).unlink(missing_ok=True)
+            repository.mark_parse_task_failed(task_id, str(exc) or exc.__class__.__name__)
+    task_response = client.get(
+        f"/api/resumes/upload-tasks/{task_id}"
+    )
+    assert task_response.status_code == 200
+    return task_response.json()
+
+
 def test_upload_docx_success_binds_current_user(
     resume_client: tuple[TestClient, FakeResumeRepository, FakeLLMClient],
 ) -> None:
     client, repository, llm_client = resume_client
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={
             "file": (
                 "resume.docx",
@@ -324,9 +461,10 @@ def test_upload_docx_success_binds_current_user(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["id"] == 1
-    assert response.json()["structured_data"] == structured_resume()
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "completed"
+    assert task["resume_id"] == 1
+    assert task["structured_data"] == structured_resume()
     assert len(repository.created) == 1
     assert repository.created[0].user_id == 42
     assert Path(repository.created[0].original_file_path).name == "resume.docx"
@@ -340,7 +478,7 @@ def test_async_upload_duplicate_returns_completed_task(
     client, repository, llm_client = resume_client
     content = make_docx_bytes()
     first_response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={
             "file": (
                 "resume.docx",
@@ -349,7 +487,49 @@ def test_async_upload_duplicate_returns_completed_task(
             )
         },
     )
-    assert first_response.status_code == 200
+    first_task = read_parse_task(client, repository, first_response)
+    assert first_task["status"] == "completed"
+
+    responses = [
+        client.post(
+            "/api/resumes/upload-async",
+            files={
+                "file": (
+                    "resume.docx",
+                    content,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        for _ in range(20)
+    ]
+
+    assert all(response.status_code == 202 for response in responses)
+    assert {response.json()["task_id"] for response in responses} == {1}
+    assert all(response.json()["status"] == "completed" for response in responses)
+    assert all(
+        response.json()["resume_id"] == first_task["resume_id"]
+        for response in responses
+    )
+    assert all(
+        response.json()["structured_data"] == structured_resume()
+        for response in responses
+    )
+    assert len(repository.parse_tasks) == 1
+    assert llm_client.parse_calls == 1
+
+
+def test_async_upload_reuses_pending_parse_task_before_writing_duplicate(
+    resume_client: tuple[TestClient, FakeResumeRepository, FakeLLMClient],
+) -> None:
+    client, repository, llm_client = resume_client
+    content = make_docx_bytes()
+    content_hash = resume_content_hash(content)
+    existing_task = repository.create_parse_task(
+        user_id=42,
+        original_file_path="already-uploaded.docx",
+        content_hash=content_hash,
+    )
 
     response = client.post(
         "/api/resumes/upload-async",
@@ -363,10 +543,10 @@ def test_async_upload_duplicate_returns_completed_task(
     )
 
     assert response.status_code == 202
-    assert response.json()["status"] == "completed"
-    assert response.json()["resume_id"] == first_response.json()["id"]
-    assert response.json()["structured_data"] == structured_resume()
-    assert llm_client.parse_calls == 1
+    assert response.json()["task_id"] == existing_task.id
+    assert response.json()["status"] == "pending"
+    assert len(repository.parse_tasks) == 1
+    assert llm_client.parse_calls == 0
 
 
 def test_list_resumes_returns_history_metadata(
@@ -497,27 +677,82 @@ def test_delete_resume_soft_deletes_owned_resume(
     assert client.get("/api/resumes/7").status_code == 404
 
 
-def test_upload_same_deleted_resume_restores_record(
+def test_delete_resume_rejects_unfinished_interview_dependency(
+    resume_client: tuple[TestClient, FakeResumeRepository, FakeLLMClient],
+) -> None:
+    client, repository, _llm_client = resume_client
+    repository.created.append(
+        ResumeRecord(
+            id=7,
+            user_id=42,
+            original_file_path="resume/backend.docx",
+            structured_data=structured_resume(),
+            is_default=True,
+        )
+    )
+    repository.unfinished_interview_resume_ids.add((7, 42))
+
+    response = client.delete("/api/resumes/7")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == ErrorCode.CONFLICT
+    assert response.json()["error"]["message"] == ACTIVE_INTERVIEW_DELETE_MESSAGE
+    assert repository.created[0].deleted_at is None
+    assert repository.created[0].is_default is True
+
+
+def test_resume_service_delete_rejects_active_interview_dependency() -> None:
+    repository = FakeResumeRepository()
+    repository.created.append(
+        ResumeRecord(
+            id=7,
+            user_id=42,
+            original_file_path="resume/backend.docx",
+            structured_data=structured_resume(),
+            is_default=True,
+        )
+    )
+    repository.unfinished_interview_resume_ids.add((7, 42))
+    service = ResumeService(repository)
+
+    with pytest.raises(AppError) as exc_info:
+        service.delete_resume(resume_id=7, user_id=42)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == ErrorCode.CONFLICT
+    assert exc_info.value.message == ACTIVE_INTERVIEW_DELETE_MESSAGE
+    assert repository.created[0].deleted_at is None
+
+
+def test_upload_same_deleted_resume_creates_fresh_record(
     resume_client: tuple[TestClient, FakeResumeRepository, FakeLLMClient],
 ) -> None:
     client, repository, llm_client = resume_client
     content = make_docx_bytes()
     first_response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", content, "application/octet-stream")},
     )
-    delete_response = client.delete(f"/api/resumes/{first_response.json()['id']}")
-
-    restored_response = client.post(
-        "/api/resumes/upload",
-        files={"file": ("resume.docx", content, "application/octet-stream")},
-    )
+    first_task = read_parse_task(client, repository, first_response)
+    original_path = Path(repository.created[0].original_file_path)
+    assert original_path.exists()
+    delete_response = client.delete(f"/api/resumes/{first_task['resume_id']}")
+    usage_limiter.reset()
 
     assert delete_response.status_code == 204
-    assert restored_response.status_code == 200
-    assert restored_response.json()["id"] == first_response.json()["id"]
-    assert repository.created[0].deleted_at is None
-    assert llm_client.parse_calls == 1
+    assert not original_path.exists()
+
+    replacement_response = client.post(
+        "/api/resumes/upload-async",
+        files={"file": ("resume.docx", content, "application/octet-stream")},
+    )
+
+    replacement_task = read_parse_task(client, repository, replacement_response)
+    assert replacement_task["status"] == "completed"
+    assert replacement_task["resume_id"] != first_task["resume_id"]
+    assert repository.created[0].deleted_at is not None
+    assert repository.created[0].content_hash is None
+    assert llm_client.parse_calls == 2
 
 
 def test_upload_same_resume_reuses_existing_file_and_record(
@@ -527,17 +762,19 @@ def test_upload_same_resume_reuses_existing_file_and_record(
     content = make_docx_bytes()
 
     first_response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", content, "application/octet-stream")},
     )
     second_response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", content, "application/octet-stream")},
     )
 
-    assert first_response.status_code == 200
-    assert second_response.status_code == 200
-    assert second_response.json()["id"] == first_response.json()["id"]
+    first_task = read_parse_task(client, repository, first_response)
+    second_task = read_parse_task(client, repository, second_response)
+    assert first_task["status"] == "completed"
+    assert second_task["status"] == "completed"
+    assert second_task["resume_id"] == first_task["resume_id"]
     assert len(repository.created) == 1
     assert Path(repository.created[0].original_file_path).name == "resume.docx"
     assert sorted(
@@ -558,18 +795,112 @@ def test_resume_repository_create_locks_user_before_default_insert() -> None:
 def test_resume_repository_default_paths_keep_unique_default_key() -> None:
     set_default_source = inspect.getsource(ResumeRepository.set_default_for_user).lower()
     soft_delete_source = inspect.getsource(ResumeRepository.soft_delete_for_user).lower()
-    restore_source = inspect.getsource(ResumeRepository.restore_for_user).lower()
 
     assert "for update" in set_default_source
     assert "default_key = null" in set_default_source
     assert "default_key = %s" in set_default_source
     assert "default_key = null" in soft_delete_source
-    assert "_lock_user_resumes" in restore_source
-    assert "default_key = %s" in restore_source
 
 
-def test_upload_resume_route_runs_in_fastapi_threadpool() -> None:
-    assert not inspect.iscoroutinefunction(upload_resume)
+class RecordingCursor:
+    def __init__(self, row: dict[str, Any] | None = None, rowcount: int = 0) -> None:
+        self.row = row
+        self.rowcount = rowcount
+        self.sql = ""
+        self.params: tuple[Any, ...] = ()
+        self.executed: list[tuple[str, tuple[Any, ...]]] = []
+
+    def __enter__(self) -> "RecordingCursor":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
+        self.sql = sql
+        self.params = params
+        self.executed.append((sql, params))
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return self.row
+
+
+class RecordingConnection:
+    def __init__(self, cursor: RecordingCursor) -> None:
+        self.cursor_obj = cursor
+
+    def cursor(self) -> RecordingCursor:
+        return self.cursor_obj
+
+
+def test_completed_parse_task_reuse_is_locked_and_does_not_insert() -> None:
+    completed_at = datetime_for_tests()
+    cursor = RecordingCursor(
+        row={
+            "id": 9,
+            "user_id": 42,
+            "original_file_path": "resume.docx",
+            "content_hash": "a" * 64,
+            "status": "completed",
+            "resume_id": 7,
+            "error_message": None,
+            "created_at": completed_at,
+            "started_at": None,
+            "completed_at": completed_at,
+        }
+    )
+    repository = ResumeRepository(RecordingConnection(cursor))
+
+    task = repository.get_or_create_completed_parse_task(
+        user_id=42,
+        original_file_path="resume.docx",
+        content_hash="a" * 64,
+        resume_id=7,
+    )
+
+    statements = [" ".join(sql.lower().split()) for sql, _params in cursor.executed]
+    assert task.id == 9
+    assert statements[0] == "select id from users where id = %s for update"
+    assert "from resume_parse_tasks" in statements[1]
+    assert all("insert into resume_parse_tasks" not in sql for sql in statements)
+
+
+def test_resume_repository_active_dependency_checks_status_and_overall_status() -> None:
+    cursor = RecordingCursor(row={"exists": 1})
+    repository = ResumeRepository(RecordingConnection(cursor))
+
+    assert repository.has_active_interview_dependency_for_resume(7, 42) is True
+
+    sql = " ".join(cursor.sql.lower().split())
+    assert "coalesce" not in sql
+    assert "status in" in sql
+    assert "overall_status in" in sql
+    assert "pending" not in cursor.params
+    assert cursor.params == (
+        7,
+        42,
+        *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+        *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+    )
+
+
+def test_resume_repository_soft_delete_is_guarded_by_active_interview_dependency() -> None:
+    cursor = RecordingCursor(rowcount=1)
+    repository = ResumeRepository(RecordingConnection(cursor))
+
+    assert repository.soft_delete_for_user(7, 42) is True
+
+    sql = " ".join(cursor.sql.lower().split())
+    assert "not exists" in sql
+    assert "from interviews i" in sql
+    assert "i.status in" in sql
+    assert "i.overall_status in" in sql
+    assert cursor.params == (
+        7,
+        42,
+        *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+        *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
+    )
 
 
 def test_upload_does_not_scan_historical_files_without_matching_hash(
@@ -601,7 +932,7 @@ def test_upload_does_not_scan_historical_files_without_matching_hash(
     monkeypatch.setattr(Path, "read_bytes", fail_on_historical_read_bytes)
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={
             "file": (
                 "fresh.docx",
@@ -611,8 +942,9 @@ def test_upload_does_not_scan_historical_files_without_matching_hash(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["id"] == 101
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "completed"
+    assert task["resume_id"] == 101
     assert len(repository.created) == 101
     assert repository.list_by_user_calls == 0
     assert Path(repository.created[-1].original_file_path).name == "fresh.docx"
@@ -625,7 +957,7 @@ def test_upload_rejects_unsupported_format(
     client, repository, _llm_client = resume_client
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.pdf", b"fake", "application/pdf")},
     )
 
@@ -640,7 +972,7 @@ def test_upload_rejects_oversized_file(
     client, repository, _llm_client = resume_client
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={
             "file": (
                 "resume.docx",
@@ -661,12 +993,13 @@ def test_upload_returns_parse_failed_when_docx_text_extraction_fails(
     client, repository, _llm_client = resume_client
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", b"not a real docx", "application/octet-stream")},
     )
 
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == ErrorCode.RESUME_PARSE_FAILED
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "failed"
+    assert ErrorCode.RESUME_PARSE_FAILED in task["error_message"]
     assert repository.created == []
 
 
@@ -679,6 +1012,7 @@ def test_upload_removes_file_when_parse_fails(tmp_path: Path) -> None:
         ),
         settings=Settings(upload_dir=str(upload_dir)),
     )
+    repository.parser = parser
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
     app.dependency_overrides[get_resume_repository] = lambda: repository
@@ -686,11 +1020,12 @@ def test_upload_removes_file_when_parse_fails(tmp_path: Path) -> None:
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", make_docx_bytes(), "application/octet-stream")},
     )
 
-    assert response.status_code == 422
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "failed"
     assert repository.created == []
     assert upload_dir.exists()
     assert list(upload_dir.iterdir()) == []
@@ -704,6 +1039,7 @@ def test_upload_removes_file_when_database_create_fails(tmp_path: Path) -> None:
         llm_client=FakeLLMClient(),
         settings=Settings(upload_dir=str(upload_dir)),
     )
+    repository.parser = parser
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
     app.dependency_overrides[get_resume_repository] = lambda: repository
@@ -711,11 +1047,12 @@ def test_upload_removes_file_when_database_create_fails(tmp_path: Path) -> None:
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", make_docx_bytes(), "application/octet-stream")},
     )
 
-    assert response.status_code == 500
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "failed"
     assert repository.created == []
     assert upload_dir.exists()
     assert list(upload_dir.iterdir()) == []
@@ -741,6 +1078,7 @@ def test_upload_doc_conversion_uses_isolated_temp_output(tmp_path: Path) -> None
         settings=Settings(upload_dir=str(upload_dir)),
         converter=fake_converter,
     )
+    repository.parser = parser
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
     app.dependency_overrides[get_resume_repository] = lambda: repository
@@ -748,11 +1086,12 @@ def test_upload_doc_conversion_uses_isolated_temp_output(tmp_path: Path) -> None
     client = TestClient(app)
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.doc", b"legacy doc content", "application/msword")},
     )
 
-    assert response.status_code == 200
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "completed"
     assert Path(repository.created[0].original_file_path).name == "resume.doc"
     assert "本次转换后的简历" in llm_client.received_text
     assert "旧简历内容" in extract_docx_text(existing_docx)
@@ -770,6 +1109,7 @@ def test_upload_propagates_deepseek_failure(tmp_path: Path) -> None:
         ),
         settings=Settings(upload_dir=str(tmp_path / "resume")),
     )
+    repository.parser = parser
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
     app.dependency_overrides[get_resume_repository] = lambda: repository
@@ -777,12 +1117,13 @@ def test_upload_propagates_deepseek_failure(tmp_path: Path) -> None:
     client = TestClient(app)
 
     response = client.post(
-        "/api/resumes/upload",
+        "/api/resumes/upload-async",
         files={"file": ("resume.docx", make_docx_bytes(), "application/octet-stream")},
     )
 
-    assert response.status_code == 500
-    assert response.json()["error"]["code"] == ErrorCode.LLM_API_KEY_MISSING
+    task = read_parse_task(client, repository, response)
+    assert task["status"] == "failed"
+    assert ErrorCode.LLM_API_KEY_MISSING in task["error_message"]
     assert repository.created == []
 
 
@@ -821,6 +1162,37 @@ def test_extract_docx_text_reads_textbox_content(tmp_path: Path) -> None:
     text = extract_docx_text(docx_path)
 
     assert "文本框里的简历内容" in text
+
+
+def test_parse_restores_project_title_missing_from_llm_result(tmp_path: Path) -> None:
+    docx_path = tmp_path / "resume.docx"
+    docx_path.write_bytes(
+        make_docx_bytes(
+            "项目经历\n"
+            "2026.5至今 医疗知识问答系统\n"
+            "2026.4至今 基于LangGraph的多Agent智能旅行规划系统 github\n"
+            "教育经历\n"
+            "2022.9-2026.6 湖北大学 人工智能/本科"
+        )
+    )
+    llm_result = structured_resume()
+    llm_result["education"] = [{"school": "湖北大学"}]
+    llm_result["project_experience"] = [
+        {"name": "基于LangGraph的多Agent智能旅行规划系统"}
+    ]
+    parser = ResumeParserService(
+        llm_client=FakeLLMClient(llm_result),
+        settings=Settings(upload_dir=str(tmp_path)),
+    )
+
+    result = parser.parse(docx_path)
+
+    project_names = [item.get("name") for item in result["project_experience"]]
+    assert project_names == [
+        "基于LangGraph的多Agent智能旅行规划系统",
+        "医疗知识问答系统",
+    ]
+    assert all("湖北大学" not in str(item) for item in result["project_experience"])
 
 
 def test_invalid_structured_resume_is_parse_failed(tmp_path: Path) -> None:

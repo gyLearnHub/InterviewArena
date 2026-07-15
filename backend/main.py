@@ -19,22 +19,35 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(backend_root))
 
 from app.api.auth import router as auth_router
+from app.api.autonomous_evolution import router as autonomous_evolution_router
 from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
-from app.api.internal_evolution import router as internal_evolution_router
-from app.api.internal_harness import router as internal_harness_router
-from app.api.interviews import router as interviews_router
+from app.api.interviews import (
+    router as interviews_router,
+)
+from app.api.interviews import (
+    start_interview_operation_task_runner,
+    stop_interview_operation_task_runner,
+)
 from app.api.memories import router as memories_router
 from app.api.notifications import router as notifications_router
 from app.api.preferences import router as preferences_router
-from app.api.resumes import router as resumes_router
+from app.api.resumes import (
+    router as resumes_router,
+)
+from app.api.resumes import (
+    start_resume_parse_task_runner,
+    stop_resume_parse_task_runner,
+)
+from app.api.review_bookmarks import router as review_bookmarks_router
+from app.api.user_feedback import router as user_feedback_router
+from app.autonomous_evolution import (
+    start_evolution_task_runner,
+    stop_evolution_task_runner,
+)
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.db.mysql import mysql_connection
-from app.evolution.scheduler import (
-    start_evolution_daily_scheduler,
-    stop_evolution_daily_scheduler,
-)
 from app.services.avatar_storage import resolve_avatar_upload_dir
 from app.services.memory_tasks import start_memory_task_runner, stop_memory_task_runner
 from scripts.migrate_v1 import migrate
@@ -44,13 +57,19 @@ from scripts.migrate_v1 import migrate
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     run_startup_migrations()
     task = start_memory_task_runner()
-    evolution_daily_scheduler = start_evolution_daily_scheduler()
+    resume_parse_task_runner = start_resume_parse_task_runner()
+    interview_operation_task_runner = start_interview_operation_task_runner()
+    evolution_task_runner = start_evolution_task_runner()
     app.state.memory_task_runner = task
-    app.state.evolution_daily_scheduler = evolution_daily_scheduler
+    app.state.resume_parse_task_runner = resume_parse_task_runner
+    app.state.interview_operation_task_runner = interview_operation_task_runner
+    app.state.evolution_task_runner = evolution_task_runner
     try:
         yield
     finally:
-        await stop_evolution_daily_scheduler(evolution_daily_scheduler)
+        await stop_evolution_task_runner(evolution_task_runner)
+        await stop_interview_operation_task_runner(interview_operation_task_runner)
+        await stop_resume_parse_task_runner(resume_parse_task_runner)
         await stop_memory_task_runner(task)
 
 
@@ -87,8 +106,9 @@ def create_app() -> FastAPI:
     app.include_router(preferences_router, prefix="/api")
     app.include_router(memories_router, prefix="/api")
     app.include_router(notifications_router, prefix="/api")
-    app.include_router(internal_harness_router, prefix="/api")
-    app.include_router(internal_evolution_router, prefix="/api")
+    app.include_router(user_feedback_router, prefix="/api")
+    app.include_router(review_bookmarks_router, prefix="/api")
+    app.include_router(autonomous_evolution_router, prefix="/api")
 
     return app
 

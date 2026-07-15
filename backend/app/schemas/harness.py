@@ -8,8 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.harness.contracts import (
     CheckpointCreate,
     HarnessExecutionRequest,
-    HarnessExecutionResult,
-    ReplayRequest,
     RuleEvaluation,
 )
 
@@ -86,7 +84,6 @@ class HarnessRuleEvaluationResponse(BaseModel):
     user_id: int
     interview_id: int
     trace_id: int | None = None
-    replay_run_id: int | None = None
     rule_name: str
     status: str
     severity: str
@@ -94,24 +91,6 @@ class HarnessRuleEvaluationResponse(BaseModel):
     failure_reason: str | None = None
     overall_grade: str | None = None
     created_at: datetime | None = None
-
-
-class HarnessReplayRunResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: int
-    user_id: int
-    interview_id: int
-    source_trace_id: int
-    new_trace_id: int | None = None
-    mode: str
-    status: str
-    parameters: dict[str, Any]
-    result_snapshot: dict[str, Any] | None = None
-    diff_summary: dict[str, Any]
-    error_message: str | None = None
-    created_at: datetime | None = None
-    completed_at: datetime | None = None
 
 
 class HarnessTraceSummaryResponse(BaseModel):
@@ -145,7 +124,6 @@ class HarnessCheckpointSummaryResponse(BaseModel):
     node_id: str
     checkpoint_type: str
     status: str
-    snapshot: dict[str, Any] = Field(default_factory=dict)
     resume_version: str | None = None
     created_at: datetime | None = None
 
@@ -182,8 +160,6 @@ __all__ = [
     "HarnessCheckpointResponse",
     "HarnessCheckpointSummaryResponse",
     "HarnessExecutionRequest",
-    "HarnessExecutionResult",
-    "HarnessReplayRunResponse",
     "HarnessRuleEvaluationResponse",
     "HarnessRuleEvaluationSummaryResponse",
     "HarnessTraceDetailResponse",
@@ -191,6 +167,5 @@ __all__ = [
     "HarnessTraceResponse",
     "HarnessTraceSummaryResponse",
     "InterviewHarnessStatusResponse",
-    "ReplayRequest",
     "RuleEvaluation",
 ]

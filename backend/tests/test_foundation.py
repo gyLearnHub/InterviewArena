@@ -12,6 +12,7 @@ def test_health_check() -> None:
     paths = {getattr(route, "path", "") for route in app.routes}
 
     assert "/api/health" in paths
+    assert "/api/harness/evolution/status" in paths
     assert health_check() == {"status": "ok"}
 
 

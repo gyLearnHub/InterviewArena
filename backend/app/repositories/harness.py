@@ -72,29 +72,11 @@ class HarnessCheckpointRecord:
 
 
 @dataclass(frozen=True)
-class HarnessReplayRunRecord:
-    id: int
-    user_id: int
-    interview_id: int
-    source_trace_id: int
-    new_trace_id: int | None
-    mode: str
-    status: str
-    parameters: JSONDict
-    result_snapshot: JSONDict | None
-    diff_summary: JSONDict
-    error_message: str | None
-    created_at: datetime | None
-    completed_at: datetime | None
-
-
-@dataclass(frozen=True)
 class HarnessRuleEvaluationRecord:
     id: int
     user_id: int
     interview_id: int
     trace_id: int | None
-    replay_run_id: int | None
     rule_name: str
     status: str
     severity: str
@@ -295,48 +277,6 @@ class HarnessRepository:
             row = cursor.fetchone()
         return _to_checkpoint(row)
 
-    def create_replay_run(
-        self,
-        *,
-        user_id: int,
-        interview_id: int,
-        source_trace_id: int,
-        mode: str,
-        parameters: JSONDict,
-        status: str = "pending",
-        new_trace_id: int | None = None,
-        result_snapshot: JSONDict | None = None,
-        diff_summary: JSONDict | None = None,
-        error_message: str | None = None,
-    ) -> int:
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO harness_replay_runs (
-                    user_id, interview_id, source_trace_id, new_trace_id, mode, status,
-                    parameters, result_snapshot, diff_summary, error_message, completed_at
-                )
-                VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    IF(%s IN ('completed', 'failed'), CURRENT_TIMESTAMP, NULL)
-                )
-                """,
-                (
-                    user_id,
-                    interview_id,
-                    source_trace_id,
-                    new_trace_id,
-                    mode,
-                    status,
-                    _json_dumps(parameters),
-                    _json_dumps_or_none(result_snapshot),
-                    _json_dumps(diff_summary or {}),
-                    error_message[:1000] if error_message is not None else None,
-                    status,
-                ),
-            )
-            return int(cursor.lastrowid)
-
     def save_rule_evaluation(
         self,
         *,
@@ -344,22 +284,20 @@ class HarnessRepository:
         interview_id: int,
         evaluation: RuleEvaluation,
         trace_id: int | None = None,
-        replay_run_id: int | None = None,
     ) -> int:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO harness_rule_evaluations (
-                    user_id, interview_id, trace_id, replay_run_id, rule_name, status,
+                    user_id, interview_id, trace_id, rule_name, status,
                     severity, evidence, failure_reason, overall_grade
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     user_id,
                     interview_id,
                     trace_id,
-                    replay_run_id,
                     evaluation.rule_name,
                     evaluation.status,
                     evaluation.severity,
@@ -446,12 +384,14 @@ class HarnessRepository:
         interview_id: int,
         *,
         user_id: int | None = None,
+        limit: int = 100,
     ) -> list[HarnessCheckpointRecord]:
         conditions = ["interview_id = %s"]
         params: list[Any] = [interview_id]
         if user_id is not None:
             conditions.append("user_id = %s")
             params.append(user_id)
+        params.append(max(1, min(limit, 100)))
         with self.connection.cursor() as cursor:
             cursor.execute(
                 f"""
@@ -460,6 +400,7 @@ class HarnessRepository:
                 FROM harness_checkpoints
                 WHERE {" AND ".join(conditions)}
                 ORDER BY created_at DESC, id DESC
+                LIMIT %s
                 """,
                 tuple(params),
             )
@@ -476,20 +417,23 @@ class HarnessRepository:
         interview_id: int,
         *,
         user_id: int | None = None,
+        limit: int = 100,
     ) -> list[HarnessRuleEvaluationRecord]:
         conditions = ["interview_id = %s"]
         params: list[Any] = [interview_id]
         if user_id is not None:
             conditions.append("user_id = %s")
             params.append(user_id)
+        params.append(max(1, min(limit, 100)))
         with self.connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT id, user_id, interview_id, trace_id, replay_run_id, rule_name, status,
+                SELECT id, user_id, interview_id, trace_id, rule_name, status,
                        severity, evidence, failure_reason, overall_grade, created_at
                 FROM harness_rule_evaluations
                 WHERE {" AND ".join(conditions)}
                 ORDER BY created_at DESC, id DESC
+                LIMIT %s
                 """,
                 tuple(params),
             )
@@ -523,79 +467,6 @@ class HarnessRepository:
             rows = cursor.fetchall()
         return [_to_improvement_candidate(row) for row in rows]
 
-    def replay_trace(
-        self,
-        *,
-        trace_id: int,
-        user_id: int,
-        reason: str | None = None,
-        options: JSONDict | None = None,
-        mode: str = "replay",
-    ) -> JSONDict:
-        source = self.get_trace(trace_id, user_id=user_id)
-        if source is None:
-            return {"status": "not_found", "source_trace_id": trace_id}
-        replay_run_id = self.create_replay_run(
-            user_id=user_id,
-            interview_id=source.interview_id,
-            source_trace_id=source.id,
-            mode=mode,
-            parameters={"reason": reason, "options": options or {}},
-            status="completed",
-            result_snapshot={
-                "replayed_from_trace": True,
-                "source_output_snapshot": source.output_snapshot,
-                "business_data_mutated": False,
-            },
-            diff_summary={
-                "output_snapshot_changed": False,
-                "business_data_mutated": False,
-            },
-        )
-        return {
-            "replay_run_id": replay_run_id,
-            "source_trace_id": source.id,
-            "status": "completed",
-            "result": {"business_data_mutated": False, "output_snapshot_changed": False},
-        }
-
-    def rerun_node(
-        self,
-        *,
-        node_id: str,
-        user_id: int,
-        reason: str | None = None,
-        options: JSONDict | None = None,
-        mode: str = "rerun",
-    ) -> JSONDict:
-        source = self._latest_user_trace_for_node(node_id=node_id, user_id=user_id)
-        if source is None:
-            return {"status": "not_found", "source_node_id": node_id}
-        replay_run_id = self.create_replay_run(
-            user_id=user_id,
-            interview_id=source.interview_id,
-            source_trace_id=source.id,
-            mode=mode,
-            parameters={"reason": reason, "options": options or {}, "node_id": node_id},
-            status="completed",
-            result_snapshot={
-                "replayed_from_trace": True,
-                "source_output_snapshot": source.output_snapshot,
-                "business_data_mutated": False,
-            },
-            diff_summary={
-                "output_snapshot_changed": False,
-                "business_data_mutated": False,
-            },
-        )
-        return {
-            "replay_run_id": replay_run_id,
-            "source_trace_id": source.id,
-            "source_node_id": node_id,
-            "status": "completed",
-            "result": {"business_data_mutated": False, "output_snapshot_changed": False},
-        }
-
     def interview_belongs_to_user(self, *, interview_id: int, user_id: int) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -604,7 +475,7 @@ class HarnessRepository:
             )
             return cursor.fetchone() is not None
 
-    def _latest_user_trace_for_node(
+    def latest_user_trace_for_node(
         self,
         *,
         node_id: str,
@@ -703,7 +574,6 @@ def _to_rule(row: dict[str, Any]) -> HarnessRuleEvaluationRecord:
         user_id=int(row["user_id"]),
         interview_id=int(row["interview_id"]),
         trace_id=_optional_int(row.get("trace_id")),
-        replay_run_id=_optional_int(row.get("replay_run_id")),
         rule_name=str(row["rule_name"]),
         status=str(row["status"]),
         severity=str(row["severity"]),

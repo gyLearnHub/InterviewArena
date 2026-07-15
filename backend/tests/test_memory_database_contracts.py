@@ -3,7 +3,16 @@ from typing import Any
 import pytest
 from app.db import mysql
 from app.repositories.memories import MemoryRepository
-from scripts.migrate_v1 import INIT_SQL_TABLES_TO_CREATE
+from scripts.migrate_v1 import (
+    ASYNC_TASK_SCHEMA_MIGRATION_VERSION,
+    HARNESS_EVOLUTION_HARDENING_MIGRATION_VERSION,
+    HARNESS_EVOLUTION_MIGRATION_VERSION,
+    HARNESS_EVOLUTION_USER_SCOPE_MIGRATION_VERSION,
+    INIT_SQL_TABLES_TO_CREATE,
+    INTERVIEW_TASK_LEASE_MIGRATION_VERSION,
+    MIGRATION_VERSION,
+    RESUME_TASK_LEASE_MIGRATION_VERSION,
+)
 
 
 def test_memory_tables_define_user_round_uniqueness_and_foreign_keys() -> None:
@@ -26,7 +35,6 @@ def test_harness_tables_are_in_init_sql_and_migration_table_list() -> None:
         "harness_traces",
         "harness_trace_events",
         "harness_checkpoints",
-        "harness_replay_runs",
         "harness_rule_evaluations",
         "harness_improvement_candidates",
     }
@@ -38,6 +46,229 @@ def test_harness_tables_are_in_init_sql_and_migration_table_list() -> None:
     assert "constraint fk_harness_checkpoints_trace_id" in ddl
     assert "constraint fk_harness_rule_evaluations_trace_id" in ddl
     assert "key idx_harness_traces_interview_created" in ddl
+
+
+def test_autonomous_evolution_schema_is_versioned_and_auditable() -> None:
+    ddl = _ddl()
+    required_tables = {
+        "harness_artifact_bundles",
+        "harness_artifacts",
+        "harness_evolution_runs",
+        "harness_evolution_samples",
+        "harness_evolution_events",
+        "harness_evolution_observations",
+    }
+
+    for table_name in required_tables:
+        assert f"create table if not exists {table_name}" in ddl
+    assert "unique key uk_harness_evolution_runs_trigger" in ddl
+    assert "unique key uk_harness_evolution_observations_interview" in ddl
+    assert "job_family_key varchar(128) null" in ddl
+    assert "harness_bundle_id bigint unsigned null" in ddl
+    assert "heartbeat_at datetime null" in ddl
+    assert "trigger_cursor_ended_at datetime null" in ddl
+    assert "trigger_cursor_interview_id bigint unsigned null" in ddl
+    assert "active_scope_key varchar(255)" in ddl
+    bundle_ddl = ddl.split("create table if not exists harness_artifact_bundles", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+    assert ") virtual," in bundle_ddl
+    assert (
+        "unique key uk_harness_evolution_runs_trigger "
+        "(user_id, job_family_key, trigger_sequence)"
+    ) in ddl
+    assert "unique key uk_harness_artifact_bundles_one_active" in ddl
+    assert HARNESS_EVOLUTION_MIGRATION_VERSION == ("2026_07_13_harness_autonomous_evolution")
+    assert HARNESS_EVOLUTION_HARDENING_MIGRATION_VERSION == (
+        "2026_07_13_harness_evolution_hardening"
+    )
+    assert HARNESS_EVOLUTION_USER_SCOPE_MIGRATION_VERSION == (
+        "2026_07_14_harness_evolution_user_scope"
+    )
+
+
+def test_init_sql_uses_mysql_compatible_current_table_definitions() -> None:
+    ddl = _ddl()
+
+    assert "add column if not exists" not in ddl
+    interviews_ddl = ddl.split("create table if not exists interviews", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+    rounds_ddl = ddl.split("create table if not exists interview_rounds", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+    reports_ddl = ddl.split("create table if not exists feedback_reports", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+
+    assert "harness_status varchar(32) not null default 'pending'" in interviews_ddl
+    assert "last_checkpoint_id bigint unsigned null" in interviews_ddl
+    assert "execution_status varchar(32) not null default 'pending'" in rounds_ddl
+    assert "retry_count int not null default 0" in rounds_ddl
+    assert (
+        "report_reliability_status varchar(32) not null default 'normal'" in reports_ddl
+    )
+
+
+def test_answer_draft_table_is_in_init_sql_and_migration_table_list() -> None:
+    ddl = _ddl()
+
+    assert "create table if not exists interview_answer_drafts" in ddl
+    assert "interview_answer_drafts" in INIT_SQL_TABLES_TO_CREATE
+    assert "primary key (user_id, question_id)" in ddl
+    assert "constraint fk_interview_answer_drafts_question_id" in ddl
+    assert "foreign key (question_id) references interview_qa (id)" in ddl
+
+
+def test_interview_operation_tasks_define_recoverable_processing_lease() -> None:
+    ddl = _ddl()
+
+    assert "processing_token char(32) null" in ddl
+    assert "heartbeat_at datetime null" in ddl
+    assert INTERVIEW_TASK_LEASE_MIGRATION_VERSION == "2026_07_10_interview_task_lease"
+
+
+def test_resume_parse_tasks_define_recoverable_processing_lease() -> None:
+    ddl = _ddl()
+    table_ddl = ddl.split("create table if not exists resume_parse_tasks", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+
+    assert "processing_token char(32) null" in table_ddl
+    assert "heartbeat_at datetime null" in table_ddl
+    assert RESUME_TASK_LEASE_MIGRATION_VERSION == "2026_07_13_resume_task_lease"
+
+
+def test_published_baseline_version_remains_stable() -> None:
+    assert MIGRATION_VERSION == "2026_07_06_v1"
+    assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION == "2026_07_07_async_task_schema"
+
+
+def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:
+    from scripts import migrate_v1
+
+    applied_versions = {MIGRATION_VERSION}
+    calls: list[str] = []
+
+    monkeypatch.setattr(migrate_v1, "_current_database", lambda _connection: "test_db")
+    monkeypatch.setattr(migrate_v1, "_ensure_schema_migrations", lambda _connection: None)
+    monkeypatch.setattr(
+        migrate_v1,
+        "_migration_applied",
+        lambda _connection, version: version in applied_versions,
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_record_migration",
+        lambda _connection, version, _description: applied_versions.add(version),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_v1_migration",
+        lambda _connection, _database: calls.append("v1"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_async_task_schema_migration",
+        lambda _connection, _database: calls.append("async_task_schema"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_interview_strategy_migration",
+        lambda _connection, _database: calls.append("interview_strategy"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_round_strategy_migration",
+        lambda _connection, _database: calls.append("round_strategy"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_create_tables_from_init_sql",
+        lambda _connection, table_names: calls.extend(table_names),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_add_column",
+        lambda *_args: calls.append("add_column"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_add_index",
+        lambda *_args: calls.append("add_index"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_resume_delete_scrub",
+        lambda _connection: calls.append("resume_delete_scrub"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_harness_evolution_hardening",
+        lambda _connection, _database: calls.append("harness_evolution_hardening"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_harness_evolution_user_scope",
+        lambda _connection, _database: calls.append("harness_evolution_user_scope"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_harness_replay_removal",
+        lambda _connection, _database: calls.append("harness_replay_removal"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_review_bookmark_history_detach",
+        lambda _connection, _database: calls.append("review_bookmark_history_detach"),
+    )
+
+    migrate_v1.migrate(object())
+
+    assert "v1" not in calls
+    assert "async_task_schema" in calls
+    assert "round_strategy" in calls
+    assert "resume_delete_scrub" in calls
+    assert "harness_evolution_user_scope" in calls
+    assert "harness_evolution_hardening" in calls
+    assert "harness_replay_removal" in calls
+    assert "review_bookmark_history_detach" in calls
+    assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION in applied_versions
+
+
+def test_stored_generated_column_is_rebuilt_as_virtual() -> None:
+    from scripts import migrate_v1
+
+    connection = _RecordingConnection()
+    connection.fetchone_results.extend(
+        [
+            {"EXTRA": "STORED GENERATED"},
+            {"count": 0},
+        ]
+    )
+
+    migrate_v1._ensure_virtual_generated_column(
+        connection,
+        "test_db",
+        "harness_artifact_bundles",
+        "active_scope_key",
+        "VARCHAR(255) GENERATED ALWAYS AS ('scope') VIRTUAL",
+    )
+
+    statements = [" ".join(sql.lower().split()) for sql, _params in connection.executed]
+    assert "alter table harness_artifact_bundles drop column active_scope_key" in statements
+    assert any(
+        statement.startswith(
+            "alter table harness_artifact_bundles add column active_scope_key"
+        )
+        and statement.endswith("virtual")
+        for statement in statements
+    )
 
 
 def test_mysql_connection_commits_success_and_rolls_back_failure(monkeypatch) -> None:
@@ -169,5 +400,7 @@ def _ddl() -> str:
     from pathlib import Path
 
     return (
-        Path(__file__).resolve().parents[2] / "database" / "init_mysql.sql"
-    ).read_text(encoding="utf-8").lower()
+        (Path(__file__).resolve().parents[2] / "database" / "init_mysql.sql")
+        .read_text(encoding="utf-8")
+        .lower()
+    )

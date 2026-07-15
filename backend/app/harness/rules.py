@@ -107,7 +107,6 @@ class RuleEvaluator:
         interview_id: int,
         trace_id: int | None,
         evaluations: list[RuleEvaluation],
-        replay_run_id: int | None = None,
     ) -> None:
         if self.repository is None:
             return
@@ -116,6 +115,5 @@ class RuleEvaluator:
                 user_id=user_id,
                 interview_id=interview_id,
                 trace_id=trace_id,
-                replay_run_id=replay_run_id,
                 evaluation=evaluation,
             )

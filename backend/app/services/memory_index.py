@@ -161,8 +161,8 @@ class MemoryIndexService:
     def delete_user_candidate_vectors(self, user_id: int) -> str | None:
         return self.vector_index.delete_user_candidate_memories(user_id)
 
-    def delete_memory_vectors(self, collection: str, memory_id: int) -> None:
-        self.vector_index.delete_memory(collection, memory_id)
+    def delete_memory_vectors(self, collection: str, memory_id: int) -> str | None:
+        return self.vector_index.delete_memory(collection, memory_id)
 
 
 def _document_id(memory: MemoryRecord) -> str:

@@ -33,7 +33,6 @@ DEFAULT_USERNAME_PATTERNS = (
 TABLE_ORDER = (
     "harness_trace_events",
     "harness_rule_evaluations",
-    "harness_replay_runs",
     "harness_checkpoints",
     "harness_improvement_candidates",
     "harness_traces",
@@ -65,8 +64,8 @@ class CleanupTarget:
     round_ids: list[int] = field(default_factory=list)
     qa_ids: list[int] = field(default_factory=list)
     trace_ids: list[int] = field(default_factory=list)
+    skill_trace_ids: list[int] = field(default_factory=list)
     checkpoint_ids: list[int] = field(default_factory=list)
-    replay_ids: list[int] = field(default_factory=list)
     rule_ids: list[int] = field(default_factory=list)
     improvement_ids: list[int] = field(default_factory=list)
     feedback_ids: list[int] = field(default_factory=list)
@@ -84,9 +83,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Safely inspect and clean clearly identified InterviewArena test data."
     )
-    parser.add_argument("--execute", action="store_true", help="Actually delete selected data.")
-    parser.add_argument("--dry-run", action="store_true", help="Only inspect. This is the default.")
-    parser.add_argument("--username", action="append", default=[], help="Exact test username.")
+    parser.add_argument(
+        "--execute", action="store_true", help="Actually delete selected data."
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Only inspect. This is the default."
+    )
+    parser.add_argument(
+        "--username", action="append", default=[], help="Exact test username."
+    )
     parser.add_argument(
         "--user-id",
         action="append",
@@ -141,7 +146,9 @@ def main() -> None:
 
 def run_cleanup(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
     markers = sorted(set(DEFAULT_BATCH_MARKS + tuple(args.batch_mark)))
-    username_patterns = sorted(set(DEFAULT_USERNAME_PATTERNS + tuple(args.username_like)))
+    username_patterns = sorted(
+        set(DEFAULT_USERNAME_PATTERNS + tuple(args.username_like))
+    )
     started_at = datetime.utcnow()
     with mysql_connection() as connection:
         target = discover_targets(connection, args, markers, username_patterns)
@@ -151,7 +158,9 @@ def run_cleanup(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
         if dry_run:
             connection.rollback()
             deleted: dict[str, Any] = {}
-            files = inspect_files(delete=False) if args.clean_files else {"skipped": True}
+            files = (
+                inspect_files(delete=False) if args.clean_files else {"skipped": True}
+            )
         else:
             vector_result = delete_chroma_vectors(target)
             if not vector_result["ok"]:
@@ -168,8 +177,12 @@ def run_cleanup(args: argparse.Namespace, *, dry_run: bool) -> dict[str, Any]:
                     "before": before,
                     "chroma": vector_result,
                 }
-            deleted = delete_mysql_records(connection, target, keep_test_users=args.keep_test_users)
-            files = inspect_files(delete=True) if args.clean_files else {"skipped": True}
+            deleted = delete_mysql_records(
+                connection, target, keep_test_users=args.keep_test_users
+            )
+            files = (
+                inspect_files(delete=True) if args.clean_files else {"skipped": True}
+            )
         after = collect_counts(connection, target)
         orphan_checks = collect_orphan_checks(connection)
         retained = collect_retained_summary(connection, target)
@@ -220,14 +233,15 @@ def discover_targets(
             "SELECT id FROM harness_traces WHERE interview_id IN ({}) ORDER BY id",
             target.interview_ids,
         )
+        if table_exists(cursor, "skill_call_traces"):
+            target.skill_trace_ids = select_ids(
+                cursor,
+                "SELECT id FROM skill_call_traces WHERE interview_id IN ({}) ORDER BY id",
+                target.interview_ids,
+            )
         target.checkpoint_ids = select_ids(
             cursor,
             "SELECT id FROM harness_checkpoints WHERE interview_id IN ({}) ORDER BY id",
-            target.interview_ids,
-        )
-        target.replay_ids = select_ids(
-            cursor,
-            "SELECT id FROM harness_replay_runs WHERE interview_id IN ({}) ORDER BY id",
             target.interview_ids,
         )
         target.rule_ids = select_ids(
@@ -249,7 +263,9 @@ def discover_targets(
         target.memory_ids = find_memory_ids(cursor, target, markers)
         target.memory_task_ids = find_memory_task_ids(cursor, target)
         target.rag_audit_ids = find_rag_audit_ids(cursor, target, markers)
-        target.resume_ids = find_resume_ids(cursor, target, keep_test_users=args.keep_test_users)
+        target.resume_ids = find_resume_ids(
+            cursor, target, keep_test_users=args.keep_test_users
+        )
         target.ambiguous = find_ambiguous(cursor, target, markers)
     return target
 
@@ -476,7 +492,9 @@ def find_ambiguous(
               AND r.id NOT IN ({})
             ORDER BY r.id
             LIMIT 20
-            """.format(placeholders(target.resume_ids) if target.resume_ids else "0"),
+            """.format(
+                placeholders(target.resume_ids) if target.resume_ids else "0"
+            ),
             (like, like, *target.resume_ids),
         )
         rows = cursor.fetchall()
@@ -509,16 +527,26 @@ def collect_counts(connection: Any, target: CleanupTarget) -> dict[str, Any]:
             "interviews": count_ids(cursor, "interviews", target.interview_ids),
             "interview_rounds": count_ids(cursor, "interview_rounds", target.round_ids),
             "interview_qa": count_ids(cursor, "interview_qa", target.qa_ids),
-            "feedback_reports": count_ids(cursor, "feedback_reports", target.feedback_ids),
-            "evaluation_records": count_ids(cursor, "evaluation_records", target.evaluation_ids),
+            "skill_call_traces": count_ids(
+                cursor, "skill_call_traces", target.skill_trace_ids
+            )
+            if table_exists(cursor, "skill_call_traces")
+            else 0,
+            "feedback_reports": count_ids(
+                cursor, "feedback_reports", target.feedback_ids
+            ),
+            "evaluation_records": count_ids(
+                cursor, "evaluation_records", target.evaluation_ids
+            ),
             "memory_tasks": count_ids(cursor, "memory_tasks", target.memory_task_ids),
             "rag_audit_logs": count_ids(cursor, "rag_audit_logs", target.rag_audit_ids),
             "harness_traces": count_ids(cursor, "harness_traces", target.trace_ids),
             "harness_trace_events": count_where(
                 cursor, "harness_trace_events", "trace_id", target.trace_ids
             ),
-            "harness_checkpoints": count_ids(cursor, "harness_checkpoints", target.checkpoint_ids),
-            "harness_replay_runs": count_ids(cursor, "harness_replay_runs", target.replay_ids),
+            "harness_checkpoints": count_ids(
+                cursor, "harness_checkpoints", target.checkpoint_ids
+            ),
             "harness_rule_evaluations": count_ids(
                 cursor, "harness_rule_evaluations", target.rule_ids
             ),
@@ -596,7 +624,11 @@ def delete_chroma_vectors(target: CleanupTarget) -> dict[str, Any]:
             before = chroma_get_count(index.collections[collection], memory_id)
             reason = index.delete_memory(collection, memory_id)
             after = chroma_get_count(index.collections[collection], memory_id)
-            deleted[str(memory_id)] = {"before": before, "after": after, "reason": reason}
+            deleted[str(memory_id)] = {
+                "before": before,
+                "after": after,
+                "reason": reason,
+            }
             if reason is not None or after != 0:
                 result["ok"] = False
         result["deleted"][collection] = deleted
@@ -623,9 +655,6 @@ def delete_mysql_records(
         deleted["harness_rule_evaluations"] = delete_ids(
             cursor, "harness_rule_evaluations", target.rule_ids
         )
-        deleted["harness_replay_runs"] = delete_ids(
-            cursor, "harness_replay_runs", target.replay_ids
-        )
         deleted["harness_checkpoints"] = delete_ids(
             cursor, "harness_checkpoints", target.checkpoint_ids
         )
@@ -650,9 +679,15 @@ def delete_mysql_records(
                 """,
                 tuple(target.trace_ids),
             )
-        deleted["harness_traces"] = delete_ids(cursor, "harness_traces", target.trace_ids)
-        deleted["rag_audit_logs"] = delete_ids(cursor, "rag_audit_logs", target.rag_audit_ids)
-        deleted["memory_tasks"] = delete_ids(cursor, "memory_tasks", target.memory_task_ids)
+        deleted["harness_traces"] = delete_ids(
+            cursor, "harness_traces", target.trace_ids
+        )
+        deleted["rag_audit_logs"] = delete_ids(
+            cursor, "rag_audit_logs", target.rag_audit_ids
+        )
+        deleted["memory_tasks"] = delete_ids(
+            cursor, "memory_tasks", target.memory_task_ids
+        )
         for collection, memory_ids in target.memory_ids.items():
             if memory_ids:
                 cursor.execute(
@@ -664,7 +699,13 @@ def delete_mysql_records(
                     tuple(memory_ids),
                 )
             deleted[collection] = delete_ids(cursor, collection, memory_ids)
-        deleted["feedback_reports"] = delete_ids(cursor, "feedback_reports", target.feedback_ids)
+        deleted["feedback_reports"] = delete_ids(
+            cursor, "feedback_reports", target.feedback_ids
+        )
+        if table_exists(cursor, "skill_call_traces"):
+            deleted["skill_call_traces"] = delete_ids(
+                cursor, "skill_call_traces", target.skill_trace_ids
+            )
         deleted["evaluation_records"] = delete_ids(
             cursor, "evaluation_records", target.evaluation_ids
         )
@@ -678,7 +719,9 @@ def delete_mysql_records(
                 tuple(target.interview_ids),
             )
         deleted["interview_qa"] = delete_ids(cursor, "interview_qa", target.qa_ids)
-        deleted["interview_rounds"] = delete_ids(cursor, "interview_rounds", target.round_ids)
+        deleted["interview_rounds"] = delete_ids(
+            cursor, "interview_rounds", target.round_ids
+        )
         deleted["interviews"] = delete_ids(cursor, "interviews", target.interview_ids)
         if not keep_test_users:
             deleted["resumes"] = delete_ids(cursor, "resumes", target.resume_ids)
@@ -726,7 +769,9 @@ def collect_retained_summary(connection: Any, target: CleanupTarget) -> dict[str
             WHERE id NOT IN ({})
             ORDER BY id
             LIMIT 20
-            """.format(placeholders(target.test_user_ids) if target.test_user_ids else "0"),
+            """.format(
+                placeholders(target.test_user_ids) if target.test_user_ids else "0"
+            ),
             tuple(target.test_user_ids),
         )
         sample_users = cursor.fetchall()
@@ -820,6 +865,7 @@ def target_payload(target: CleanupTarget) -> dict[str, Any]:
         "round_ids": target.round_ids,
         "qa_ids": target.qa_ids,
         "trace_ids": target.trace_ids,
+        "skill_trace_ids": target.skill_trace_ids,
         "checkpoint_ids": target.checkpoint_ids,
         "replay_ids": target.replay_ids,
         "rule_ids": target.rule_ids,
@@ -859,6 +905,11 @@ def select_ids(cursor: Any, query_template: str, ids: list[int]) -> list[int]:
         return []
     cursor.execute(query_template.format(placeholders(ids)), tuple(ids))
     return [int(row["id"]) for row in cursor.fetchall()]
+
+
+def table_exists(cursor: Any, table: str) -> bool:
+    cursor.execute("SHOW TABLES LIKE %s", (table,))
+    return cursor.fetchone() is not None
 
 
 def delete_ids(cursor: Any, table: str, ids: list[int]) -> int:

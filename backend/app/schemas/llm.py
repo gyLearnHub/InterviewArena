@@ -14,15 +14,6 @@ class StructuredResume(BaseModel):
     certificates_awards: list[Any]
 
 
-class QAHistoryItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    sequence: int
-    question_type: str
-    question: str
-    answer: str | None = None
-
-
 class QuestionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

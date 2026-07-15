@@ -37,9 +37,17 @@ class Settings:
     memory_enabled_default: bool = True
     memory_min_relevance_score: float = 0.15
     usage_limit_active_timeout_seconds: int = 900
-    evolution_daily_scheduler_enabled: bool = True
-    evolution_daily_scheduler_poll_seconds: int = 60
-    evolution_daily_inspection_hour: int = 0
+    interview_task_processing_timeout_seconds: int = 900
+    interview_task_heartbeat_seconds: int = 30
+    evolution_enabled: bool = False
+    evolution_trigger_interviews: int = 10
+    evolution_synthetic_samples: int = 10
+    evolution_judge_model: str = "deepseek-flash"
+    evolution_task_poll_seconds: int = 5
+    evolution_task_max_retries: int = 3
+    evolution_task_processing_timeout_seconds: int = 3600
+    evolution_task_heartbeat_seconds: int = 30
+    evolution_observation_interviews: int = 5
     auto_migrate_on_startup: bool = True
     auth_cookie_name: str = "interview_arena_token"
     auth_cookie_secure: bool = True
@@ -164,17 +172,49 @@ def get_settings() -> Settings:
             "USAGE_LIMIT_ACTIVE_TIMEOUT_SECONDS",
             Settings.usage_limit_active_timeout_seconds,
         ),
-        evolution_daily_scheduler_enabled=_read_bool(
-            "EVOLUTION_DAILY_SCHEDULER_ENABLED",
-            Settings.evolution_daily_scheduler_enabled,
+        interview_task_processing_timeout_seconds=_read_int(
+            "INTERVIEW_TASK_PROCESSING_TIMEOUT_SECONDS",
+            Settings.interview_task_processing_timeout_seconds,
         ),
-        evolution_daily_scheduler_poll_seconds=_read_int(
-            "EVOLUTION_DAILY_SCHEDULER_POLL_SECONDS",
-            Settings.evolution_daily_scheduler_poll_seconds,
+        interview_task_heartbeat_seconds=_read_int(
+            "INTERVIEW_TASK_HEARTBEAT_SECONDS",
+            Settings.interview_task_heartbeat_seconds,
         ),
-        evolution_daily_inspection_hour=_read_int(
-            "EVOLUTION_DAILY_INSPECTION_HOUR",
-            Settings.evolution_daily_inspection_hour,
+        evolution_enabled=_read_bool(
+            "EVOLUTION_ENABLED",
+            Settings.evolution_enabled,
+        ),
+        evolution_trigger_interviews=_read_int(
+            "EVOLUTION_TRIGGER_INTERVIEWS",
+            Settings.evolution_trigger_interviews,
+        ),
+        evolution_synthetic_samples=_read_int(
+            "EVOLUTION_SYNTHETIC_SAMPLES",
+            Settings.evolution_synthetic_samples,
+        ),
+        evolution_judge_model=_get_env(
+            "EVOLUTION_JUDGE_MODEL",
+            Settings.evolution_judge_model,
+        ),
+        evolution_task_poll_seconds=_read_int(
+            "EVOLUTION_TASK_POLL_SECONDS",
+            Settings.evolution_task_poll_seconds,
+        ),
+        evolution_task_max_retries=_read_int(
+            "EVOLUTION_TASK_MAX_RETRIES",
+            Settings.evolution_task_max_retries,
+        ),
+        evolution_task_processing_timeout_seconds=_read_int(
+            "EVOLUTION_TASK_PROCESSING_TIMEOUT_SECONDS",
+            Settings.evolution_task_processing_timeout_seconds,
+        ),
+        evolution_task_heartbeat_seconds=_read_int(
+            "EVOLUTION_TASK_HEARTBEAT_SECONDS",
+            Settings.evolution_task_heartbeat_seconds,
+        ),
+        evolution_observation_interviews=_read_int(
+            "EVOLUTION_OBSERVATION_INTERVIEWS",
+            Settings.evolution_observation_interviews,
         ),
         auto_migrate_on_startup=_read_bool(
             "AUTO_MIGRATE_ON_STARTUP",
@@ -207,13 +247,59 @@ def get_settings() -> Settings:
 
 def _validate_settings(settings: Settings) -> None:
     is_test = settings.app_env.strip().lower() in {"test", "testing", "pytest"}
-    if is_test:
-        return
-    if settings.jwt_secret_key == Settings.jwt_secret_key:
-        raise RuntimeError("JWT_SECRET_KEY must be configured before starting the application.")
-    if len(settings.jwt_secret_key) < 32:
-        raise RuntimeError("JWT_SECRET_KEY must be at least 32 characters long.")
-    if not 0 <= settings.evolution_daily_inspection_hour <= 23:
-        raise RuntimeError("EVOLUTION_DAILY_INSPECTION_HOUR must be between 0 and 23.")
-    if settings.evolution_daily_scheduler_poll_seconds < 1:
-        raise RuntimeError("EVOLUTION_DAILY_SCHEDULER_POLL_SECONDS must be at least 1.")
+    normalized_jwt_secret = settings.jwt_secret_key.strip().lower()
+    weak_secret_markers = {
+        Settings.jwt_secret_key.lower(),
+        "change_me_to_a_long_random_secret_at_least_32_chars",
+    }
+    if not is_test:
+        if (
+            not normalized_jwt_secret
+            or normalized_jwt_secret in weak_secret_markers
+            or "change_me" in normalized_jwt_secret
+            or "placeholder" in normalized_jwt_secret
+            or "example" in normalized_jwt_secret
+        ):
+            raise RuntimeError(
+                "JWT_SECRET_KEY must be configured before starting the application."
+            )
+        if len(settings.jwt_secret_key) < 32:
+            raise RuntimeError("JWT_SECRET_KEY must be at least 32 characters long.")
+    if settings.interview_task_processing_timeout_seconds < 1:
+        raise RuntimeError("INTERVIEW_TASK_PROCESSING_TIMEOUT_SECONDS must be at least 1.")
+    if settings.interview_task_heartbeat_seconds < 1:
+        raise RuntimeError("INTERVIEW_TASK_HEARTBEAT_SECONDS must be at least 1.")
+    if (
+        settings.interview_task_heartbeat_seconds
+        >= settings.interview_task_processing_timeout_seconds
+    ):
+        raise RuntimeError(
+            "INTERVIEW_TASK_HEARTBEAT_SECONDS must be less than "
+            "INTERVIEW_TASK_PROCESSING_TIMEOUT_SECONDS."
+        )
+    if settings.evolution_trigger_interviews < 1:
+        raise RuntimeError("EVOLUTION_TRIGGER_INTERVIEWS must be at least 1.")
+    if not 1 <= settings.evolution_synthetic_samples <= 50:
+        raise RuntimeError("EVOLUTION_SYNTHETIC_SAMPLES must be between 1 and 50.")
+    if not settings.evolution_judge_model.strip():
+        raise RuntimeError("EVOLUTION_JUDGE_MODEL must not be empty.")
+    if settings.evolution_task_poll_seconds < 1:
+        raise RuntimeError("EVOLUTION_TASK_POLL_SECONDS must be at least 1.")
+    if settings.evolution_task_max_retries < 0:
+        raise RuntimeError("EVOLUTION_TASK_MAX_RETRIES must not be negative.")
+    if settings.evolution_task_processing_timeout_seconds < 2:
+        raise RuntimeError(
+            "EVOLUTION_TASK_PROCESSING_TIMEOUT_SECONDS must be at least 2."
+        )
+    if settings.evolution_task_heartbeat_seconds < 1:
+        raise RuntimeError("EVOLUTION_TASK_HEARTBEAT_SECONDS must be at least 1.")
+    if (
+        settings.evolution_task_heartbeat_seconds
+        >= settings.evolution_task_processing_timeout_seconds
+    ):
+        raise RuntimeError(
+            "EVOLUTION_TASK_HEARTBEAT_SECONDS must be less than "
+            "EVOLUTION_TASK_PROCESSING_TIMEOUT_SECONDS."
+        )
+    if settings.evolution_observation_interviews < 1:
+        raise RuntimeError("EVOLUTION_OBSERVATION_INTERVIEWS must be at least 1.")

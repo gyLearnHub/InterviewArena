@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from app.repositories.history import HistoryInterviewRecord
+from app.repositories.history import HistoryInterviewRecord, WeaknessPracticeProgressRecord
 from app.repositories.users import UserRecord
 from app.schemas.dashboard import (
     DashboardAbilitySummary,
@@ -13,6 +13,8 @@ from app.schemas.dashboard import (
     DashboardWeakPointSource,
     DashboardWeakPointSummary,
 )
+from app.services.interview_strategy import round_label as _round_label
+from app.services.weakness_practice_progress import PRACTICE_STATUS_PENDING, weakness_key
 
 
 class DashboardHistoryRepositoryProtocol(Protocol):
@@ -43,6 +45,15 @@ class _WeakPointCandidate:
     updated_at: datetime | None
 
 
+@dataclass
+class _PracticeProgressSummary:
+    status: str
+    practice_score: int | None
+    last_practiced_at: datetime | None
+    practice_count: int
+
+
+PRACTICE_STATUS_NOT_STARTED = "not_started"
 LOW_INFORMATION_REPORT_WEAKNESSES = {
     "部分能力维度仍需结合后续面试继续验证。",
 }
@@ -80,6 +91,7 @@ class DashboardService:
             default=None,
         )
         detailed_records = self._recent_detailed_records(records)
+        practice_progress = self._weakness_practice_progress(current_user.id)
         personalized_feedback_used = any(
             bool(record.feedback_report and record.feedback_report.used_candidate_memory)
             for record in report_records
@@ -112,7 +124,7 @@ class DashboardService:
                 if latest_report_record is not None
                 else []
             ),
-            weak_points=_to_weak_point_summaries(detailed_records),
+            weak_points=_to_weak_point_summaries(detailed_records, practice_progress),
         )
 
     def _memory_state(
@@ -158,6 +170,22 @@ class DashboardService:
             detailed_record = self.history_repository.get_by_id(record.id)
             detailed_records.append(detailed_record or record)
         return detailed_records
+
+    def _weakness_practice_progress(
+        self,
+        user_id: int,
+    ) -> list[WeaknessPracticeProgressRecord]:
+        list_progress = getattr(
+            self.history_repository,
+            "list_weakness_practice_progress_by_user",
+            None,
+        )
+        if not callable(list_progress):
+            return []
+        try:
+            return list(list_progress(user_id))
+        except Exception:
+            return []
 
 
 def _to_interview_summary(record: HistoryInterviewRecord) -> DashboardInterviewSummary:
@@ -255,7 +283,9 @@ def _to_ability_summaries(record: HistoryInterviewRecord) -> list[DashboardAbili
 
 def _to_weak_point_summaries(
     records: list[HistoryInterviewRecord],
+    practice_progress: list[WeaknessPracticeProgressRecord] | None = None,
 ) -> list[DashboardWeakPointSummary]:
+    practice_by_key = _practice_progress_summary_by_key(practice_progress or [])
     candidates = [
         candidate
         for record in records
@@ -267,13 +297,22 @@ def _to_weak_point_summaries(
     if not candidates:
         if not records:
             return []
-        return [_summarize_weak_point([_insufficient_evidence_candidate(records[0])])]
+        candidate = _insufficient_evidence_candidate(records[0])
+        return [
+            _summarize_weak_point(
+                [candidate],
+                practice_by_key.get(_weak_point_key(candidate.title)),
+            )
+        ]
 
     grouped: dict[str, list[_WeakPointCandidate]] = {}
     for candidate in candidates:
         grouped.setdefault(_weak_point_key(candidate.title), []).append(candidate)
 
-    summaries = [_summarize_weak_point(items) for items in grouped.values()]
+    summaries = [
+        _summarize_weak_point(items, practice_by_key.get(key))
+        for key, items in grouped.items()
+    ]
     return sorted(
         summaries,
         key=lambda item: (
@@ -445,7 +484,10 @@ def _is_low_information_report_item(title: str, suggestion: str | None) -> bool:
     )
 
 
-def _summarize_weak_point(items: list[_WeakPointCandidate]) -> DashboardWeakPointSummary:
+def _summarize_weak_point(
+    items: list[_WeakPointCandidate],
+    practice_progress: _PracticeProgressSummary | None = None,
+) -> DashboardWeakPointSummary:
     ordered_items = sorted(items, key=lambda item: item.updated_at or datetime.min, reverse=True)
     latest = ordered_items[0]
     sources = _dedupe_sources([item.source for item in ordered_items])[:3]
@@ -472,6 +514,16 @@ def _summarize_weak_point(items: list[_WeakPointCandidate]) -> DashboardWeakPoin
         suggestion=latest.suggestion or _first_suggestion(ordered_items),
         severity=max((item.severity for item in items), key=_severity_rank),
         occurrence_count=len(items),
+        practice_status=(
+            practice_progress.status
+            if practice_progress is not None
+            else PRACTICE_STATUS_NOT_STARTED
+        ),
+        practice_score=practice_progress.practice_score if practice_progress is not None else None,
+        last_practiced_at=(
+            practice_progress.last_practiced_at if practice_progress is not None else None
+        ),
+        practice_count=practice_progress.practice_count if practice_progress is not None else 0,
         evidence=evidence,
         sources=sources,
         updated_at=latest.updated_at,
@@ -527,7 +579,40 @@ def _round_follow_up_directions(round_id: int, qa_history: list[Any]) -> list[st
 
 
 def _weak_point_key(value: str) -> str:
-    return "".join(value.strip().lower().split())
+    return weakness_key(value)
+
+
+def _practice_progress_summary_by_key(
+    records: list[WeaknessPracticeProgressRecord],
+) -> dict[str, _PracticeProgressSummary]:
+    grouped: dict[str, list[WeaknessPracticeProgressRecord]] = {}
+    for record in records:
+        key = record.weakness_key or weakness_key(record.weakness_title)
+        if key:
+            grouped.setdefault(key, []).append(record)
+
+    summaries: dict[str, _PracticeProgressSummary] = {}
+    for key, items in grouped.items():
+        latest = max(items, key=_practice_progress_sort_key)
+        practiced_items = [
+            item
+            for item in items
+            if (item.status or PRACTICE_STATUS_PENDING) != PRACTICE_STATUS_PENDING
+        ]
+        summaries[key] = _PracticeProgressSummary(
+            status=latest.status or PRACTICE_STATUS_PENDING,
+            practice_score=latest.practice_score,
+            last_practiced_at=latest.last_practiced_at,
+            practice_count=len(practiced_items),
+        )
+    return summaries
+
+
+def _practice_progress_sort_key(record: WeaknessPracticeProgressRecord) -> tuple[datetime, int]:
+    return (
+        record.last_practiced_at or record.updated_at or record.created_at or datetime.min,
+        record.id,
+    )
 
 
 def _severity_from_score(score: int | None) -> str:
@@ -574,15 +659,6 @@ def _string_list(value: object) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value]
     return []
-
-
-def _round_label(round_type: str | None) -> str:
-    return {
-        "resume": "简历面",
-        "technical": "技术面",
-        "manager": "主管面",
-        "hr": "HR 面",
-    }.get(str(round_type or ""), str(round_type or ""))
 
 
 def _activity_sort_key(record: HistoryInterviewRecord) -> tuple[object, int]:

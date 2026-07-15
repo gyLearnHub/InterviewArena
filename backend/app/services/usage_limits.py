@@ -48,10 +48,15 @@ class UsageLimitStore(Protocol):
 
 DEFAULT_USAGE_LIMITS: dict[str, UsageLimitRule] = {
     "resume_upload": UsageLimitRule(daily_limit=20, cooldown_seconds=10),
+    "resume_upload_enqueue": UsageLimitRule(daily_limit=120, cooldown_seconds=2),
     "interview_question": UsageLimitRule(daily_limit=120, cooldown_seconds=2),
+    "interview_question_enqueue": UsageLimitRule(daily_limit=120),
     "interview_answer": UsageLimitRule(daily_limit=200, cooldown_seconds=1),
+    "interview_answer_enqueue": UsageLimitRule(daily_limit=200),
     "interview_round_finish": UsageLimitRule(daily_limit=60, cooldown_seconds=3),
+    "interview_round_finish_enqueue": UsageLimitRule(daily_limit=60),
     "interview_report_finish": UsageLimitRule(daily_limit=20, cooldown_seconds=10),
+    "interview_report_finish_enqueue": UsageLimitRule(daily_limit=20),
 }
 
 

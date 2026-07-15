@@ -1,19 +1,39 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Callable
-from importlib import import_module
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol
 
 from pydantic import ValidationError
 
 from app.agents.final_evaluation import FinalEvaluationAgent
 from app.agents.question_evaluation import QuestionEvaluationAgent
-from app.agents.registry import ROUND_SPECS
 from app.agents.round_evaluation import RoundEvaluationAgent
-from app.evolution.runtime import resolve_prompt, resolve_round_spec
-from app.harness.contracts import ValidationStatus
+from app.autonomous_evolution.observation import (
+    is_hard_runtime_error,
+    record_runtime_execution,
+    validate_runtime_output,
+)
+from app.autonomous_evolution.runtime import (
+    resolve_artifact_version,
+    resolve_interview_harness_policy,
+    resolve_prompt,
+    resolve_round_spec,
+)
+from app.harness.events import (
+    build_harness_request as _harness_request,
+)
+from app.harness.events import (
+    get_harness_repository as _get_harness_repository,
+)
+from app.harness.events import (
+    record_harness_event,
+)
+from app.harness.events import (
+    save_fallback_rule_evaluations as _save_fallback_rule_evaluations,
+)
+from app.harness.events import (
+    snapshot_harness_value as _snapshot_value,
+)
 from app.prompts.loader import load_prompt
 from app.repositories.evaluations import EvaluationRecord
 from app.repositories.interviews import (
@@ -34,6 +54,15 @@ from app.schemas.evaluation import (
     QuestionEvaluationOutput,
     RoundEvaluationInput,
     RoundEvaluationOutput,
+)
+from app.services.interview_strategy import (
+    interview_strategy_payload,
+)
+from app.services.interview_strategy import (
+    recommendation_for_score as _recommendation,
+)
+from app.services.interview_strategy import (
+    round_label as _round_label,
 )
 from app.services.llm import LLMClient
 
@@ -188,6 +217,11 @@ class EvaluationSchedulerService:
                     self._round_spec(interview, round_record.round_type).dimensions,
                 )
 
+        prompt_version = self._artifact_version(
+            interview,
+            "evaluation.question",
+            QUESTION_PROMPT_VERSION,
+        )
         try:
             result = _enforce_question_score(
                 self._execute_harness_call(
@@ -197,7 +231,7 @@ class EvaluationSchedulerService:
                     node_type="question_evaluator",
                     agent_type=round_record.agent_type,
                     purpose="score_question",
-                    payload={"question_id": qa.id, "prompt_version": QUESTION_PROMPT_VERSION},
+                    payload={"question_id": qa.id, "prompt_version": prompt_version},
                     operation=lambda: self._generate_question_score(
                         interview,
                         round_record,
@@ -217,7 +251,7 @@ class EvaluationSchedulerService:
                 round_id=round_record.id,
                 question_id=qa.id,
                 error_message=str(exc) or exc.__class__.__name__,
-                prompt_version=QUESTION_PROMPT_VERSION,
+                prompt_version=prompt_version,
                 model_name=_model_name(self.llm_client),
             )
             return None
@@ -232,7 +266,7 @@ class EvaluationSchedulerService:
             total_score=result.total_score,
             evidence=result.evidence,
             result=result.model_dump(),
-            prompt_version=QUESTION_PROMPT_VERSION,
+            prompt_version=prompt_version,
             model_name=_model_name(self.llm_client),
         )
         return result
@@ -291,6 +325,11 @@ class EvaluationSchedulerService:
         if existing is not None and existing.status == "succeeded" and existing.result:
             return _round_summary_payload(existing.result, question_scores)
 
+        prompt_version = self._artifact_version(
+            interview,
+            f"evaluation.round.{round_record.round_type}",
+            ROUND_PROMPT_VERSIONS[round_record.round_type],
+        )
         try:
             result = self._execute_harness_call(
                 user_id=interview.user_id,
@@ -302,7 +341,7 @@ class EvaluationSchedulerService:
                 payload={
                     "qa_count": len(qa_history),
                     "question_score_count": len(question_scores),
-                    "prompt_version": ROUND_PROMPT_VERSIONS[round_record.round_type],
+                    "prompt_version": prompt_version,
                 },
                 operation=lambda: self._generate_round_summary(
                     interview=interview,
@@ -320,7 +359,7 @@ class EvaluationSchedulerService:
                 round_id=round_record.id,
                 question_id=None,
                 error_message=str(exc) or exc.__class__.__name__,
-                prompt_version=ROUND_PROMPT_VERSIONS[round_record.round_type],
+                prompt_version=prompt_version,
                 model_name=_model_name(self.llm_client),
             )
             result = _fallback_round_result(
@@ -341,7 +380,7 @@ class EvaluationSchedulerService:
             total_score=result.total_score,
             evidence=result.evidence,
             result=result.model_dump(),
-            prompt_version=ROUND_PROMPT_VERSIONS[round_record.round_type],
+            prompt_version=prompt_version,
             model_name=_model_name(self.llm_client),
         )
         return _round_summary_payload(result.model_dump(), question_scores)
@@ -356,7 +395,8 @@ class EvaluationSchedulerService:
     ) -> dict[str, Any]:
         key = final_evaluation_key(interview.id)
         if effective_history_memory:
-            _record_harness_event(
+            record_harness_event(
+                connection=getattr(self.repository, "connection", None),
                 user_id=interview.user_id,
                 interview_id=interview.id,
                 round_id=None,
@@ -376,6 +416,11 @@ class EvaluationSchedulerService:
             round_record.status not in {"completed", "skipped"} for round_record in rounds
         )
         has_reference = any(round_record.is_reference_only for round_record in rounds)
+        prompt_version = self._artifact_version(
+            interview,
+            "evaluation.final",
+            FINAL_PROMPT_VERSION,
+        )
         try:
             result = self._execute_harness_call(
                 user_id=interview.user_id,
@@ -386,7 +431,7 @@ class EvaluationSchedulerService:
                 purpose="generate_final_report",
                 payload={
                     "round_count": len(round_payloads),
-                    "prompt_version": FINAL_PROMPT_VERSION,
+                    "prompt_version": prompt_version,
                 },
                 operation=lambda: self._generate_final_report(
                     interview=interview,
@@ -404,7 +449,7 @@ class EvaluationSchedulerService:
                 round_id=None,
                 question_id=None,
                 error_message=str(exc) or exc.__class__.__name__,
-                prompt_version=FINAL_PROMPT_VERSION,
+                prompt_version=prompt_version,
                 model_name=_model_name(self.llm_client),
             )
             result = _fallback_final_result(
@@ -424,7 +469,7 @@ class EvaluationSchedulerService:
             total_score=result.total_score,
             evidence=[],
             result=result.model_dump(),
-            prompt_version=FINAL_PROMPT_VERSION,
+            prompt_version=prompt_version,
             model_name=_model_name(self.llm_client),
         )
         return _final_report_payload(interview.id, result.model_dump())
@@ -446,6 +491,7 @@ class EvaluationSchedulerService:
             resume=resume.structured_data,
             target_position=interview.target_position,
             job_description=interview.job_description,
+            interview_strategy=interview_strategy_payload(interview),
             question=qa.question,
             answer=qa.answer or "",
         )
@@ -484,6 +530,7 @@ class EvaluationSchedulerService:
             dimensions=spec.dimensions,
             qa_history=_qa_payloads(qa_history),
             question_evaluations=question_scores,
+            interview_strategy=interview_strategy_payload(interview),
             is_reference_only=is_reference_only,
         )
         payload = evaluation_input.model_dump()
@@ -520,6 +567,7 @@ class EvaluationSchedulerService:
             resume_summary=resume.structured_data,
             target_position=interview.target_position,
             job_description=interview.job_description,
+            interview_strategy=interview_strategy_payload(interview),
             round_evaluations=round_payloads,
             has_incomplete_rounds=has_incomplete_rounds,
             has_reference_only_rounds=has_reference_only_rounds,
@@ -544,9 +592,22 @@ class EvaluationSchedulerService:
 
     def _round_spec(self, interview: InterviewRecord, round_type: str) -> Any:
         return resolve_round_spec(
-            self.repository,
-            version_bundle_id=interview.version_bundle_id,
-            base_spec=ROUND_SPECS[round_type],
+            getattr(self.repository, "connection", None),
+            interview.harness_bundle_id,
+            round_type,
+        )
+
+    def _artifact_version(
+        self,
+        interview: InterviewRecord,
+        artifact_key: str,
+        fallback_version: str,
+    ) -> str:
+        return resolve_artifact_version(
+            getattr(self.repository, "connection", None),
+            interview.harness_bundle_id,
+            artifact_key,
+            fallback_version,
         )
 
     def _effective_prompt(
@@ -556,12 +617,21 @@ class EvaluationSchedulerService:
         *,
         aliases: set[str],
     ) -> str:
+        fallback = load_prompt(prompt_file)
+        if prompt_file == QuestionEvaluationAgent.prompt_file:
+            artifact_key = "evaluation.question"
+        elif prompt_file == FinalEvaluationAgent.prompt_file:
+            artifact_key = "evaluation.final"
+        elif prompt_file.startswith("round_evaluation_"):
+            round_type = prompt_file.removeprefix("round_evaluation_").removesuffix(".md")
+            artifact_key = f"evaluation.round.{round_type}"
+        else:
+            return fallback
         return resolve_prompt(
-            self.repository,
-            version_bundle_id=interview.version_bundle_id,
-            prompt_key=prompt_file,
-            base_prompt=load_prompt(prompt_file),
-            aliases=aliases,
+            getattr(self.repository, "connection", None),
+            interview.harness_bundle_id,
+            artifact_key,
+            fallback,
         )
 
     def _execute_harness_call(
@@ -579,54 +649,9 @@ class EvaluationSchedulerService:
         connection = getattr(self.repository, "connection", None)
         if connection is not None:
             connection.commit()
-        service = _get_harness_service()
-        if service is None:
-            repository = _get_harness_repository(connection)
-            if repository is None:
-                return operation()
-            request = _harness_request(
-                user_id=user_id,
-                interview_id=interview_id,
-                round_id=round_id,
-                node_type=node_type,
-                agent_type=agent_type,
-                purpose=purpose,
-                payload=payload,
-            )
-            trace_id = repository.create_trace(request)
-            if connection is not None:
-                connection.commit()
-            try:
-                result = operation()
-            except Exception as exc:
-                repository.update_trace_status(
-                    trace_id,
-                    status="failed",
-                    validation_status="failed",
-                    error_code="BUSINESS_EXECUTION_FAILED",
-                    error_detail=str(exc) or exc.__class__.__name__,
-                )
-                _save_fallback_rule_evaluations(
-                    repository=repository,
-                    request=request,
-                    trace_id=trace_id,
-                    validation_status="failed",
-                    error_detail=str(exc) or exc.__class__.__name__,
-                )
-                raise
-            repository.update_trace_status(
-                trace_id,
-                status="completed",
-                validation_status="passed",
-                output_snapshot={"result": _snapshot_value(result)},
-            )
-            _save_fallback_rule_evaluations(
-                repository=repository,
-                request=request,
-                trace_id=trace_id,
-                validation_status="passed",
-            )
-            return result
+        repository = _get_harness_repository(connection)
+        if repository is None:
+            return operation()
         request = _harness_request(
             user_id=user_id,
             interview_id=interview_id,
@@ -635,54 +660,76 @@ class EvaluationSchedulerService:
             agent_type=agent_type,
             purpose=purpose,
             payload=payload,
+            prompt_version=(
+                str(payload["prompt_version"])
+                if isinstance(payload.get("prompt_version"), str)
+                and payload["prompt_version"]
+                else None
+            ),
         )
-        for method_name in ("execute_callable", "run_callable", "wrap"):
-            method = getattr(service, method_name, None)
-            if callable(method):
-                return _harness_business_result(method(request, operation))
-        execute = getattr(service, "execute", None)
-        if callable(execute):
+        trace_id = repository.create_trace(request)
+        if connection is not None:
+            connection.commit()
+        policy = resolve_interview_harness_policy(connection, interview_id)
+        max_retries = min(3, max(0, int(policy.get("max_retries") or 0)))
+        retry_records: list[dict[str, Any]] = []
+        result: Any = None
+        last_error: Exception | None = None
+        for attempt in range(1, max_retries + 2):
             try:
-                return _harness_business_result(execute(request=request, operation=operation))
-            except TypeError:
-                return _harness_business_result(execute(request, operation))
-        return operation()
-
-
-def _save_fallback_rule_evaluations(
-    *,
-    repository: Any,
-    request: Any,
-    trace_id: int,
-    validation_status: str,
-    error_detail: str | None = None,
-    checkpoint_id: int | None = None,
-) -> None:
-    try:
-        from app.harness.output_validation import OutputValidationResult
-        from app.harness.rules import RuleEvaluator
-
-        validation = OutputValidationResult(
-            validation_status=_coerce_validation_status(validation_status),
-            errors=[error_detail] if validation_status == "failed" and error_detail else [],
+                result = operation()
+                validate_runtime_output(_snapshot_value(result))
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt <= max_retries:
+                    retry_records.append(
+                        {
+                            "attempt": attempt,
+                            "error": str(exc) or exc.__class__.__name__,
+                        }
+                    )
+        if last_error is not None:
+            repository.update_trace_status(
+                trace_id,
+                status="failed",
+                validation_status="failed",
+                error_code="BUSINESS_EXECUTION_FAILED",
+                error_detail=str(last_error) or last_error.__class__.__name__,
+                retry_records=retry_records,
+            )
+            _save_fallback_rule_evaluations(
+                repository=repository,
+                request=request,
+                trace_id=trace_id,
+                validation_status="failed",
+                error_detail=str(last_error) or last_error.__class__.__name__,
+            )
+            if connection is not None:
+                record_runtime_execution(
+                    connection,
+                    interview_id,
+                    succeeded=False,
+                    hard_error=is_hard_runtime_error(last_error),
+                )
+            raise last_error
+        repository.update_trace_status(
+            trace_id,
+            status="completed",
+            validation_status="passed",
+            output_snapshot={"result": _snapshot_value(result)},
+            retry_records=retry_records,
         )
-        evaluator = RuleEvaluator(repository)
-        evaluations = evaluator.evaluate_node(
-            request,
+        _save_fallback_rule_evaluations(
+            repository=repository,
+            request=request,
             trace_id=trace_id,
-            checkpoint_id=checkpoint_id,
-            output_validation=validation,
-            retry_count=0,
-            event_write_failed=False,
+            validation_status="passed",
         )
-        evaluator.save_all(
-            user_id=request.user_id,
-            interview_id=request.interview_id,
-            trace_id=trace_id,
-            evaluations=evaluations,
-        )
-    except Exception:
-        return
+        if connection is not None:
+            record_runtime_execution(connection, interview_id, succeeded=True)
+        return result
 
 
 def question_evaluation_key(interview_id: int, round_id: int, question_id: int) -> str:
@@ -724,133 +771,6 @@ def _ensure_scoring_memory_isolated(payload: Any) -> None:
     elif isinstance(payload, list):
         for item in payload:
             _ensure_scoring_memory_isolated(item)
-
-
-def _record_harness_event(
-    *,
-    user_id: int,
-    interview_id: int,
-    round_id: int | None,
-    node_type: str,
-    event_type: str,
-    payload: dict[str, Any],
-) -> None:
-    service = _get_harness_service()
-    if service is None:
-        return
-    event_payload = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": round_id,
-        "node_type": node_type,
-        "event_type": event_type,
-        "payload": payload,
-    }
-    for method_name in ("record_event", "create_event", "trace_event"):
-        method = getattr(service, method_name, None)
-        if callable(method):
-            method(**event_payload)
-            return
-
-
-def _get_harness_service() -> Any | None:
-    try:
-        module = import_module("app.harness.execution")
-    except Exception:
-        return None
-    for factory_name in ("get_harness_execution_service", "get_execution_service"):
-        factory = getattr(module, factory_name, None)
-        if callable(factory):
-            return factory()
-    service = getattr(module, "harness_execution_service", None)
-    if service is not None:
-        return service
-    service_class = getattr(module, "HarnessExecutionService", None)
-    if callable(service_class):
-        try:
-            return service_class()
-        except TypeError:
-            return None
-    return None
-
-
-def _get_harness_repository(connection: Any | None) -> Any | None:
-    if connection is None:
-        return None
-    try:
-        module = import_module("app.repositories.harness")
-        repository_class = getattr(module, "HarnessRepository", None)
-        if callable(repository_class):
-            return repository_class(connection)
-    except Exception:
-        return None
-    return None
-
-
-def _harness_request(
-    *,
-    user_id: int,
-    interview_id: int,
-    round_id: int | None,
-    node_type: str,
-    agent_type: str | None,
-    purpose: str,
-    payload: dict[str, Any],
-) -> Any:
-    payload_key = _harness_payload_key(payload)
-    data = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": round_id,
-        "node_id": f"{interview_id}:{round_id or 'interview'}:{node_type}",
-        "node_type": node_type,
-        "agent_type": agent_type or node_type,
-        "purpose": purpose,
-        "context_refs": payload,
-        "input_payload": payload,
-        "execution_mode": "normal",
-        "idempotency_key": f"{interview_id}:{round_id or 0}:{node_type}:{purpose}:{payload_key}",
-    }
-    try:
-        contracts = import_module("app.harness.contracts")
-        request_class = getattr(contracts, "HarnessExecutionRequest", None)
-        if callable(request_class):
-            return request_class(**data)
-    except Exception:
-        pass
-    return data
-
-
-def _harness_business_result(result: Any) -> Any:
-    if result is None:
-        return None
-    if hasattr(result, "business_result"):
-        return result.business_result
-    if isinstance(result, dict) and "business_result" in result:
-        return result["business_result"]
-    return result
-
-
-def _harness_payload_key(payload: dict[str, Any]) -> str:
-    encoded = json.dumps(
-        _snapshot_value(payload),
-        ensure_ascii=False,
-        sort_keys=True,
-        default=str,
-    )
-    return hashlib.sha1(encoded.encode("utf-8")).hexdigest()[:12]
-
-
-def _snapshot_value(value: Any) -> Any:
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if isinstance(value, dict):
-        return {key: _snapshot_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_snapshot_value(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
 
 
 def _validate_existing(
@@ -1695,12 +1615,6 @@ def _summary_payload(item: dict[str, Any]) -> dict[str, Any]:
     return summary if isinstance(summary, dict) else {}
 
 
-def _coerce_validation_status(value: str) -> ValidationStatus:
-    if value in {"pending", "passed", "warning", "failed"}:
-        return cast(ValidationStatus, value)
-    return "failed"
-
-
 def _enriched_ability_analysis(
     generated_items: list[str],
     round_reviews: list[FinalRoundReview],
@@ -1734,15 +1648,6 @@ def _string_list(value: Any) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value]
     return []
-
-
-def _round_label(round_type: str) -> str:
-    return {
-        "resume": "简历面",
-        "technical": "技术面",
-        "manager": "主管面",
-        "hr": "HR 面",
-    }.get(round_type, round_type)
 
 
 def _calculate_final_score(
@@ -1815,15 +1720,3 @@ def _dedupe_strings(values: list[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
-
-
-def _recommendation(score: int) -> str:
-    if score >= 85:
-        return "强烈建议录用"
-    if score >= 75:
-        return "建议录用"
-    if score >= 65:
-        return "谨慎录用"
-    if score >= 60:
-        return "暂缓决定"
-    return "不建议录用"

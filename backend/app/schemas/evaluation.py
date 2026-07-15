@@ -22,6 +22,7 @@ class QuestionEvaluationInput(BaseModel):
     resume: dict[str, Any]
     target_position: str
     job_description: str | None = None
+    interview_strategy: dict[str, Any] | None = None
     question: str
     answer: str
 
@@ -54,6 +55,7 @@ class RoundEvaluationInput(BaseModel):
     dimensions: list[str]
     qa_history: list[dict[str, Any]]
     question_evaluations: list[dict[str, Any]]
+    interview_strategy: dict[str, Any] | None = None
     is_reference_only: bool = False
 
 
@@ -78,18 +80,10 @@ class FinalEvaluationInput(BaseModel):
     resume_summary: dict[str, Any]
     target_position: str
     job_description: str | None = None
+    interview_strategy: dict[str, Any] | None = None
     round_evaluations: list[dict[str, Any]]
     has_incomplete_rounds: bool = False
     has_reference_only_rounds: bool = False
-
-
-class PersonalizedFeedbackInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    interview_id: int
-    round_evaluations: list[dict[str, Any]]
-    current_report: dict[str, Any]
-    candidate_memories: list[dict[str, Any]]
 
 
 class FinalRoundScore(BaseModel):

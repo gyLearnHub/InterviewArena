@@ -6,14 +6,21 @@ from app.repositories.history import (
     HistoryQARecord,
     HistoryRoundRecord,
     ResumeSummaryRecord,
+    WeaknessPracticeProgressRecord,
 )
 from app.repositories.users import UserRecord
 from app.services.dashboard import DashboardService
+from app.services.weakness_practice_progress import weakness_key
 
 
 class FakeDashboardHistoryRepository:
-    def __init__(self, records: list[HistoryInterviewRecord]) -> None:
+    def __init__(
+        self,
+        records: list[HistoryInterviewRecord],
+        practice_progress: list[WeaknessPracticeProgressRecord] | None = None,
+    ) -> None:
         self.records = records
+        self.practice_progress = practice_progress or []
 
     def list_by_user(self, user_id: int) -> list[HistoryInterviewRecord]:
         return [
@@ -24,6 +31,16 @@ class FakeDashboardHistoryRepository:
 
     def get_by_id(self, interview_id: int) -> HistoryInterviewRecord | None:
         return next((record for record in self.records if record.id == interview_id), None)
+
+    def list_weakness_practice_progress_by_user(
+        self,
+        user_id: int,
+    ) -> list[WeaknessPracticeProgressRecord]:
+        return [
+            record
+            for record in self.practice_progress
+            if record.user_id == user_id
+        ]
 
 
 class FakeDashboardMemoryRepository:
@@ -262,6 +279,52 @@ def test_dashboard_replaces_generic_final_report_weakness_with_evidence_notice()
         )
     ]
     assert "最终报告只给出了参考性结论" in response.weak_points[0].evidence[1]
+
+
+def test_dashboard_weak_points_include_practice_progress() -> None:
+    practiced_at = datetime(2026, 6, 13, 11, 0, 0)
+    service = DashboardService(
+        FakeDashboardHistoryRepository(
+            [
+                _record(
+                    1,
+                    started_at=datetime(2026, 6, 12, 10, 0, 0),
+                    feedback_report=FeedbackReportRecord(
+                        score=70,
+                        weaknesses=["系统设计边界说明不足"],
+                        suggestions=["先说明容量假设"],
+                        created_at=datetime(2026, 6, 12, 10, 30, 0),
+                    ),
+                )
+            ],
+            practice_progress=[
+                WeaknessPracticeProgressRecord(
+                    id=1,
+                    user_id=1,
+                    source_interview_id=1,
+                    practice_interview_id=2,
+                    weakness_title="系统设计边界说明不足",
+                    weakness_key=weakness_key("系统设计边界说明不足"),
+                    suggestion="先说明容量假设",
+                    round_type="technical",
+                    status="improving",
+                    source_score=70,
+                    practice_score=76,
+                    last_practiced_at=practiced_at,
+                    created_at=datetime(2026, 6, 13, 10, 0, 0),
+                    updated_at=practiced_at,
+                )
+            ],
+        )
+    )
+
+    response = service.get_summary(_user(1))
+
+    assert response.weak_points[0].title == "系统设计边界说明不足"
+    assert response.weak_points[0].practice_status == "improving"
+    assert response.weak_points[0].practice_score == 76
+    assert response.weak_points[0].practice_count == 1
+    assert response.weak_points[0].last_practiced_at == practiced_at
 
 
 def test_dashboard_summary_supports_empty_history() -> None:

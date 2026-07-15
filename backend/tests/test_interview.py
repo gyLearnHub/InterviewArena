@@ -1,20 +1,24 @@
 from datetime import datetime, timedelta
 from typing import Any
 
+import app.api.interviews as interviews_api_module
 import app.services.interviews as interviews_module
 import pytest
 from app.api.interviews import get_interview_service
 from app.core.errors import AppError, ErrorCode
 from app.deps import get_current_user
 from app.repositories.interviews import (
+    AnswerDraftRecord,
     FeedbackReportRecord,
     InterviewRecord,
     InterviewRepository,
     InterviewRoundRecord,
     QARecord,
     ResumeRecord,
+    WeaknessPracticeProgressRecord,
 )
 from app.repositories.users import UserRecord
+from app.schemas.evaluation import DimensionScore, QuestionEvaluationOutput
 from app.schemas.interview import (
     JOB_DESCRIPTION_MAX_LENGTH,
     ROUND_ANSWER_MAX_LENGTH,
@@ -38,10 +42,13 @@ class FakeInterviewRepository:
         self.interviews: dict[int, InterviewRecord] = {}
         self.rounds: dict[int, list[InterviewRoundRecord]] = {}
         self.qa: dict[int, list[QARecord]] = {}
+        self.answer_drafts: dict[tuple[int, int, int, int], AnswerDraftRecord] = {}
         self.feedback_reports: list[FeedbackReportRecord] = []
+        self.practice_progress: list[WeaknessPracticeProgressRecord] = []
         self.next_interview_id = 1
         self.next_round_id = 1
         self.next_qa_id = 1
+        self.next_practice_progress_id = 1
         self.commit_count = 0
 
     def commit(self) -> None:
@@ -68,6 +75,9 @@ class FakeInterviewRepository:
         mode: str = "multi_round",
         job_description: str | None = None,
         selected_rounds: list[str] | None = None,
+        interview_goal: str = "campus",
+        difficulty: str = "normal",
+        time_limit_minutes: int = 45,
     ) -> InterviewRecord:
         interview = InterviewRecord(
             id=self.next_interview_id,
@@ -81,6 +91,9 @@ class FakeInterviewRepository:
             mode=mode,
             job_description=job_description,
             selected_rounds=selected_rounds,
+            interview_goal=interview_goal,
+            difficulty=difficulty,
+            time_limit_minutes=time_limit_minutes,
             overall_status="created",
         )
         self.next_interview_id += 1
@@ -247,6 +260,26 @@ class FakeInterviewRepository:
     def get_round(self, interview_id: int, round_id: int) -> InterviewRoundRecord | None:
         return next((item for item in self.rounds[interview_id] if item.id == round_id), None)
 
+    def configure_round(
+        self,
+        interview_id: int,
+        round_id: int,
+        difficulty: str,
+        time_limit_minutes: int,
+    ) -> None:
+        self.rounds[interview_id] = [
+            InterviewRoundRecord(
+                **{
+                    **item.__dict__,
+                    "difficulty": difficulty,
+                    "time_limit_minutes": time_limit_minutes,
+                }
+            )
+            if item.id == round_id and item.status == "pending"
+            else item
+            for item in self.rounds[interview_id]
+        ]
+
     def mark_round_started(
         self,
         interview_id: int,
@@ -326,9 +359,7 @@ class FakeInterviewRepository:
     ) -> None:
         interview = self.interviews[interview_id]
         paused_seconds = (
-            max(0, int((resumed_at - paused_at).total_seconds()))
-            if paused_at is not None
-            else 0
+            max(0, int((resumed_at - paused_at).total_seconds())) if paused_at is not None else 0
         )
         self.rounds[interview_id] = [
             InterviewRoundRecord(
@@ -361,11 +392,7 @@ class FakeInterviewRepository:
         qa_id: int,
     ) -> QARecord | None:
         return next(
-            (
-                qa
-                for qa in self.qa[interview_id]
-                if qa.id == qa_id and qa.round_id == round_id
-            ),
+            (qa for qa in self.qa[interview_id] if qa.id == qa_id and qa.round_id == round_id),
             None,
         )
 
@@ -391,6 +418,43 @@ class FakeInterviewRepository:
             if qa.round_id == round_id and qa.answer is None and qa.question_status == "active"
         ]
         return unanswered[-1] if unanswered else None
+
+    def get_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> AnswerDraftRecord | None:
+        return self.answer_drafts.get((user_id, interview_id, round_id, question_id))
+
+    def upsert_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+        answer: str,
+    ) -> AnswerDraftRecord:
+        record = AnswerDraftRecord(
+            user_id=user_id,
+            interview_id=interview_id,
+            round_id=round_id,
+            question_id=question_id,
+            answer=answer,
+            updated_at=datetime.utcnow(),
+        )
+        self.answer_drafts[(user_id, interview_id, round_id, question_id)] = record
+        return record
+
+    def delete_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> None:
+        self.answer_drafts.pop((user_id, interview_id, round_id, question_id), None)
 
     def finish_round(
         self,
@@ -590,10 +654,78 @@ class FakeInterviewRepository:
             None,
         )
 
+    def create_weakness_practice_progress(
+        self,
+        *,
+        user_id: int,
+        source_interview_id: int,
+        practice_interview_id: int,
+        weakness_title: str,
+        weakness_key: str,
+        suggestion: str | None,
+        round_type: str | None,
+        source_score: int | None,
+    ) -> WeaknessPracticeProgressRecord:
+        now = datetime.utcnow()
+        record = WeaknessPracticeProgressRecord(
+            id=self.next_practice_progress_id,
+            user_id=user_id,
+            source_interview_id=source_interview_id,
+            practice_interview_id=practice_interview_id,
+            weakness_title=weakness_title,
+            weakness_key=weakness_key,
+            suggestion=suggestion,
+            round_type=round_type,
+            status="pending",
+            source_score=source_score,
+            created_at=now,
+            updated_at=now,
+        )
+        self.next_practice_progress_id += 1
+        self.practice_progress.append(record)
+        return record
+
+    def get_weakness_practice_progress_by_practice(
+        self,
+        practice_interview_id: int,
+    ) -> WeaknessPracticeProgressRecord | None:
+        return next(
+            (
+                record
+                for record in self.practice_progress
+                if record.practice_interview_id == practice_interview_id
+            ),
+            None,
+        )
+
+    def update_weakness_practice_progress_result(
+        self,
+        *,
+        practice_interview_id: int,
+        status: str,
+        practice_score: int,
+        last_practiced_at: datetime,
+    ) -> None:
+        self.practice_progress = [
+            WeaknessPracticeProgressRecord(
+                **{
+                    **record.__dict__,
+                    "status": status,
+                    "practice_score": practice_score,
+                    "last_practiced_at": last_practiced_at,
+                    "updated_at": datetime.utcnow(),
+                }
+            )
+            if record.practice_interview_id == practice_interview_id
+            else record
+            for record in self.practice_progress
+        ]
+
 
 class FakeLLMClient:
     def __init__(self) -> None:
         self.question_number = 0
+        self.question_resume_payloads: list[dict[str, Any]] = []
 
     def parse_resume(self, resume_text: str) -> dict[str, Any]:
         return {}
@@ -607,6 +739,7 @@ class FakeLLMClient:
         system_prompt: str | None = None,
     ) -> dict[str, Any]:
         self.question_number += 1
+        self.question_resume_payloads.append(resume)
         return {
             "question_type": "skill_check",
             "question": f"问题 {self.question_number}",
@@ -695,25 +828,46 @@ class FailingNextQuestionLLMClient(FakeLLMClient):
 class GuardedInterviewService:
     def __init__(self) -> None:
         self.create_interview_calls = 0
-        self.answer_round_question_calls = 0
 
     def create_interview(self, *args: Any, **kwargs: Any) -> Any:
         self.create_interview_calls += 1
         raise AssertionError("create_interview should not run for invalid request bodies")
 
-    def answer_round_question(self, *args: Any, **kwargs: Any) -> Any:
-        self.answer_round_question_calls += 1
-        raise AssertionError("answer_round_question should not run for invalid request bodies")
+
+class FakeQuestionEvaluationService:
+    def __init__(self) -> None:
+        self.calls: list[int] = []
+
+    def score_question(self, **kwargs: Any) -> QuestionEvaluationOutput:
+        qa = kwargs["qa"]
+        self.calls.append(qa.id)
+        return QuestionEvaluationOutput(
+            total_score=74,
+            dimension_scores=[
+                DimensionScore(
+                    dimension="回答质量",
+                    score=74,
+                    reason="回答有基础结构，但结果和取舍还可以更具体。",
+                )
+            ],
+            strengths=["能说明自己的处理思路。"],
+            issues=["缺少量化结果。", "技术取舍还可以更明确。"],
+            evidence=["回答提到了推进方案。"],
+            should_follow_up=True,
+            follow_up_direction="追问项目结果和方案取舍。",
+        )
 
 
 def make_service(
     llm_client: FakeLLMClient | None = None,
+    evaluation_service: Any | None = None,
 ) -> tuple[InterviewService, FakeInterviewRepository]:
     repository = FakeInterviewRepository()
     return (
         InterviewService(
             repository=repository,  # type: ignore[arg-type]
             llm_client=llm_client or FakeLLMClient(),
+            evaluation_service=evaluation_service,
         ),
         repository,
     )
@@ -734,9 +888,7 @@ def _interview_api_client(
 
 def _validation_fields(response: Any) -> set[str]:
     return {
-        str(part)
-        for error in response.json()["error"]["details"]
-        for part in error.get("loc", [])
+        str(part) for error in response.json()["error"]["details"] for part in error.get("loc", [])
     }
 
 
@@ -833,22 +985,44 @@ def test_create_interview_endpoint_rejects_oversized_job_description_before_serv
     assert service.create_interview_calls == 0
 
 
-def test_answer_endpoint_rejects_oversized_answer_before_service() -> None:
-    service = GuardedInterviewService()
-    client = _interview_api_client(service)
+def test_create_interview_endpoint_queues_evolution_binding_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    queued: list[dict[str, Any]] = []
+
+    def fake_binding_task(**payload: Any) -> None:
+        queued.append(payload)
+
+    monkeypatch.setattr(
+        interviews_api_module,
+        "prepare_interview_evolution_context_task",
+        fake_binding_task,
+    )
+    app = create_app()
+    app.dependency_overrides[get_current_user] = lambda: UserRecord(
+        id=1,
+        username="alice",
+        password_hash="hash",
+    )
+    app.dependency_overrides[get_interview_service] = lambda: service
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
-        "/api/interviews/1/rounds/1/answers",
-        json={
-            "question_id": 1,
-            "answer": "A" * (ROUND_ANSWER_MAX_LENGTH + 1),
-        },
+        "/api/interviews",
+        json={"resume_id": 1, "target_position": "后端开发"},
     )
 
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == ErrorCode.VALIDATION_ERROR.value
-    assert "answer" in _validation_fields(response)
-    assert service.answer_round_question_calls == 0
+    assert response.status_code == 200
+    assert queued == [
+        {
+            "user_id": 1,
+            "interview_id": 1,
+            "target_position": "后端开发",
+            "job_description": None,
+        }
+    ]
 
 
 def test_create_multi_round_interview_defaults_to_all_rounds() -> None:
@@ -859,8 +1033,387 @@ def test_create_multi_round_interview_defaults_to_all_rounds() -> None:
     rounds = repository.list_rounds(interview.id)
 
     assert interview.mode == "multi_round"
+    assert interview.interview_goal == "campus"
+    assert interview.difficulty == "normal"
+    assert interview.time_limit_minutes == 45
     assert [item.round_type for item in rounds] == ["resume", "technical", "manager", "hr"]
     assert [item.status for item in rounds] == ["pending", "pending", "pending", "pending"]
+
+
+def test_create_interview_does_not_run_evolution_classification_synchronously() -> None:
+    class ClassificationGuardLLM(FakeLLMClient):
+        def generate_json(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("create_interview should not call evolution classification")
+
+    service, repository = make_service(ClassificationGuardLLM())
+    repository.add_resume(resume_id=1, user_id=1)
+
+    interview = service.create_interview(1, 1, "后端开发")
+
+    assert interview.id == 1
+    assert interview.job_family_key is None
+    assert repository.list_rounds(interview.id)
+
+
+def test_create_interview_saves_strategy_configuration() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+
+    interview = service.create_interview(
+        1,
+        1,
+        "后端开发",
+        interview_goal="big_tech",
+        difficulty="pressure",
+        time_limit_minutes=60,
+    )
+
+    state = service.get_state(1, interview.id)
+
+    assert repository.interviews[interview.id].interview_goal == "big_tech"
+    assert repository.interviews[interview.id].difficulty == "pressure"
+    assert repository.interviews[interview.id].time_limit_minutes == 60
+    assert state.interview_goal == "big_tech"
+    assert state.difficulty == "pressure"
+    assert state.time_limit_minutes == 60
+
+
+def test_create_interview_rejects_invalid_strategy_configuration() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+
+    with pytest.raises(AppError) as exc_info:
+        service.create_interview(
+            1,
+            1,
+            "后端开发",
+            interview_goal="social",
+            difficulty="pressure",
+            time_limit_minutes=60,
+        )
+
+    assert exc_info.value.code == ErrorCode.VALIDATION_ERROR
+    assert repository.interviews == {}
+
+
+def test_round_configuration_is_applied_when_round_starts() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(
+        1,
+        1,
+        "后端开发",
+        selected_rounds=["resume"],
+        time_limit_minutes=30,
+    )
+    repository.interviews[interview.id] = InterviewRecord(
+        **{**interview.__dict__, "overall_status": "in_progress", "elapsed_seconds": 30 * 60}
+    )
+    round_record = repository.list_rounds(interview.id)[0]
+
+    question = service.start_round(
+        1,
+        interview.id,
+        round_record.id,
+        difficulty="pressure",
+        time_limit_minutes=60,
+    )
+
+    configured_round = repository.get_round(interview.id, round_record.id)
+    assert question.round_id == round_record.id
+    assert configured_round is not None
+    assert configured_round.status == "in_progress"
+    assert configured_round.difficulty == "pressure"
+    assert configured_round.time_limit_minutes == 60
+
+
+def test_round_time_limit_blocks_generating_another_question() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(
+        1,
+        1,
+        "后端开发",
+        selected_rounds=["resume"],
+        time_limit_minutes=30,
+    )
+    question = service.start_round(
+        1,
+        interview.id,
+        repository.list_rounds(interview.id)[0].id,
+        difficulty="normal",
+        time_limit_minutes=30,
+        started_at=datetime.utcnow() - timedelta(minutes=31),
+    )
+    round_record = repository.list_rounds(interview.id)[0]
+
+    with pytest.raises(AppError) as exc_info:
+        service.regenerate_round_question(
+            1,
+            interview.id,
+            round_record.id,
+            question.id,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "限时" in exc_info.value.message
+
+
+def test_round_enters_closing_stage_with_three_minutes_remaining() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    repository.resumes[1] = ResumeRecord(
+        id=1,
+        user_id=1,
+        structured_data={
+            "skills": ["Python"],
+            "project_experience": [
+                {"name": "医疗知识问答系统"},
+                {"name": "智能旅行规划系统"},
+            ],
+        },
+    )
+    interview = service.create_interview(1, 1, "后端开发", selected_rounds=["resume"])
+    round_record = repository.list_rounds(interview.id)[0]
+    question = service.start_round(
+        1,
+        interview.id,
+        round_record.id,
+        time_limit_minutes=30,
+        started_at=datetime.utcnow() - timedelta(minutes=28),
+    )
+
+    response = service.answer_round_question(
+        1,
+        interview.id,
+        round_record.id,
+        question.id,
+        "我结合项目背景、个人职责和最终结果完整说明本次经历。",
+    )
+
+    assert response.action == "next_question"
+    assert response.question is not None
+    assert response.question.is_last_question is True
+    assert response.question.question.startswith("这是本轮最后一个问题：")
+    assert "智能旅行规划系统" in response.question.question
+    finish_response = service.answer_round_question(
+        1,
+        interview.id,
+        round_record.id,
+        response.question.id,
+        "最后补充一个此前没有说到的关键事实。",
+    )
+
+    assert finish_response.action == "finish_round"
+    assert len(repository.list_round_qa(interview.id, round_record.id)) == 2
+    assert repository.get_round(interview.id, round_record.id).status == "completed"  # type: ignore[union-attr]
+
+
+def test_expired_round_accepts_current_answer_once_then_finishes() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(1, 1, "后端开发", selected_rounds=["resume"])
+    round_record = repository.list_rounds(interview.id)[0]
+    question = service.start_round(
+        1,
+        interview.id,
+        round_record.id,
+        time_limit_minutes=30,
+        started_at=datetime.utcnow() - timedelta(minutes=31),
+    )
+
+    response = service.answer_round_question(
+        1,
+        interview.id,
+        round_record.id,
+        question.id,
+        "这是限时结束时正在输入的最后一次回答，提交后不应再生成新题。",
+    )
+
+    assert response.action == "finish_round"
+    assert response.question is None
+    assert repository.get_round(interview.id, round_record.id).status == "completed"  # type: ignore[union-attr]
+
+
+def test_paused_interview_elapsed_does_not_grow_while_restoring_state() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(
+        1,
+        1,
+        "后端开发",
+        selected_rounds=["resume"],
+        time_limit_minutes=30,
+    )
+    repository.interviews[interview.id] = InterviewRecord(
+        **{
+            **interview.__dict__,
+            "overall_status": "paused",
+            "last_active_at": datetime.utcnow() - timedelta(minutes=31),
+            "elapsed_seconds": 120,
+        }
+    )
+
+    state = service.get_state(1, interview.id)
+
+    assert state.elapsed_seconds == 120
+
+
+def test_create_weakness_practice_reuses_source_context() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    source = service.create_interview(
+        1,
+        1,
+        "后端开发",
+        job_description="原岗位 JD：负责平台架构和稳定性建设。",
+        selected_rounds=["resume", "technical"],
+        interview_goal="big_tech",
+        difficulty="pressure",
+        time_limit_minutes=60,
+    )
+    repository.create_feedback_report(
+        interview_id=source.id,
+        score=72,
+        weaknesses=["系统设计取舍不足"],
+        suggestions=["补充架构边界、容量估算和失败降级。"],
+    )
+
+    practice = service.create_weakness_practice(
+        user_id=1,
+        source_interview_id=source.id,
+        weakness="系统设计取舍不足",
+        suggestion="补充架构边界、容量估算和失败降级。",
+        round_type="technical",
+    )
+    practice_rounds = repository.list_rounds(practice.id)
+
+    assert practice.resume_id == source.resume_id
+    assert practice.target_position == source.target_position
+    assert practice.interview_goal == "big_tech"
+    assert practice.difficulty == "pressure"
+    assert practice.time_limit_minutes == 60
+    assert practice.selected_rounds == ["technical"]
+    assert "系统设计取舍不足" in (practice.job_description or "")
+    assert "原岗位 JD" in (practice.job_description or "")
+    assert [(item.round_type, item.status) for item in practice_rounds] == [
+        ("technical", "pending"),
+        ("resume", "skipped"),
+        ("manager", "skipped"),
+        ("hr", "skipped"),
+    ]
+    progress = repository.get_weakness_practice_progress_by_practice(practice.id)
+    assert progress is not None
+    assert progress.source_interview_id == source.id
+    assert progress.weakness_title == "系统设计取舍不足"
+    assert progress.status == "pending"
+    assert progress.source_score == 72
+
+
+def test_weakness_practice_progress_updates_after_practice_report() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    source = service.create_interview(1, 1, "后端开发", selected_rounds=["technical"])
+    repository.create_feedback_report(
+        interview_id=source.id,
+        score=72,
+        weaknesses=["系统设计取舍不足"],
+        suggestions=["补充架构边界、容量估算和失败降级。"],
+    )
+    practice = service.create_weakness_practice(
+        user_id=1,
+        source_interview_id=source.id,
+        weakness="系统设计取舍不足",
+        suggestion="补充架构边界、容量估算和失败降级。",
+        round_type="technical",
+    )
+    repository.create_feedback_report(
+        interview_id=practice.id,
+        score=86,
+        weaknesses=[],
+        suggestions=["继续保持结构化拆解。"],
+    )
+
+    service.finish_interview(1, practice.id, finish_type="early")
+
+    progress = repository.get_weakness_practice_progress_by_practice(practice.id)
+    assert progress is not None
+    assert progress.status == "practiced"
+    assert progress.practice_score == 86
+    assert progress.last_practiced_at is not None
+
+
+def test_weakness_practice_progress_marks_repeated_low_score_as_needs_work() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    source = service.create_interview(1, 1, "后端开发", selected_rounds=["technical"])
+    repository.create_feedback_report(
+        interview_id=source.id,
+        score=70,
+        weaknesses=["数据库索引原理薄弱"],
+        suggestions=["补充 B+ 树、覆盖索引和回表。"],
+    )
+    practice = service.create_weakness_practice(
+        user_id=1,
+        source_interview_id=source.id,
+        weakness="数据库索引原理薄弱",
+        suggestion="补充 B+ 树、覆盖索引和回表。",
+        round_type="technical",
+    )
+    repository.create_feedback_report(
+        interview_id=practice.id,
+        score=68,
+        weaknesses=["数据库索引原理薄弱，回表和覆盖索引说明仍不清晰"],
+        suggestions=["继续专项练习索引执行计划。"],
+    )
+
+    service.finish_interview(1, practice.id, finish_type="early")
+
+    progress = repository.get_weakness_practice_progress_by_practice(practice.id)
+    assert progress is not None
+    assert progress.status == "needs_work"
+    assert progress.practice_score == 68
+
+
+def test_weakness_practice_focus_reaches_question_generation_payload() -> None:
+    llm = FakeLLMClient()
+    service, repository = make_service(llm)
+    repository.add_resume(resume_id=1, user_id=1)
+    source = service.create_interview(1, 1, "后端开发", selected_rounds=["technical"])
+    repository.create_feedback_report(
+        interview_id=source.id,
+        score=65,
+        weaknesses=["数据库索引原理薄弱"],
+        suggestions=["补充 B+ 树、覆盖索引和回表。"],
+    )
+    practice = service.create_weakness_practice(
+        user_id=1,
+        source_interview_id=source.id,
+        weakness="数据库索引原理薄弱",
+        suggestion="补充 B+ 树、覆盖索引和回表。",
+        round_type="technical",
+    )
+    technical_round = repository.list_rounds(practice.id)[0]
+
+    service.start_round(1, practice.id, technical_round.id)
+
+    assert llm.question_resume_payloads
+    assert "数据库索引原理薄弱" in llm.question_resume_payloads[-1]["_job_description"]
+
+
+def test_create_weakness_practice_requires_existing_report() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    source = service.create_interview(1, 1, "后端开发")
+
+    with pytest.raises(AppError) as exc_info:
+        service.create_weakness_practice(
+            user_id=1,
+            source_interview_id=source.id,
+            weakness="回答缺少技术细节",
+        )
+
+    assert exc_info.value.status_code == 409
 
 
 def test_create_multi_round_interview_marks_unselected_rounds_skipped() -> None:
@@ -1105,8 +1658,87 @@ def test_round_answer_returns_follow_up_and_state_current_question() -> None:
     assert response.question is not None
     assert response.question.question_kind == "follow_up"
     assert response.question.parent_question_id == first_question.id
+    assert response.answer_evaluation is not None
+    assert response.answer_evaluation["status"] == "fallback"
+    assert response.answer_evaluation["question_id"] == first_question.id
+    assert response.answer_evaluation["issues"]
     assert state.current_question is not None
     assert state.current_question.id == response.question.id
+
+
+def test_round_answer_returns_realtime_question_evaluation() -> None:
+    evaluation_service = FakeQuestionEvaluationService()
+    service, repository = make_service(evaluation_service=evaluation_service)
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(1, 1, "后端开发")
+    resume_round = repository.list_rounds(interview.id)[0]
+    first_question = service.start_round(1, interview.id, resume_round.id)
+
+    response = service.answer_round_question(
+        1,
+        interview.id,
+        resume_round.id,
+        first_question.id,
+        "我负责推进接口改造，先梳理调用链路，再设计灰度方案。",
+    )
+
+    assert response.action == "follow_up"
+    assert response.answer_evaluation is not None
+    assert response.answer_evaluation["status"] == "succeeded"
+    assert response.answer_evaluation["question_id"] == first_question.id
+    assert response.answer_evaluation["round_id"] == resume_round.id
+    assert response.answer_evaluation["total_score"] == 74
+    assert response.answer_evaluation["issues"] == ["缺少量化结果。", "技术取舍还可以更明确。"]
+    assert evaluation_service.calls == [first_question.id]
+
+
+def test_answer_draft_roundtrip_does_not_persist_as_formal_answer() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(1, 1, "后端开发")
+    resume_round = repository.list_rounds(interview.id)[0]
+    question = service.start_round(1, interview.id, resume_round.id)
+
+    draft = service.save_answer_draft(
+        1,
+        interview.id,
+        resume_round.id,
+        question.id,
+        "这是还没提交的草稿",
+    )
+    loaded = service.get_answer_draft(1, interview.id, resume_round.id, question.id)
+    stored_question = repository.get_round_qa_by_id(interview.id, resume_round.id, question.id)
+    state = service.get_state(1, interview.id)
+
+    assert draft.question_id == question.id
+    assert draft.answer == "这是还没提交的草稿"
+    assert loaded.answer == draft.answer
+    assert stored_question is not None
+    assert stored_question.answer is None
+    assert state.current_question is not None
+    assert state.current_question.id == question.id
+    assert len(state.qa_history) == 1
+    assert state.qa_history[0]["id"] == question.id
+    assert state.qa_history[0]["answer"] is None
+
+
+def test_answer_submission_clears_saved_draft() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(1, 1, "后端开发")
+    resume_round = repository.list_rounds(interview.id)[0]
+    question = service.start_round(1, interview.id, resume_round.id)
+    service.save_answer_draft(1, interview.id, resume_round.id, question.id, "准备提交的草稿")
+
+    service.answer_round_question(
+        1,
+        interview.id,
+        resume_round.id,
+        question.id,
+        "正式回答",
+    )
+
+    assert repository.get_answer_draft(1, interview.id, resume_round.id, question.id) is None
 
 
 def test_regenerate_current_question_preserves_old_question_for_audit() -> None:
@@ -1116,6 +1748,7 @@ def test_regenerate_current_question_preserves_old_question_for_audit() -> None:
     interview = service.create_interview(1, 1, "后端开发")
     resume_round = repository.list_rounds(interview.id)[0]
     first_question = service.start_round(1, interview.id, resume_round.id)
+    service.save_answer_draft(1, interview.id, resume_round.id, first_question.id, "旧题草稿")
 
     response = service.regenerate_round_question(
         1,
@@ -1144,6 +1777,7 @@ def test_regenerate_current_question_preserves_old_question_for_audit() -> None:
     assert audit_history[1].question_status == "active"
     assert repository.interviews[interview.id].question_count == 1
     assert llm_client.question_number == 2
+    assert repository.get_answer_draft(1, interview.id, resume_round.id, first_question.id) is None
 
 
 def test_regenerated_question_rejects_old_question_answer() -> None:
@@ -1174,6 +1808,7 @@ def test_skip_current_question_marks_old_question_skipped_and_creates_next_quest
     interview = service.create_interview(1, 1, "后端开发")
     resume_round = repository.list_rounds(interview.id)[0]
     first_question = service.start_round(1, interview.id, resume_round.id)
+    service.save_answer_draft(1, interview.id, resume_round.id, first_question.id, "要跳过的草稿")
 
     response = service.skip_round_question(
         1,
@@ -1201,6 +1836,7 @@ def test_skip_current_question_marks_old_question_skipped_and_creates_next_quest
     assert audit_history[1].question_status == "active"
     assert repository.interviews[interview.id].question_count == 1
     assert llm_client.question_number == 2
+    assert repository.get_answer_draft(1, interview.id, resume_round.id, first_question.id) is None
 
 
 def test_skipped_question_rejects_old_question_answer() -> None:
@@ -1403,10 +2039,7 @@ def test_concurrent_same_answer_returns_existing_next_question() -> None:
             if self.race_once:
                 self.race_once = False
                 current = next(
-                    qa
-                    for records in self.qa.values()
-                    for qa in records
-                    if qa.id == qa_id
+                    qa for records in self.qa.values() for qa in records if qa.id == qa_id
                 )
                 super().update_answer(qa_id, answer)
                 super().create_qa(
@@ -1580,7 +2213,7 @@ def test_failed_round_result_allows_next_selected_round() -> None:
     assert next_question.round_id == technical_round.id
 
 
-def test_round_respects_minimum_and_maximum_total_questions() -> None:
+def test_round_respects_maximum_total_questions() -> None:
     service, repository = make_service()
     repository.add_resume(resume_id=1, user_id=1)
     interview = service.create_interview(

@@ -4,7 +4,6 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from app.core.http_status import HTTP_422_UNPROCESSABLE_CONTENT
 
@@ -38,16 +37,6 @@ ERROR_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.BUSINESS_ERROR: "业务处理失败。",
     ErrorCode.INTERNAL_ERROR: "服务器开小差了，请稍后重试。",
 }
-
-
-class ErrorBody(BaseModel):
-    code: ErrorCode
-    message: str
-    details: Any | None = None
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorBody
 
 
 class AppError(Exception):

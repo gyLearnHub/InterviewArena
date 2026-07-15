@@ -48,13 +48,15 @@ class DeepSeekLLMClient:
         self,
         settings: Settings | None = None,
         http_client: httpx.Client | None = None,
+        model_name: str | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.http_client = http_client
+        self._model_name = model_name or self.settings.deepseek_model
 
     @property
     def model_name(self) -> str:
-        return self.settings.deepseek_model
+        return self._model_name
 
     def parse_resume(self, resume_text: str) -> JSONDict:
         payload = self._complete_json(
@@ -65,6 +67,9 @@ class DeepSeekLLMClient:
                         "你是简历结构化解析助手。只返回 JSON，不要返回解释。"
                         "JSON 必须包含 basic_info、education、work_experience、"
                         "project_experience、skills、certificates_awards。"
+                        "必须完整提取原文中的所有项目，不能只保留代表项目；"
+                        "只有项目标题、细节暂缺的项目也必须保留在 project_experience 中，"
+                        "不得补写原文没有的项目事实。"
                     ),
                 },
                 {"role": "user", "content": resume_text},
@@ -201,7 +206,7 @@ class DeepSeekLLMClient:
 
     def _post(self, messages: list[JSONDict]) -> httpx.Response:
         request_body = {
-            "model": self.settings.deepseek_model,
+            "model": self._model_name,
             "messages": messages,
             "response_format": {"type": "json_object"},
             "stream": False,
@@ -240,7 +245,11 @@ class DeepSeekLLMClient:
             raise self._invalid_response_error() from exc
 
     def _invalid_response_error(self) -> AppError:
-        return AppError(ErrorCode.BUSINESS_ERROR, status.HTTP_502_BAD_GATEWAY)
+        return AppError(
+            ErrorCode.BUSINESS_ERROR,
+            status.HTTP_502_BAD_GATEWAY,
+            details={"provider": "deepseek", "error": "invalid_model_output"},
+        )
 
 
 def get_llm_client() -> LLMClient:

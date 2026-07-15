@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from starlette.status import HTTP_204_NO_CONTENT
 
 from app.db.mysql import mysql_connection
 from app.deps import get_current_user
@@ -6,11 +7,25 @@ from app.repositories.memories import MemoryRepository
 from app.repositories.memory_tasks import MemoryTaskRecord, MemoryTaskRepository
 from app.repositories.preferences import PreferencesRepository
 from app.repositories.users import UserRecord
-from app.schemas.memory import MemoryClearStatusResponse
+from app.schemas.memory import ManagedMemoryListResponse, MemoryClearStatusResponse
+from app.services.memory_index import MemoryIndexService
+from app.services.memory_management import MemoryManagementService
 from app.services.memory_tasks import MemoryTaskService
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 CurrentUserDep = Depends(get_current_user)
+
+
+@router.get("", response_model=ManagedMemoryListResponse)
+def list_memories(
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: UserRecord = CurrentUserDep,
+) -> ManagedMemoryListResponse:
+    with mysql_connection() as connection:
+        repository = MemoryRepository(connection)
+        service = MemoryManagementService(repository)
+        return service.list_memories(current_user, limit=limit, offset=offset)
 
 
 @router.delete("", response_model=MemoryClearStatusResponse)
@@ -34,6 +49,17 @@ def get_clear_status(current_user: UserRecord = CurrentUserDep) -> MemoryClearSt
     if task is None:
         return MemoryClearStatusResponse(task_id=None, status="idle")
     return _clear_status_response(task)
+
+
+@router.delete("/{memory_id}", status_code=HTTP_204_NO_CONTENT)
+def delete_memory(memory_id: int, current_user: UserRecord = CurrentUserDep) -> None:
+    with mysql_connection() as connection:
+        repository = MemoryRepository(connection)
+        service = MemoryManagementService(
+            repository,
+            MemoryIndexService(repository),
+        )
+        service.delete_memory(current_user, memory_id)
 
 
 def _clear_status_response(task: MemoryTaskRecord) -> MemoryClearStatusResponse:

@@ -31,8 +31,15 @@ class FakeHistoryRepository:
     def list_by_user(self, user_id: int) -> list[HistoryInterviewRecord]:
         return self._list_interviews(user_id)
 
-    def list_interviews_by_user(self, user_id: int) -> list[HistoryInterviewRecord]:
-        return self._list_interviews(user_id)
+    def list_interviews_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[HistoryInterviewRecord]:
+        records = self._list_interviews(user_id)
+        return records[offset:] if limit is None else records[offset : offset + limit]
 
     def _list_interviews(self, user_id: int) -> list[HistoryInterviewRecord]:
         filtered = [record for record in self.records if record.user_id == user_id]
@@ -100,7 +107,7 @@ class FakeHistoryRepository:
 def test_history_list_only_returns_current_user_records() -> None:
     service = HistoryService(_fake_repository([_record(1, 1), _record(2, 2)]))
 
-    response = service.list_history(_user(1))
+    response = service.list_history_page(_user(1), limit=20, offset=0).items
 
     assert [item.interview_id for item in response] == [1]
     assert not hasattr(response[0], "score")
@@ -131,7 +138,7 @@ def test_history_list_orders_by_started_or_created_time_desc() -> None:
     ]
     service = HistoryService(_fake_repository(records))
 
-    response = service.list_history(_user(1))
+    response = service.list_history_page(_user(1), limit=20, offset=0).items
 
     assert [item.interview_id for item in response] == [2, 3, 1]
 

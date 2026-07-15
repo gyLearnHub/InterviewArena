@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import tempfile
@@ -50,9 +51,12 @@ class ResumeParserService:
             raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
         _validate_resume_text_length(resume_text, self.settings.resume_max_text_chars)
 
-        structured_data = self.llm_client.parse_resume(resume_text)
+        project_candidates = extract_project_title_candidates(resume_text)
+        parse_text = _resume_text_with_project_constraints(resume_text, project_candidates)
+        structured_data = self.llm_client.parse_resume(parse_text)
         try:
-            return StructuredResumeData.model_validate(structured_data).model_dump()
+            validated = StructuredResumeData.model_validate(structured_data).model_dump()
+            return ensure_project_completeness(resume_text, validated)
         except ValidationError as exc:
             raise AppError(
                 ErrorCode.RESUME_PARSE_FAILED,
@@ -143,6 +147,148 @@ def extract_docx_xml_text(path: Path) -> str:
         raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT) from exc
 
     return "\n".join(paragraphs)
+
+
+DATE_RANGE_HEADING = re.compile(
+    r"^\s*(?:19|20)\d{2}(?:[./年-]\d{1,2})?\s*"
+    r"(?:"
+    r"[-–—~～]\s*(?:(?:19|20)\d{2}(?:[./年-]\d{1,2})?|至今|现在|present)"
+    r"|至今|至现在|到现在"
+    r")"
+    r"\s*(?P<title>.+?)\s*$",
+    re.IGNORECASE,
+)
+PROJECT_TITLE_TRAILING_MARKERS = re.compile(
+    r"\s+(?:github|gitee|gitlab|项目链接|源码链接|demo)\s*$",
+    re.IGNORECASE,
+)
+NON_PROJECT_HEADING_MARKERS = (
+    "大学",
+    "学院",
+    "本科",
+    "硕士",
+    "博士",
+    "学士",
+    "有限公司",
+    "实习生",
+    "工程师",
+    "开发岗",
+    "产品经理",
+)
+
+
+def extract_project_title_candidates(resume_text: str) -> list[str]:
+    candidates: list[str] = []
+    for raw_line in resume_text.splitlines():
+        line = " ".join(raw_line.split())
+        matched = DATE_RANGE_HEADING.match(line)
+        if matched is None:
+            continue
+        title = PROJECT_TITLE_TRAILING_MARKERS.sub("", matched.group("title")).strip(" -—|：:")
+        if not title or len(title) > 160:
+            continue
+        normalized = _normalize_resume_text(title)
+        if normalized and all(_normalize_resume_text(item) != normalized for item in candidates):
+            candidates.append(title)
+    return candidates
+
+
+def ensure_project_completeness(
+    resume_text: str,
+    structured_data: dict[str, Any],
+) -> dict[str, Any]:
+    projects = structured_data.get("project_experience")
+    if not isinstance(projects, list):
+        projects = []
+        structured_data["project_experience"] = projects
+
+    excluded_headings = _non_project_titles(structured_data)
+    existing_titles = [_project_title(project) for project in projects]
+    for candidate in extract_project_title_candidates(resume_text):
+        if _is_non_project_heading(candidate, excluded_headings):
+            continue
+        if any(_same_resume_title(candidate, title) for title in existing_titles if title):
+            continue
+        projects.append({"name": candidate})
+        existing_titles.append(candidate)
+    return structured_data
+
+
+def _resume_text_with_project_constraints(resume_text: str, candidates: list[str]) -> str:
+    likely_projects = [
+        title
+        for title in candidates
+        if not any(marker in title for marker in NON_PROJECT_HEADING_MARKERS)
+    ]
+    if not likely_projects:
+        return resume_text
+    candidate_lines = "\n".join(f"- {title}" for title in likely_projects)
+    return (
+        f"{resume_text}\n\n"
+        "【项目完整性约束】以下是从原文日期标题中识别到的项目候选。"
+        "请逐项核对，属于项目的条目必须全部保留在 project_experience，"
+        "即使原文暂时只有项目名称也不能省略：\n"
+        f"{candidate_lines}"
+    )
+
+
+def _non_project_titles(structured_data: dict[str, Any]) -> list[str]:
+    titles: list[str] = []
+    for section, keys in (
+        ("education", ("school", "institution", "name")),
+        ("work_experience", ("company", "organization", "name")),
+    ):
+        entries = structured_data.get(section)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            titles.extend(
+                str(entry.get(key) or "").strip()
+                for key in keys
+                if str(entry.get(key) or "").strip()
+            )
+    return titles
+
+
+def _is_non_project_heading(candidate: str, excluded_headings: list[str]) -> bool:
+    normalized = _normalize_resume_text(candidate)
+    if any(marker in candidate for marker in NON_PROJECT_HEADING_MARKERS):
+        return True
+    return any(
+        excluded
+        and (excluded in normalized or normalized in excluded)
+        for excluded in (_normalize_resume_text(item) for item in excluded_headings)
+    )
+
+
+def _project_title(project: Any) -> str:
+    if not isinstance(project, dict):
+        return ""
+    for key in ("name", "project_name", "title"):
+        value = str(project.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _same_resume_title(left: str, right: str) -> bool:
+    normalized_left = _normalize_resume_text(left)
+    normalized_right = _normalize_resume_text(right)
+    return bool(
+        normalized_left
+        and normalized_right
+        and (
+            normalized_left == normalized_right
+            or normalized_left in normalized_right
+            or normalized_right in normalized_left
+        )
+    )
+
+
+def _normalize_resume_text(value: str) -> str:
+    return "".join(char for char in value.casefold() if char.isalnum())
 
 
 def _validate_resume_text_length(resume_text: str, max_chars: int) -> None:

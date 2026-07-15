@@ -13,5 +13,7 @@ def test_user_preferences_and_memory_routes_are_registered() -> None:
     assert ("PATCH", "/api/user/preferences") in routes
     assert ("GET", "/api/auth/me") in routes
     assert ("PATCH", "/api/auth/me") in routes
+    assert ("GET", "/api/memories") in routes
     assert ("DELETE", "/api/memories") in routes
+    assert ("DELETE", "/api/memories/{memory_id}") in routes
     assert ("GET", "/api/memories/clear-status") in routes

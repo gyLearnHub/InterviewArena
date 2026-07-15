@@ -17,7 +17,7 @@ ROUND_SPECS: dict[str, RoundSpec] = {
         system_prompt=load_prompt("resume_interviewer.md"),
         min_main_questions=1,
         max_main_questions=40,
-        min_total_questions=20,
+        min_total_questions=0,
         max_total_questions=40,
         dimensions=["经历真实性", "项目理解深度", "个人贡献度", "岗位匹配度", "表达清晰度"],
         core_topics={
@@ -34,7 +34,7 @@ ROUND_SPECS: dict[str, RoundSpec] = {
         system_prompt=load_prompt("technical_interviewer.md"),
         min_main_questions=1,
         max_main_questions=40,
-        min_total_questions=20,
+        min_total_questions=0,
         max_total_questions=40,
         dimensions=[
             "基础知识掌握",
@@ -63,7 +63,7 @@ ROUND_SPECS: dict[str, RoundSpec] = {
         system_prompt=load_prompt("manager_interviewer.md"),
         min_main_questions=1,
         max_main_questions=40,
-        min_total_questions=20,
+        min_total_questions=0,
         max_total_questions=40,
         dimensions=[
             "业务理解能力",
@@ -88,7 +88,7 @@ ROUND_SPECS: dict[str, RoundSpec] = {
         system_prompt=load_prompt("hr_interviewer.md"),
         min_main_questions=1,
         max_main_questions=40,
-        min_total_questions=15,
+        min_total_questions=0,
         max_total_questions=40,
         dimensions=[
             "职业动机",
@@ -110,7 +110,16 @@ ROUND_SPECS: dict[str, RoundSpec] = {
 }
 
 
-def get_round_agent(round_type: str, llm_client: RoundLLMClient) -> BaseRoundAgent:
+def get_round_agent(
+    round_type: str,
+    llm_client: RoundLLMClient,
+    *,
+    spec: RoundSpec | None = None,
+) -> BaseRoundAgent:
+    if spec is not None:
+        if spec.round_type != round_type:
+            raise ValueError("round spec does not match round type")
+        return BaseRoundAgent(spec, llm_client)
     if round_type == "resume":
         return ResumeInterviewAgent(llm_client)
     if round_type == "technical":

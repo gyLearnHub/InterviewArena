@@ -328,13 +328,6 @@ class MemoryRetrievalService:
             return
 
 
-def retrieve_effective_memories(
-    service: MemoryRetrievalService,
-    request: MemoryRetrievalRequest,
-) -> MemoryRetrievalResult:
-    return service.retrieve(request)
-
-
 def _memory_key(memory: MemoryRecord | VectorSearchHit) -> str:
     if isinstance(memory, MemoryRecord):
         return f"{memory.collection}:{memory.id}"

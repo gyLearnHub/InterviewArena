@@ -1,10 +1,10 @@
 import asyncio
 import contextlib
-from importlib import import_module
 from typing import Any
 
 from app.core.config import get_settings
 from app.db.mysql import mysql_connection
+from app.harness.events import record_harness_event
 from app.repositories.evaluations import EvaluationRepository
 from app.repositories.interviews import InterviewRepository
 from app.repositories.memories import MemoryRepository
@@ -34,9 +34,12 @@ class MemoryTaskService:
             interview_id=interview_id,
             max_retries=self.settings.memory_task_max_retries,
         )
-        _record_harness_event(
+        record_harness_event(
+            connection=self.tasks.connection,
             user_id=user_id,
             interview_id=interview_id,
+            round_id=None,
+            node_type="memory_write_tracker",
             event_type="memory_summary_task_created",
             payload={},
         )
@@ -62,27 +65,33 @@ class MemoryTaskRunner:
                 tasks = MemoryTaskRepository(connection)
                 result = self._handle_task(connection, task)
                 tasks.mark_completed(task.id, result)
-            if task.interview_id is not None and task.user_id is not None:
-                _record_harness_event(
-                    user_id=task.user_id,
-                    interview_id=task.interview_id,
-                    event_type="memory_task_completed",
-                    payload={"task_type": task.task_type, "result": result},
-                )
+                if task.interview_id is not None and task.user_id is not None:
+                    record_harness_event(
+                        connection=connection,
+                        user_id=task.user_id,
+                        interview_id=task.interview_id,
+                        round_id=None,
+                        node_type="memory_write_tracker",
+                        event_type="memory_task_completed",
+                        payload={"task_type": task.task_type, "result": result},
+                    )
         except Exception as exc:
             with mysql_connection() as connection:
                 tasks = MemoryTaskRepository(connection)
                 tasks.mark_failed_or_retry(task, str(exc) or exc.__class__.__name__)
-            if task.interview_id is not None and task.user_id is not None:
-                _record_harness_event(
-                    user_id=task.user_id,
-                    interview_id=task.interview_id,
-                    event_type="memory_task_failed",
-                    payload={
-                        "task_type": task.task_type,
-                        "error": str(exc) or exc.__class__.__name__,
-                    },
-                )
+                if task.interview_id is not None and task.user_id is not None:
+                    record_harness_event(
+                        connection=connection,
+                        user_id=task.user_id,
+                        interview_id=task.interview_id,
+                        round_id=None,
+                        node_type="memory_write_tracker",
+                        event_type="memory_task_failed",
+                        payload={
+                            "task_type": task.task_type,
+                            "error": str(exc) or exc.__class__.__name__,
+                        },
+                    )
         return True
 
     def _claim_due_task(self) -> MemoryTaskRecord | None:
@@ -136,39 +145,3 @@ async def stop_memory_task_runner(task: asyncio.Task[None]) -> None:
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
-
-
-def _record_harness_event(
-    *,
-    user_id: int,
-    interview_id: int,
-    event_type: str,
-    payload: dict[str, Any],
-) -> None:
-    try:
-        module = import_module("app.harness.execution")
-    except Exception:
-        return
-    service = None
-    for factory_name in ("get_harness_execution_service", "get_execution_service"):
-        factory = getattr(module, factory_name, None)
-        if callable(factory):
-            service = factory()
-            break
-    if service is None:
-        service = getattr(module, "harness_execution_service", None)
-    if service is None:
-        return
-    event_payload = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": None,
-        "node_type": "memory_write_tracker",
-        "event_type": event_type,
-        "payload": payload,
-    }
-    for method_name in ("record_event", "create_event", "trace_event"):
-        method = getattr(service, method_name, None)
-        if callable(method):
-            method(**event_payload)
-            return

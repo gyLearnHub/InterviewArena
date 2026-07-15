@@ -3,6 +3,7 @@ import asyncio
 from io import BytesIO
 
 import app.api.auth as auth_module
+import app.deps as deps_module
 import pytest
 from app.api.auth import (
     login,
@@ -286,9 +287,63 @@ def test_current_user_requires_login() -> None:
     assert error_info.value.code == ErrorCode.UNAUTHORIZED
 
 
+def test_csrf_validation_uses_configured_cookie_and_header_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        app_env="production",
+        jwt_secret_key="configured_jwt_secret_key_for_tests_123",
+        csrf_cookie_name="custom_csrf_cookie",
+        csrf_header_name="X-Custom-CSRF",
+    )
+    monkeypatch.setattr(deps_module, "get_settings", lambda: settings)
+    matching_request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/preferences",
+            "headers": [
+                (b"cookie", b"custom_csrf_cookie=csrf-token"),
+                (b"x-custom-csrf", b"csrf-token"),
+            ],
+        }
+    )
+
+    deps_module._validate_csrf_token(matching_request)
+
+    default_header_request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/preferences",
+            "headers": [
+                (b"cookie", b"custom_csrf_cookie=csrf-token"),
+                (b"x-csrf-token", b"csrf-token"),
+            ],
+        }
+    )
+    with pytest.raises(AppError) as error_info:
+        deps_module._validate_csrf_token(default_header_request)
+
+    assert error_info.value.code == ErrorCode.FORBIDDEN
+
+
 def test_jwt_default_secret_is_rejected_outside_test(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("JWT_SECRET_KEY", Settings.jwt_secret_key)
+    get_settings.cache_clear()
+
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        create_access_token(1)
+
+    get_settings.cache_clear()
+
+
+def test_jwt_example_placeholder_secret_is_rejected_outside_test(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET_KEY", "change_me_to_a_long_random_secret_at_least_32_chars")
     get_settings.cache_clear()
 
     with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):

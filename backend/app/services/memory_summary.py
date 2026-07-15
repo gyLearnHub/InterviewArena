@@ -1,9 +1,7 @@
 from datetime import datetime
-from importlib import import_module
 from typing import Any
 
-from pydantic import ValidationError
-
+from app.harness.events import record_harness_event
 from app.prompts.loader import load_prompt
 from app.repositories.evaluations import EvaluationRepository
 from app.repositories.interviews import InterviewRepository
@@ -69,38 +67,36 @@ class MemorySummaryService:
             )
             created += 1
             collection_counts[item.collection] = collection_counts.get(item.collection, 0) + 1
-        _record_harness_event(
+        record_harness_event(
+            connection=getattr(self.interviews, "connection", None),
             user_id=user_id,
             interview_id=interview.id,
+            round_id=None,
+            node_type="memory_write_tracker",
             event_type="memory_summary_written",
             payload={"created_or_updated": created, "collection_counts": collection_counts},
         )
         return {"created_or_updated": created}
 
     def _generate_summary(self, payload: dict[str, Any]) -> MemorySummaryOutput:
-        try:
-            result = self.llm_client.generate_json(load_prompt("memory_summary.md"), payload)
-            output = MemorySummaryOutput.model_validate(result)
-            if not _all_items(output) and _has_memory_evidence(payload):
-                retry_result = self.llm_client.generate_json(
-                    _focused_retry_prompt(load_prompt("memory_summary.md")),
-                    _focused_payload(payload),
-                )
-                output = MemorySummaryOutput.model_validate(retry_result)
-            if not output.candidate_memories and _has_candidate_evidence(payload):
-                candidate_result = self.llm_client.generate_json(
-                    _candidate_retry_prompt(load_prompt("memory_summary.md")),
-                    _focused_payload(payload),
-                )
-                output = _merge_summary_outputs(
-                    output,
-                    MemorySummaryOutput.model_validate(candidate_result),
-                )
-            return output
-        except ValidationError:
-            raise
-        except Exception:
-            raise
+        result = self.llm_client.generate_json(load_prompt("memory_summary.md"), payload)
+        output = MemorySummaryOutput.model_validate(result)
+        if not _all_items(output) and _has_memory_evidence(payload):
+            retry_result = self.llm_client.generate_json(
+                _focused_retry_prompt(load_prompt("memory_summary.md")),
+                _focused_payload(payload),
+            )
+            output = MemorySummaryOutput.model_validate(retry_result)
+        if not output.candidate_memories and _has_candidate_evidence(payload):
+            candidate_result = self.llm_client.generate_json(
+                _candidate_retry_prompt(load_prompt("memory_summary.md")),
+                _focused_payload(payload),
+            )
+            output = _merge_summary_outputs(
+                output,
+                MemorySummaryOutput.model_validate(candidate_result),
+            )
+        return output
 
 
 def _all_items(output: MemorySummaryOutput) -> list[MemoryItem]:
@@ -393,39 +389,3 @@ def _merge_summary_outputs(
         interviewer_memories=[*primary.interviewer_memories, *supplement.interviewer_memories],
         agent_memories=[*primary.agent_memories, *supplement.agent_memories],
     )
-
-
-def _record_harness_event(
-    *,
-    user_id: int,
-    interview_id: int,
-    event_type: str,
-    payload: dict[str, Any],
-) -> None:
-    try:
-        module = import_module("app.harness.execution")
-    except Exception:
-        return
-    service = None
-    for factory_name in ("get_harness_execution_service", "get_execution_service"):
-        factory = getattr(module, factory_name, None)
-        if callable(factory):
-            service = factory()
-            break
-    if service is None:
-        service = getattr(module, "harness_execution_service", None)
-    if service is None:
-        return
-    event_payload = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": None,
-        "node_type": "memory_write_tracker",
-        "event_type": event_type,
-        "payload": payload,
-    }
-    for method_name in ("record_event", "create_event", "trace_event"):
-        method = getattr(service, method_name, None)
-        if callable(method):
-            method(**event_payload)
-            return

@@ -50,6 +50,10 @@ class DashboardWeakPointSummary(BaseModel):
     suggestion: str | None = None
     severity: str = "medium"
     occurrence_count: int = 1
+    practice_status: str = "not_started"
+    practice_score: int | None = None
+    last_practiced_at: datetime | None = None
+    practice_count: int = 0
     evidence: list[str] = Field(default_factory=list)
     sources: list[DashboardWeakPointSource] = Field(default_factory=list)
     updated_at: datetime | None = None

@@ -3,6 +3,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from app.repositories.weakness_practice_progress import (
+    WeaknessPracticeProgressRecord as WeaknessPracticeProgressRecord,
+)
+from app.repositories.weakness_practice_progress import (
+    to_weakness_practice_progress as _to_weakness_practice_progress,
+)
+
 JSONDict = dict[str, Any]
 
 
@@ -246,6 +253,43 @@ class HistoryRepository:
             rows = cursor.fetchall()
         return [_to_report_list_record(row) for row in rows]
 
+    def list_weakness_practice_progress_by_user(
+        self,
+        user_id: int,
+    ) -> list[WeaknessPracticeProgressRecord]:
+        if not self._table_exists("weakness_practice_progress"):
+            return []
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    user_id,
+                    source_interview_id,
+                    practice_interview_id,
+                    weakness_title,
+                    weakness_key,
+                    suggestion,
+                    round_type,
+                    status,
+                    source_score,
+                    practice_score,
+                    last_practiced_at,
+                    created_at,
+                    updated_at
+                FROM weakness_practice_progress
+                WHERE user_id = %s
+                ORDER BY COALESCE(last_practiced_at, updated_at, created_at) DESC, id DESC
+                """,
+                (user_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            progress
+            for row in rows
+            if (progress := _to_weakness_practice_progress(row)) is not None
+        ]
+
     def get_by_id(self, interview_id: int) -> HistoryInterviewRecord | None:
         return self._get_by_id(interview_id)
 
@@ -333,11 +377,17 @@ class HistoryRepository:
 
     def delete_by_id_for_user(self, interview_id: int, user_id: int) -> bool:
         with self.connection.cursor() as cursor:
+            self._scrub_evolution_records_for_interview(cursor, interview_id, user_id)
             self._delete_memory_tasks_for_interview(cursor, interview_id, user_id)
             self._delete_rag_audit_logs_for_interview(cursor, interview_id, user_id)
             self._delete_notifications_for_interview(cursor, interview_id, user_id)
-            self._delete_evolution_records_for_interview(cursor, interview_id, user_id)
             self._delete_harness_records_for_interview(cursor, interview_id, user_id)
+            self._delete_skill_call_traces_for_interview(cursor, interview_id, user_id)
+            cursor.execute(
+                "UPDATE user_feedback_submissions SET interview_id = NULL, round_id = NULL, "
+                "question_id = NULL WHERE user_id = %s AND interview_id = %s",
+                (user_id, interview_id),
+            )
             cursor.execute(
                 "DELETE er FROM evaluation_records er JOIN interviews i ON i.id = er.interview_id "
                 "WHERE i.id = %s AND i.user_id = %s",
@@ -372,11 +422,17 @@ class HistoryRepository:
 
     def delete_all_by_user(self, user_id: int) -> int:
         with self.connection.cursor() as cursor:
+            self._scrub_evolution_records_for_user(cursor, user_id)
             self._delete_memory_tasks_for_user(cursor, user_id)
             self._delete_rag_audit_logs_for_user(cursor, user_id)
             self._delete_notifications_for_user(cursor, user_id)
-            self._delete_evolution_records_for_user(cursor, user_id)
             self._delete_harness_records_for_user(cursor, user_id)
+            self._delete_skill_call_traces_for_user(cursor, user_id)
+            cursor.execute(
+                "UPDATE user_feedback_submissions SET interview_id = NULL, round_id = NULL, "
+                "question_id = NULL WHERE user_id = %s AND interview_id IS NOT NULL",
+                (user_id,),
+            )
             cursor.execute(
                 "DELETE er FROM evaluation_records er JOIN interviews i ON i.id = er.interview_id "
                 "WHERE i.user_id = %s",
@@ -417,6 +473,120 @@ class HistoryRepository:
             "WHERE i.id = %s AND i.user_id = %s",
             (interview_id, user_id),
         )
+
+    def _scrub_evolution_records_for_interview(
+        self,
+        cursor: Any,
+        interview_id: int,
+        user_id: int,
+    ) -> None:
+        if not self._table_exists("harness_evolution_runs"):
+            return
+        cursor.execute(
+            """
+            SELECT her.id, her.source_interview_ids
+            FROM harness_evolution_runs her
+            JOIN interviews i ON i.id = %s AND i.user_id = %s
+            WHERE JSON_CONTAINS(her.source_interview_ids, JSON_ARRAY(i.id))
+            """,
+            (interview_id, user_id),
+        )
+        run_rows = list(cursor.fetchall())
+        if self._table_exists("harness_evolution_samples"):
+            cursor.execute(
+                """
+                DELETE hes FROM harness_evolution_samples hes
+                JOIN interviews i ON i.id = hes.source_interview_id
+                WHERE i.id = %s AND i.user_id = %s
+                """,
+                (interview_id, user_id),
+            )
+        if self._table_exists("harness_evolution_events"):
+            cursor.execute(
+                """
+                DELETE hee FROM harness_evolution_events hee
+                JOIN interviews i
+                  ON i.id = CAST(
+                      JSON_UNQUOTE(JSON_EXTRACT(hee.payload, '$.interview_id'))
+                      AS UNSIGNED
+                  )
+                WHERE i.id = %s AND i.user_id = %s
+                """,
+                (interview_id, user_id),
+            )
+        self._remove_interview_ids_from_evolution_runs(
+            cursor,
+            run_rows,
+            {interview_id},
+        )
+
+    def _scrub_evolution_records_for_user(self, cursor: Any, user_id: int) -> None:
+        if not self._table_exists("harness_evolution_runs"):
+            return
+        cursor.execute("SELECT id FROM interviews WHERE user_id = %s", (user_id,))
+        interview_ids = {int(row["id"]) for row in cursor.fetchall()}
+        if not interview_ids:
+            return
+        cursor.execute("SELECT id, source_interview_ids FROM harness_evolution_runs")
+        run_rows = list(cursor.fetchall())
+        if self._table_exists("harness_evolution_samples"):
+            cursor.execute(
+                """
+                DELETE hes FROM harness_evolution_samples hes
+                JOIN interviews i ON i.id = hes.source_interview_id
+                WHERE i.user_id = %s
+                """,
+                (user_id,),
+            )
+        if self._table_exists("harness_evolution_events"):
+            cursor.execute(
+                """
+                DELETE hee FROM harness_evolution_events hee
+                JOIN interviews i
+                  ON i.id = CAST(
+                      JSON_UNQUOTE(JSON_EXTRACT(hee.payload, '$.interview_id'))
+                      AS UNSIGNED
+                  )
+                WHERE i.user_id = %s
+                """,
+                (user_id,),
+            )
+        self._remove_interview_ids_from_evolution_runs(
+            cursor,
+            run_rows,
+            interview_ids,
+        )
+
+    @staticmethod
+    def _remove_interview_ids_from_evolution_runs(
+        cursor: Any,
+        run_rows: list[dict[str, Any]],
+        interview_ids: set[int],
+    ) -> None:
+        for row in run_rows:
+            raw_ids = row.get("source_interview_ids")
+            if isinstance(raw_ids, str):
+                try:
+                    raw_ids = json.loads(raw_ids)
+                except json.JSONDecodeError:
+                    raw_ids = []
+            kept_ids = [
+                int(value)
+                for value in list(raw_ids or [])
+                if int(value) not in interview_ids
+            ]
+            if len(kept_ids) == len(list(raw_ids or [])):
+                continue
+            cursor.execute(
+                """
+                UPDATE harness_evolution_runs
+                SET source_interview_ids = %s,
+                    diagnosis = NULL,
+                    proposal = JSON_OBJECT('scrubbed_after_source_deletion', true)
+                WHERE id = %s
+                """,
+                (json.dumps(kept_ids), int(row["id"])),
+            )
 
     def _delete_memory_tasks_for_user(self, cursor: Any, user_id: int) -> None:
         cursor.execute(
@@ -526,12 +696,6 @@ class HistoryRepository:
             (interview_id, user_id),
         )
         cursor.execute(
-            "DELETE hrr FROM harness_replay_runs hrr "
-            "JOIN interviews i ON i.id = hrr.interview_id "
-            "WHERE i.id = %s AND i.user_id = %s",
-            (interview_id, user_id),
-        )
-        cursor.execute(
             "DELETE ht FROM harness_traces ht "
             "JOIN interviews i ON i.id = ht.interview_id "
             "WHERE i.id = %s AND i.user_id = %s",
@@ -563,35 +727,33 @@ class HistoryRepository:
             (user_id,),
         )
         cursor.execute(
-            "DELETE hrr FROM harness_replay_runs hrr "
-            "JOIN interviews i ON i.id = hrr.interview_id "
-            "WHERE i.user_id = %s",
-            (user_id,),
-        )
-        cursor.execute(
             "DELETE ht FROM harness_traces ht "
             "JOIN interviews i ON i.id = ht.interview_id "
             "WHERE i.user_id = %s",
             (user_id,),
         )
 
-    def _delete_evolution_records_for_interview(
+    def _delete_skill_call_traces_for_interview(
         self,
         cursor: Any,
         interview_id: int,
         user_id: int,
     ) -> None:
+        if not self._table_exists("skill_call_traces"):
+            return
         cursor.execute(
-            "DELETE eqs FROM evolution_quality_signals eqs "
-            "JOIN interviews i ON i.id = eqs.interview_id "
+            "DELETE sct FROM skill_call_traces sct "
+            "JOIN interviews i ON i.id = sct.interview_id "
             "WHERE i.id = %s AND i.user_id = %s",
             (interview_id, user_id),
         )
 
-    def _delete_evolution_records_for_user(self, cursor: Any, user_id: int) -> None:
+    def _delete_skill_call_traces_for_user(self, cursor: Any, user_id: int) -> None:
+        if not self._table_exists("skill_call_traces"):
+            return
         cursor.execute(
-            "DELETE eqs FROM evolution_quality_signals eqs "
-            "JOIN interviews i ON i.id = eqs.interview_id "
+            "DELETE sct FROM skill_call_traces sct "
+            "JOIN interviews i ON i.id = sct.interview_id "
             "WHERE i.user_id = %s",
             (user_id,),
         )

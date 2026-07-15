@@ -19,7 +19,6 @@ ExecutionMode = Literal["normal", "replay", "rerun"]
 ValidationStatus = Literal["pending", "passed", "warning", "failed"]
 RuleStatus = Literal["passed", "warning", "failed"]
 RuleSeverity = Literal["info", "warning", "hard"]
-ReplayMode = Literal["replay", "rerun"]
 
 SCORING_NODE_TYPES = {
     "question_scoring",
@@ -122,29 +121,6 @@ class RuleEvaluation(BaseModel):
     overall_grade: Literal["PASS", "PASS_WITH_WARNINGS", "FAIL"] | None = None
 
 
-class HarnessExecutionResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    trace_id: int
-    business_result: JSONDict | list[Any] | str | int | float | bool | None = None
-    validation_status: ValidationStatus
-    injected_context_summary: JSONDict = Field(default_factory=dict)
-    tool_call_summary: JSONDict = Field(default_factory=dict)
-    token_usage: JSONDict = Field(default_factory=dict)
-    elapsed_ms: int | None = Field(default=None, ge=0)
-    retry_records: list[JSONDict] = Field(default_factory=list)
-    degradation_records: list[JSONDict] = Field(default_factory=list)
-    rule_evaluations: list[RuleEvaluation] = Field(default_factory=list)
-    checkpoint_id: int | None = None
-    replay_run_id: int | None = None
-    source_trace_id: int | None = None
-    result_diff: JSONDict | None = None
-    event_write_failed: bool = False
-    status: HarnessStatus
-    error_code: str | None = None
-    error_detail: str | None = None
-
-
 class CheckpointCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -157,14 +133,6 @@ class CheckpointCreate(BaseModel):
     snapshot: JSONDict
     resume_version: str | None = Field(default=None, max_length=64)
     status: str = Field(default="available", max_length=32)
-
-
-class ReplayRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_trace_id: int = Field(gt=0)
-    mode: ReplayMode = "replay"
-    parameters: JSONDict = Field(default_factory=dict)
 
 
 def is_scoring_node(node_type: str) -> bool:

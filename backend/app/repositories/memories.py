@@ -83,6 +83,43 @@ class MemoryRepository:
             row = cursor.fetchone() or {}
         return int(row.get("count") or 0)
 
+    def list_user_candidate_memories(
+        self,
+        *,
+        user_id: int,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[MemoryRecord]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM candidate_memories
+                WHERE user_id = %s
+                  AND status <> 'deleted'
+                ORDER BY updated_at DESC, id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (user_id, limit, offset),
+            )
+            rows = cursor.fetchall()
+        return [_to_memory(row, "candidate_memories") for row in rows]
+
+    def count_user_candidate_memories_by_status(self, *, user_id: int) -> dict[str, int]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM candidate_memories
+                WHERE user_id = %s
+                  AND status <> 'deleted'
+                GROUP BY status
+                """,
+                (user_id,),
+            )
+            rows = cursor.fetchall()
+        return {str(row["status"]): int(row.get("count") or 0) for row in rows}
+
     def list_system_memories(
         self,
         *,
@@ -302,6 +339,21 @@ class MemoryRepository:
                 (user_id,),
             )
             return int(cursor.rowcount)
+
+    def mark_candidate_memory_deleted(self, *, memory_id: int, user_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE candidate_memories
+                SET status = 'deleted',
+                    index_status = 'pending_delete'
+                WHERE id = %s
+                  AND user_id = %s
+                  AND status <> 'deleted'
+                """,
+                (memory_id, user_id),
+            )
+            return int(cursor.rowcount) > 0
 
     def delete_user_candidate_memories(self, user_id: int) -> int:
         with self.connection.cursor() as cursor:

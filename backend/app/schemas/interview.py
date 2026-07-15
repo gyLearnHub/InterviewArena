@@ -1,10 +1,16 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 JOB_DESCRIPTION_MAX_LENGTH = 8_000
 ROUND_ANSWER_MAX_LENGTH = 8_000
+InterviewGoal = Literal["internship", "campus", "big_tech"]
+InterviewDifficulty = Literal["easy", "normal", "pressure"]
+TimeLimitMinutes = Literal[30, 45, 60]
+DEFAULT_INTERVIEW_GOAL: InterviewGoal = "campus"
+DEFAULT_INTERVIEW_DIFFICULTY: InterviewDifficulty = "normal"
+DEFAULT_TIME_LIMIT_MINUTES: TimeLimitMinutes = 45
 
 
 class InterviewCreateRequest(BaseModel):
@@ -12,6 +18,9 @@ class InterviewCreateRequest(BaseModel):
     target_position: str = Field(min_length=1, max_length=128)
     job_description: str | None = Field(default=None, max_length=JOB_DESCRIPTION_MAX_LENGTH)
     selected_rounds: list[str] | None = None
+    interview_goal: InterviewGoal = DEFAULT_INTERVIEW_GOAL
+    difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
 
 
 class InterviewRoundResponse(BaseModel):
@@ -24,6 +33,8 @@ class InterviewRoundResponse(BaseModel):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     elapsed_seconds: int = 0
+    difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
     execution_status: str | None = None
     retry_count: int = 0
 
@@ -32,7 +43,24 @@ class InterviewCreateResponse(BaseModel):
     id: int
     status: str
     mode: str = "multi_round"
+    interview_goal: InterviewGoal = DEFAULT_INTERVIEW_GOAL
+    difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
     rounds: list[InterviewRoundResponse] = Field(default_factory=list)
+
+
+class WeaknessPracticeRequest(BaseModel):
+    weakness: str = Field(min_length=1, max_length=500)
+    suggestion: str | None = Field(default=None, max_length=500)
+    round_type: str | None = Field(
+        default=None,
+        pattern="^(resume|technical|manager|hr)$",
+    )
+
+
+class WeaknessPracticeResponse(InterviewCreateResponse):
+    source_interview_id: int
+    practice_focus: str
 
 
 class RoundAnswerRequest(BaseModel):
@@ -41,8 +69,23 @@ class RoundAnswerRequest(BaseModel):
     finish_after_answer: bool = False
 
 
+class RoundStartRequest(BaseModel):
+    difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
+
+
+class AnswerDraftRequest(BaseModel):
+    answer: str = Field(default="", max_length=ROUND_ANSWER_MAX_LENGTH)
+
+
+class AnswerDraftResponse(BaseModel):
+    question_id: int
+    answer: str | None = None
+    updated_at: datetime | None = None
+
+
 class RoundFinishRequest(BaseModel):
-    finish_type: str = Field(default="normal", pattern="^(normal|early)$")
+    finish_type: str = Field(default="normal", pattern="^(normal|early|timeout)$")
 
 
 class InterviewFinishRequest(BaseModel):
@@ -78,14 +121,6 @@ class FeedbackReportResponse(BaseModel):
     detailed_feedback: dict[str, Any] | None = None
 
 
-class InterviewStatusResponse(BaseModel):
-    id: int
-    status: str
-    question_count: int
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-
-
 class RoundQuestionResponse(BaseModel):
     id: int
     round_id: int
@@ -96,12 +131,14 @@ class RoundQuestionResponse(BaseModel):
     regenerated_from_question_id: int | None = None
     question_type: str
     question: str
+    is_last_question: bool = False
 
 
 class RoundAnswerResponse(BaseModel):
     action: str
     question: RoundQuestionResponse | None = None
     round_summary: dict[str, Any] | None = None
+    answer_evaluation: dict[str, Any] | None = None
 
 
 class InterviewStateResponse(BaseModel):
@@ -110,6 +147,9 @@ class InterviewStateResponse(BaseModel):
     overall_status: str
     target_position: str
     job_description: str | None = None
+    interview_goal: InterviewGoal = DEFAULT_INTERVIEW_GOAL
+    difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
     current_round: str | None = None
     elapsed_seconds: int = 0
     harness_status: str | None = None

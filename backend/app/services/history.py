@@ -25,6 +25,7 @@ from app.schemas.history import (
     ReportRoundScoreSource,
     ResumeSummary,
 )
+from app.services.interview_strategy import round_label as _round_label
 
 
 class HistoryRepositoryProtocol(Protocol):
@@ -69,10 +70,6 @@ class HistoryRepositoryProtocol(Protocol):
 class HistoryService:
     def __init__(self, history_repository: HistoryRepositoryProtocol) -> None:
         self.history_repository = history_repository
-
-    def list_history(self, current_user: UserRecord) -> list[HistoryListItem]:
-        records = self.history_repository.list_interviews_by_user(current_user.id)
-        return [_to_list_item(record) for record in records if record.user_id == current_user.id]
 
     def list_history_page(
         self,
@@ -471,15 +468,6 @@ def _dedupe_dicts(values: list[dict[str, Any]], key: str) -> list[dict[str, Any]
             seen.add(item_key)
             result.append(value)
     return result
-
-
-def _round_label(round_type: str) -> str:
-    return {
-        "resume": "简历面",
-        "technical": "技术面",
-        "manager": "主管面",
-        "hr": "HR 面",
-    }.get(round_type, round_type)
 
 
 def _round_score_source(

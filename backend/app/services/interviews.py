@@ -1,5 +1,5 @@
-import hashlib
-import json
+import logging
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from importlib import import_module
@@ -8,12 +8,38 @@ from typing import Any, cast
 from fastapi import status
 
 from app.agents import ROUND_ORDER, ROUND_SPECS, count_questions, get_round_agent
+from app.autonomous_evolution.catalog import bootstrap_artifacts
+from app.autonomous_evolution.observation import (
+    is_hard_runtime_error,
+    observe_completed_interview,
+    record_runtime_execution,
+    validate_runtime_output,
+)
+from app.autonomous_evolution.repository import AutonomousEvolutionRepository
+from app.autonomous_evolution.runtime import (
+    prepare_interview_evolution_context,
+    resolve_artifact_version,
+    resolve_interview_harness_policy,
+    resolve_round_spec,
+)
+from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.http_status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.evolution.quality_signals import record_interview_completion_quality_signal
-from app.evolution.runtime import resolve_round_spec
-from app.evolution.versioning import resolve_active_version_bundle_id
-from app.harness.contracts import ValidationStatus
+from app.harness.events import (
+    build_harness_request as _harness_request,
+)
+from app.harness.events import (
+    get_harness_repository as _get_harness_repository,
+)
+from app.harness.events import (
+    record_harness_event,
+)
+from app.harness.events import (
+    save_fallback_rule_evaluations as _save_fallback_rule_evaluations,
+)
+from app.harness.events import (
+    snapshot_harness_value as _snapshot_value,
+)
 from app.repositories.interviews import (
     FeedbackReportRecord,
     InterviewRecord,
@@ -23,24 +49,54 @@ from app.repositories.interviews import (
 )
 from app.repositories.preferences import PreferencesRepository
 from app.schemas.interview import (
+    DEFAULT_INTERVIEW_DIFFICULTY,
+    DEFAULT_INTERVIEW_GOAL,
+    DEFAULT_TIME_LIMIT_MINUTES,
     JOB_DESCRIPTION_MAX_LENGTH,
     ROUND_ANSWER_MAX_LENGTH,
+    AnswerDraftResponse,
     FeedbackReportResponse,
+    InterviewDifficulty,
+    InterviewGoal,
     InterviewRoundResponse,
     InterviewStateResponse,
     RoundAnswerResponse,
     RoundQuestionResponse,
+    TimeLimitMinutes,
 )
 from app.schemas.memory import MemoryRetrievalRequest
 from app.services.evaluations import EvaluationSchedulerService
+from app.services.interview_strategy import (
+    DIFFICULTY_LABELS,
+    GOAL_LABELS,
+    interview_strategy_payload,
+)
+from app.services.interview_strategy import (
+    recommendation_for_score as _recommendation,
+)
+from app.services.interview_strategy import (
+    round_label as _round_label,
+)
 from app.services.llm import LLMClient
 from app.services.memory_retrieval import MemoryRetrievalService
 from app.services.memory_tasks import MemoryTaskService
+from app.services.weakness_practice_progress import (
+    classify_practice_status,
+    weakness_key,
+)
+from app.skills import DEFAULT_SKILL_RUNNER, SkillContext, SkillRunBundle
+from app.skills.types import SkillStage
+
+LOGGER = logging.getLogger(__name__)
 
 ACTIVE_ROUND_STATUSES = {"pending", "in_progress"}
 FINISHED_ROUND_STATUSES = {"completed", "finished_early"}
 ELAPSED_SECONDS_CAP = 300
 ACTIVE_QUESTION_STATUS = "active"
+TIME_LIMIT_MINUTES = {30, 45, 60}
+ROUND_CLOSING_WINDOW_SECONDS = 3 * 60
+FINAL_QUESTION_TYPE = "round_final"
+FINAL_QUESTION_PREFIX = "这是本轮最后一个问题："
 
 
 class InterviewService:
@@ -67,6 +123,9 @@ class InterviewService:
         target_position: str,
         job_description: str | None = None,
         selected_rounds: list[str] | None = None,
+        interview_goal: str = DEFAULT_INTERVIEW_GOAL,
+        difficulty: str = DEFAULT_INTERVIEW_DIFFICULTY,
+        time_limit_minutes: int = DEFAULT_TIME_LIMIT_MINUTES,
     ) -> InterviewRecord:
         target = target_position.strip()
         if not target:
@@ -79,10 +138,9 @@ class InterviewService:
             raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
         _require_resume(self.repository, resume_id, user_id)
         rounds = _normalize_selected_rounds(selected_rounds)
-        version_bundle_id = self._resolve_version_bundle_id(
-            job_family=target,
-            developer_user_id=user_id,
-        )
+        goal = _normalize_interview_goal(interview_goal)
+        difficulty_value = _normalize_interview_difficulty(difficulty)
+        time_limit = _normalize_time_limit_minutes(time_limit_minutes)
         try:
             interview = self.repository.create_interview(
                 user_id,
@@ -91,23 +149,52 @@ class InterviewService:
                 mode="multi_round",
                 job_description=clean_job_description,
                 selected_rounds=rounds,
-                version_bundle_id=version_bundle_id,
+                interview_goal=goal,
+                difficulty=difficulty_value,
+                time_limit_minutes=time_limit,
             )
         except TypeError:
-            interview = self.repository.create_interview(
-                user_id,
-                resume_id,
-                target,
-                mode="multi_round",
-                job_description=clean_job_description,
-                selected_rounds=rounds,
+            try:
+                interview = self.repository.create_interview(
+                    user_id,
+                    resume_id,
+                    target,
+                    mode="multi_round",
+                    job_description=clean_job_description,
+                    selected_rounds=rounds,
+                )
+            except TypeError:
+                interview = self.repository.create_interview(
+                    user_id,
+                    resume_id,
+                    target,
+                    mode="multi_round",
+                    job_description=clean_job_description,
+                    selected_rounds=rounds,
+                )
+            interview = InterviewRecord(
+                **{
+                    **interview.__dict__,
+                    "interview_goal": goal,
+                    "difficulty": difficulty_value,
+                    "time_limit_minutes": time_limit,
+                }
             )
+        specs = {
+            round_type: resolve_round_spec(
+                getattr(self.repository, "connection", None),
+                interview.harness_bundle_id,
+                round_type,
+            )
+            for round_type in ROUND_ORDER
+        }
         self.repository.create_rounds(
             _round_rows(
                 interview.id,
                 rounds,
-                repository=self.repository,
-                version_bundle_id=interview.version_bundle_id,
+                specs=specs,
+                difficulty=difficulty_value,
+                time_limit_minutes=time_limit,
             )
         )
         self._update_interview_harness(interview.id, harness_status="pending")
@@ -116,9 +203,104 @@ class InterviewService:
             interview=interview,
             round_record=None,
             node_type="create_interview",
-            snapshot={"resume_id": resume_id, "selected_rounds": rounds},
+            snapshot={
+                "resume_id": resume_id,
+                "selected_rounds": rounds,
+                "interview_strategy": interview_strategy_payload(interview),
+            },
         )
         return interview
+
+    def create_weakness_practice(
+        self,
+        *,
+        user_id: int,
+        source_interview_id: int,
+        weakness: str,
+        suggestion: str | None = None,
+        round_type: str | None = None,
+    ) -> InterviewRecord:
+        source = self._require_interview(user_id, source_interview_id)
+        _require_multi_round(source)
+        source_report = self.repository.get_feedback_report(source.id)
+        if source_report is None:
+            raise AppError(
+                ErrorCode.BUSINESS_ERROR,
+                status.HTTP_409_CONFLICT,
+                message="需要先生成面试报告，才能按薄弱项再练。",
+            )
+        return self._create_practice_interview(
+            user_id=user_id,
+            source=source,
+            weakness=weakness,
+            suggestion=suggestion,
+            round_type=round_type,
+            source_score=source_report.score,
+        )
+
+    def create_review_bookmark_practice(
+        self,
+        *,
+        user_id: int,
+        source_interview_id: int,
+        weakness: str,
+        suggestion: str | None = None,
+        round_type: str | None = None,
+        source_score: int | None = None,
+    ) -> InterviewRecord:
+        source = self._require_interview(user_id, source_interview_id)
+        _require_multi_round(source)
+        return self._create_practice_interview(
+            user_id=user_id,
+            source=source,
+            weakness=weakness,
+            suggestion=suggestion,
+            round_type=round_type,
+            source_score=source_score,
+        )
+
+    def _create_practice_interview(
+        self,
+        *,
+        user_id: int,
+        source: InterviewRecord,
+        weakness: str,
+        suggestion: str | None,
+        round_type: str | None,
+        source_score: int | None,
+    ) -> InterviewRecord:
+        practice_focus = _normalize_practice_text(weakness)
+        practice_suggestion = _normalize_optional_practice_text(suggestion)
+        practice_rounds = _practice_rounds(source, round_type)
+        practice_job_description = _practice_job_description(
+            original_job_description=source.job_description,
+            weakness=practice_focus,
+            suggestion=practice_suggestion,
+            round_type=round_type,
+        )
+        practice = self.create_interview(
+            user_id=user_id,
+            resume_id=source.resume_id,
+            target_position=source.target_position,
+            job_description=practice_job_description,
+            selected_rounds=practice_rounds,
+            interview_goal=_normalize_interview_goal(source.interview_goal),
+            difficulty=_normalize_interview_difficulty(source.difficulty),
+            time_limit_minutes=_normalize_time_limit_minutes(source.time_limit_minutes),
+        )
+        create_progress = getattr(self.repository, "create_weakness_practice_progress", None)
+        if callable(create_progress):
+            create_progress(
+                user_id=user_id,
+                source_interview_id=source.id,
+                practice_interview_id=practice.id,
+                weakness_title=practice_focus,
+                weakness_key=weakness_key(practice_focus),
+                suggestion=practice_suggestion,
+                round_type=round_type,
+                source_score=source_score,
+            )
+        return practice
 
     def finish_interview(
         self,
@@ -153,8 +335,11 @@ class InterviewService:
             overall_status=interview.overall_status,
             target_position=interview.target_position,
             job_description=interview.job_description,
+            interview_goal=cast(InterviewGoal, interview.interview_goal),
+            difficulty=cast(InterviewDifficulty, interview.difficulty),
+            time_limit_minutes=cast(TimeLimitMinutes, interview.time_limit_minutes),
             current_round=interview.current_round,
-            elapsed_seconds=interview.elapsed_seconds,
+            elapsed_seconds=_elapsed_seconds_uncapped(interview, datetime.utcnow()),
             harness_status=interview.harness_status,
             recovery_count=interview.recovery_count,
             had_degradation=interview.had_degradation,
@@ -177,11 +362,35 @@ class InterviewService:
     def list_rounds(self, interview: InterviewRecord) -> list[InterviewRoundRecord]:
         return _ordered_rounds(interview, self.repository.list_rounds(interview.id))
 
-    def start_round(self, user_id: int, interview_id: int, round_id: int) -> RoundQuestionResponse:
+    def start_round(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        difficulty: str | None = None,
+        time_limit_minutes: int | None = None,
+        started_at: datetime | None = None,
+    ) -> RoundQuestionResponse:
         interview = self._require_interview(user_id, interview_id)
         _require_multi_round(interview)
         self._ensure_interview_not_paused(interview)
         self._ensure_harness_can_continue(interview)
+        connection = getattr(self.repository, "connection", None)
+        if (
+            connection is not None
+            and interview.harness_bundle_id is None
+            and get_settings().evolution_enabled
+        ):
+            bound = prepare_interview_evolution_context(
+                connection=connection,
+                llm_client=self.llm_client,
+                user_id=user_id,
+                interview_id=interview.id,
+                target_position=interview.target_position,
+                job_description=interview.job_description,
+            )
+            if bound is not None:
+                interview = self._require_interview(user_id, interview_id)
         round_record = self._require_round(interview.id, round_id)
         if round_record.status == "skipped":
             raise _status_error()
@@ -192,6 +401,44 @@ class InterviewService:
         existing_question = self.repository.get_unanswered_round_question(interview.id, round_id)
         if round_record.status == "in_progress" and existing_question is not None:
             return _round_question_response(existing_question)
+
+        if round_record.status == "pending":
+            round_difficulty = _normalize_interview_difficulty(
+                difficulty or round_record.difficulty or interview.difficulty
+            )
+            round_time_limit = _normalize_time_limit_minutes(
+                time_limit_minutes
+                or round_record.time_limit_minutes
+                or interview.time_limit_minutes
+            )
+            configure_round = getattr(self.repository, "configure_round", None)
+            if callable(configure_round):
+                configure_round(
+                    interview.id,
+                    round_id,
+                    round_difficulty,
+                    round_time_limit,
+                )
+            now = started_at or datetime.utcnow()
+            self.repository.mark_round_started(
+                interview_id=interview.id,
+                round_id=round_id,
+                round_type=round_record.round_type,
+                started_at=now,
+                elapsed_seconds=_elapsed_seconds(interview, now),
+            )
+            self.repository.commit()
+            round_record = InterviewRoundRecord(
+                **{
+                    **round_record.__dict__,
+                    "status": "in_progress",
+                    "started_at": round_record.started_at or now,
+                    "difficulty": round_difficulty,
+                    "time_limit_minutes": round_time_limit,
+                }
+            )
+        else:
+            self._ensure_round_time_remaining(interview, round_record)
 
         resume = _require_resume(self.repository, interview.resume_id, user_id)
         history = self.repository.list_round_qa(interview.id, round_id)
@@ -218,22 +465,21 @@ class InterviewService:
             effective_memories=effective_memories,
             question_kind="main",
         )
+        question_type = question.question_type
+        question_text = question.question
+        if round_record.max_total_questions <= 1:
+            question_type, question_text = _with_final_question_notice(
+                question_type,
+                question_text,
+            )
         create_qa = getattr(self.repository, "create_qa_idempotent", self.repository.create_qa)
         qa = create_qa(
             interview_id=interview.id,
             round_id=round_id,
             sequence=len(history) + 1,
-            question_type=question.question_type,
-            question=question.question,
+            question_type=question_type,
+            question=question_text,
             question_kind="main",
-        )
-        now = datetime.utcnow()
-        self.repository.mark_round_started(
-            interview_id=interview.id,
-            round_id=round_id,
-            round_type=round_record.round_type,
-            started_at=now,
-            elapsed_seconds=_elapsed_seconds(interview, now),
         )
         self.repository.update_question_count(
             interview.id,
@@ -247,6 +493,90 @@ class InterviewService:
             snapshot={"question_id": qa.id, "sequence": qa.sequence},
         )
         return _round_question_response(qa)
+
+    def get_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> AnswerDraftResponse:
+        self._require_current_draft_question(user_id, interview_id, round_id, question_id)
+        draft = self.repository.get_answer_draft(user_id, interview_id, round_id, question_id)
+        return AnswerDraftResponse(
+            question_id=question_id,
+            answer=draft.answer if draft is not None else None,
+            updated_at=draft.updated_at if draft is not None else None,
+        )
+
+    def save_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+        answer: str,
+    ) -> AnswerDraftResponse:
+        if len(answer) > ROUND_ANSWER_MAX_LENGTH:
+            raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+        self._require_current_draft_question(user_id, interview_id, round_id, question_id)
+        if not answer.strip():
+            self.repository.delete_answer_draft(user_id, interview_id, round_id, question_id)
+            self.repository.commit()
+            return AnswerDraftResponse(question_id=question_id)
+        draft = self.repository.upsert_answer_draft(
+            user_id,
+            interview_id,
+            round_id,
+            question_id,
+            answer,
+        )
+        self.repository.commit()
+        return AnswerDraftResponse(
+            question_id=question_id,
+            answer=draft.answer,
+            updated_at=draft.updated_at,
+        )
+
+    def delete_answer_draft(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> None:
+        self._require_current_draft_question(user_id, interview_id, round_id, question_id)
+        self.repository.delete_answer_draft(user_id, interview_id, round_id, question_id)
+        self.repository.commit()
+
+    def _require_current_draft_question(
+        self,
+        user_id: int,
+        interview_id: int,
+        round_id: int,
+        question_id: int,
+    ) -> tuple[InterviewRecord, InterviewRoundRecord, QARecord]:
+        interview = self._require_interview(user_id, interview_id)
+        _require_multi_round(interview)
+        round_record = self._require_round(interview.id, round_id)
+        if round_record.status != "in_progress":
+            raise _status_error()
+        current_qa = self.repository.get_round_qa_by_id(interview.id, round_id, question_id)
+        active_question = self.repository.get_unanswered_round_question(interview.id, round_id)
+        if current_qa is None:
+            raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        if (
+            current_qa.answer is not None
+            or current_qa.question_status != ACTIVE_QUESTION_STATUS
+            or active_question is None
+            or active_question.id != current_qa.id
+        ):
+            raise AppError(
+                ErrorCode.CONFLICT,
+                status.HTTP_409_CONFLICT,
+                message="只能保存当前未回答问题的草稿。",
+            )
+        return interview, round_record, current_qa
 
     def answer_round_question(
         self,
@@ -306,6 +636,7 @@ class InterviewService:
                     question=_round_question_response(existing_question),
                 )
             answered_qa = QARecord(**{**current_qa.__dict__, "answer": clean_answer})
+            self.repository.delete_answer_draft(user_id, interview.id, round_id, current_qa.id)
             return self._continue_round_after_answer(
                 user_id=user_id,
                 interview=interview,
@@ -336,6 +667,7 @@ class InterviewService:
                 )
             current_qa = refreshed_qa
 
+        self.repository.delete_answer_draft(user_id, interview.id, round_id, current_qa.id)
         answered_qa = QARecord(**{**current_qa.__dict__, "answer": clean_answer})
         self._record_checkpoint(
             user_id=user_id,
@@ -370,6 +702,7 @@ class InterviewService:
         round_record = self._require_round(interview.id, round_id)
         if round_record.status != "in_progress":
             raise _status_error()
+        self._ensure_round_time_remaining(interview, round_record)
 
         current_qa = self.repository.get_round_qa_by_id(interview.id, round_id, question_id)
         active_question = self.repository.get_unanswered_round_question(interview.id, round_id)
@@ -415,6 +748,13 @@ class InterviewService:
             effective_memories=effective_memories,
             question_kind=current_qa.question_kind,
         )
+        replacement_type = question.question_type
+        replacement_text = question.question
+        if _is_final_question(current_qa):
+            replacement_type, replacement_text = _with_final_question_notice(
+                replacement_type,
+                replacement_text,
+            )
         updated = self.repository.update_question_status(current_qa.id, "regenerated")
         if not updated:
             raise AppError(
@@ -422,14 +762,15 @@ class InterviewService:
                 status.HTTP_409_CONFLICT,
                 message="当前问题状态已变化，请刷新后重试。",
             )
+        self.repository.delete_answer_draft(user_id, interview.id, round_id, current_qa.id)
 
         create_qa = getattr(self.repository, "create_qa_idempotent", self.repository.create_qa)
         next_qa = create_qa(
             interview_id=interview.id,
             round_id=round_record.id,
             sequence=len(all_history) + 1,
-            question_type=question.question_type,
-            question=question.question,
+            question_type=replacement_type,
+            question=replacement_text,
             question_kind=current_qa.question_kind,
             parent_question_id=current_qa.parent_question_id,
             regenerated_from_question_id=current_qa.id,
@@ -468,6 +809,7 @@ class InterviewService:
         round_record = self._require_round(interview.id, round_id)
         if round_record.status != "in_progress":
             raise _status_error()
+        self._ensure_round_time_remaining(interview, round_record)
 
         current_qa = self.repository.get_round_qa_by_id(interview.id, round_id, question_id)
         active_question = self.repository.get_unanswered_round_question(interview.id, round_id)
@@ -513,6 +855,13 @@ class InterviewService:
             effective_memories=effective_memories,
             question_kind=current_qa.question_kind,
         )
+        replacement_type = question.question_type
+        replacement_text = question.question
+        if _is_final_question(current_qa):
+            replacement_type, replacement_text = _with_final_question_notice(
+                replacement_type,
+                replacement_text,
+            )
         updated = self.repository.update_question_status(current_qa.id, "skipped")
         if not updated:
             raise AppError(
@@ -520,14 +869,15 @@ class InterviewService:
                 status.HTTP_409_CONFLICT,
                 message="当前问题状态已变化，请刷新后重试。",
             )
+        self.repository.delete_answer_draft(user_id, interview.id, round_id, current_qa.id)
 
         create_qa = getattr(self.repository, "create_qa_idempotent", self.repository.create_qa)
         next_qa = create_qa(
             interview_id=interview.id,
             round_id=round_record.id,
             sequence=len(all_history) + 1,
-            question_type=question.question_type,
-            question=question.question,
+            question_type=replacement_type,
+            question=replacement_text,
             question_kind=current_qa.question_kind,
             parent_question_id=current_qa.parent_question_id,
         )
@@ -580,7 +930,17 @@ class InterviewService:
             if self.evaluation_service is not None
             else None
         )
-        if finish_after_answer:
+        answer_evaluation = _answer_evaluation_response(
+            answered_qa,
+            round_record,
+            question_score,
+        )
+        remaining_seconds = _round_remaining_seconds(
+            round_record,
+            interview,
+            datetime.utcnow(),
+        )
+        if finish_after_answer or _is_final_question(answered_qa) or remaining_seconds <= 0:
             summary = self._generate_round_summary(
                 interview=interview,
                 round_record=round_record,
@@ -589,28 +949,75 @@ class InterviewService:
                 is_reference_only=False,
             )
             self.repository.finish_round(interview.id, round_record.id, "completed", summary, now)
-            return RoundAnswerResponse(action="finish_round", round_summary=summary)
+            return RoundAnswerResponse(
+                action="finish_round",
+                round_summary=summary,
+                answer_evaluation=answer_evaluation,
+            )
 
-        agent = get_round_agent(round_record.round_type, self.llm_client)
-        agent.spec = resolve_round_spec(
-            self.repository,
-            version_bundle_id=interview.version_bundle_id,
-            base_spec=agent.spec,
+        agent = get_round_agent(
+            round_record.round_type,
+            self.llm_client,
+            spec=resolve_round_spec(
+                getattr(self.repository, "connection", None),
+                interview.harness_bundle_id,
+                round_record.round_type,
+            ),
         )
         if agent.should_finish(
             round_record,
             history,
             latest_question_score=question_score,
+            remaining_seconds=remaining_seconds,
+            closing_window_seconds=ROUND_CLOSING_WINDOW_SECONDS,
+            resume=resume.structured_data,
         ):
-            summary = self._generate_round_summary(
-                interview=interview,
-                round_record=round_record,
-                history=history,
-                resume=resume,
-                is_reference_only=False,
+            if count_questions(history)["total"] >= round_record.max_total_questions:
+                summary = self._generate_round_summary(
+                    interview=interview,
+                    round_record=round_record,
+                    history=history,
+                    resume=resume,
+                    is_reference_only=False,
+                )
+                self.repository.finish_round(
+                    interview.id,
+                    round_record.id,
+                    "completed",
+                    summary,
+                    now,
+                )
+                return RoundAnswerResponse(
+                    action="finish_round",
+                    round_summary=summary,
+                    answer_evaluation=answer_evaluation,
+                )
+            create_qa = getattr(
+                self.repository,
+                "create_qa_idempotent",
+                self.repository.create_qa,
             )
-            self.repository.finish_round(interview.id, round_record.id, "completed", summary, now)
-            return RoundAnswerResponse(action="finish_round", round_summary=summary)
+            final_qa = create_qa(
+                interview_id=interview.id,
+                round_id=round_record.id,
+                sequence=len(history) + 1,
+                question_type=FINAL_QUESTION_TYPE,
+                question=_final_round_question(
+                    round_record.round_type,
+                    resume.structured_data,
+                    history,
+                ),
+                question_kind="main",
+            )
+            self.repository.update_question_count(
+                interview.id,
+                len(self.repository.list_qa(interview.id)),
+            )
+            return RoundAnswerResponse(
+                action="next_question",
+                question=_round_question_response(final_qa),
+                answer_evaluation=answer_evaluation,
+            )
 
         next_kind = _next_question_kind(
             answered_qa,
@@ -667,13 +1074,25 @@ class InterviewService:
             effective_memories=effective_memories,
             question_kind=next_kind,
         )
+        next_question_type = question.question_type
+        next_question_text = question.question
+        next_question_is_last = (
+            _round_remaining_seconds(round_record, interview, datetime.utcnow())
+            <= ROUND_CLOSING_WINDOW_SECONDS
+            or count_questions(history)["total"] + 1 >= round_record.max_total_questions
+        )
+        if next_question_is_last:
+            next_question_type, next_question_text = _with_final_question_notice(
+                next_question_type,
+                next_question_text,
+            )
         create_qa = getattr(self.repository, "create_qa_idempotent", self.repository.create_qa)
         next_qa = create_qa(
             interview_id=interview.id,
             round_id=round_record.id,
             sequence=len(history) + 1,
-            question_type=question.question_type,
-            question=question.question,
+            question_type=next_question_type,
+            question=next_question_text,
             question_kind=next_kind,
             parent_question_id=parent_question_id,
         )
@@ -691,6 +1110,7 @@ class InterviewService:
         return RoundAnswerResponse(
             action="follow_up" if next_kind == "follow_up" else "next_question",
             question=_round_question_response(next_qa),
+            answer_evaluation=answer_evaluation,
         )
 
     def finish_round(
@@ -711,12 +1131,18 @@ class InterviewService:
             raise _status_error()
         if finish_type != "early" and round_record.status != "in_progress":
             raise _status_error()
-        if finish_type == "early":
+        if finish_type in {"early", "timeout"}:
             skipped_question = self.repository.get_unanswered_round_question(interview.id, round_id)
             if skipped_question is not None:
                 self.repository.update_question_status(skipped_question.id, "skipped")
+                self.repository.delete_answer_draft(
+                    user_id,
+                    interview.id,
+                    round_id,
+                    skipped_question.id,
+                )
         history = self.repository.list_round_qa(interview.id, round_id)
-        if finish_type != "early" and not _has_answer_evidence(history):
+        if finish_type == "normal" and not _has_answer_evidence(history):
             raise AppError(
                 ErrorCode.BUSINESS_ERROR,
                 status.HTTP_409_CONFLICT,
@@ -728,7 +1154,7 @@ class InterviewService:
             round_record=round_record,
             history=history,
             resume=resume,
-            is_reference_only=finish_type == "early",
+            is_reference_only=(finish_type == "early" or not _has_answer_evidence(history)),
         )
         now = datetime.utcnow()
         status_value = "finished_early" if finish_type == "early" else "completed"
@@ -772,10 +1198,10 @@ class InterviewService:
             else None
         )
         if existing_report is not None:
-            self._record_completion_quality_signal(
+            self._update_weakness_practice_progress(
                 interview=interview,
-                rounds=rounds,
                 report=existing_report,
+                practiced_at=datetime.utcnow(),
             )
             return _feedback_report_response(existing_report)
 
@@ -816,6 +1242,11 @@ class InterviewService:
             report_payload.pop("report_reliability_status")
             saved_report = create_report(**report_payload)
         now = datetime.utcnow()
+        self._update_weakness_practice_progress(
+            interview=interview,
+            report=saved_report,
+            practiced_at=now,
+        )
         self.repository.mark_multi_finished(interview.id, now, _elapsed_seconds(interview, now))
         self._update_interview_harness(interview.id, harness_status="completed")
         self._record_checkpoint(
@@ -828,12 +1259,10 @@ class InterviewService:
         memory_enabled = self._is_memory_enabled(user_id)
         if memory_enabled:
             self._enqueue_memory_summary(user_id=user_id, interview_id=interview.id)
-        finished_interview = self._require_interview(user_id, interview_id)
-        self._record_completion_quality_signal(
-            interview=finished_interview,
-            rounds=rounds,
-            report=saved_report,
-        )
+        self._enqueue_autonomous_evolution(interview)
+        connection = getattr(self.repository, "connection", None)
+        if connection is not None:
+            observe_completed_interview(connection, interview.id)
         return _feedback_report_response(
             saved_report,
             detailed_feedback=report.get("detailed_feedback"),
@@ -878,37 +1307,63 @@ class InterviewService:
                 interview_id=interview_id,
             )
         except Exception:
+            LOGGER.exception(
+                "failed to enqueue memory summary for interview %s",
+                interview_id,
+            )
             return
 
-    def _resolve_version_bundle_id(
-        self,
-        *,
-        job_family: str | None = None,
-        developer_user_id: int | None = None,
-    ) -> int | None:
+    def _enqueue_autonomous_evolution(self, interview: InterviewRecord) -> None:
+        settings = get_settings()
+        if not settings.evolution_enabled or not interview.job_family_key:
+            return
         try:
-            return resolve_active_version_bundle_id(
-                self.repository,
-                job_family=job_family,
-                developer_user_id=developer_user_id,
+            repository = AutonomousEvolutionRepository(self.repository.connection)
+            if (
+                repository.get_active_bundle(
+                    interview.job_family_key,
+                    user_id=interview.user_id,
+                )
+                is None
+            ):
+                repository.ensure_bootstrap_bundle(
+                    interview.job_family_key,
+                    bootstrap_artifacts(),
+                    user_id=interview.user_id,
+                )
+            repository.enqueue_if_due(
+                user_id=interview.user_id,
+                job_family_key=interview.job_family_key,
+                trigger_every=settings.evolution_trigger_interviews,
+                max_retries=settings.evolution_task_max_retries,
             )
         except Exception:
-            return None
+            LOGGER.exception(
+                "failed to enqueue autonomous evolution for interview %s",
+                interview.id,
+            )
+            return
 
-    def _record_completion_quality_signal(
+    def _update_weakness_practice_progress(
         self,
         *,
         interview: InterviewRecord,
-        rounds: list[InterviewRoundRecord],
         report: FeedbackReportRecord,
+        practiced_at: datetime,
     ) -> None:
+        get_progress = getattr(self.repository, "get_weakness_practice_progress_by_practice", None)
+        update_progress = getattr(self.repository, "update_weakness_practice_progress_result", None)
+        if not callable(get_progress) or not callable(update_progress):
+            return
         try:
-            record_interview_completion_quality_signal(
-                repository=self.repository,
-                interview=interview,
-                rounds=rounds,
-                qa_history=self.repository.list_qa(interview.id, include_inactive=True),
-                report=report,
+            progress = get_progress(interview.id)
+            if progress is None:
+                return
+            update_progress(
+                practice_interview_id=interview.id,
+                status=classify_practice_status(progress.weakness_title, report),
+                practice_score=report.score,
+                last_practiced_at=practiced_at,
             )
         except Exception:
             return
@@ -951,7 +1406,8 @@ class InterviewService:
                 last_harness_error="memory_retrieval_failed",
                 had_degradation=True,
             )
-            _record_harness_event(
+            record_harness_event(
+                connection=getattr(self.repository, "connection", None),
                 user_id=user_id,
                 interview_id=interview.id,
                 round_id=round_record.id,
@@ -975,14 +1431,57 @@ class InterviewService:
         effective_memories: list[dict[str, Any]],
         question_kind: str,
     ) -> Any:
-        agent = get_round_agent(round_record.round_type, self.llm_client)
+        prompt_version = resolve_artifact_version(
+            getattr(self.repository, "connection", None),
+            interview.harness_bundle_id,
+            f"interviewer.{round_record.round_type}",
+            f"interviewer-{round_record.round_type}-v1",
+        )
+        agent = get_round_agent(
+            round_record.round_type,
+            self.llm_client,
+            spec=resolve_round_spec(
+                getattr(self.repository, "connection", None),
+                interview.harness_bundle_id,
+                round_record.round_type,
+            ),
+        )
         fallback_error: AppError | None = None
+        remaining_seconds = _round_remaining_seconds(
+            round_record,
+            interview,
+            datetime.utcnow(),
+        )
+        strategy_payload = interview_strategy_payload(
+            interview,
+            round_record,
+            remaining_seconds=remaining_seconds,
+            closing_window_seconds=ROUND_CLOSING_WINDOW_SECONDS,
+        )
+        resume_payload = {
+            **resume_data,
+            "_job_description": interview.job_description or "",
+            "_interview_strategy": strategy_payload,
+        }
+        skill_bundle = self._run_skill_layer(
+            user_id=user_id,
+            interview=interview,
+            round_record=round_record,
+            payload=payload,
+            qa_history_payload=qa_history_payload,
+            resume_data=resume_data,
+            previous_answer=previous_answer,
+            effective_memories=effective_memories,
+            question_kind=question_kind,
+            interview_strategy=strategy_payload,
+        )
+        resume_payload["_skill_context"] = skill_bundle.agent_context()
 
         def generate_or_fallback() -> Any:
             nonlocal fallback_error
             try:
                 return agent.generate_question(
-                    resume=resume_data,
+                    resume=resume_payload,
                     target_position=interview.target_position,
                     qa_history=qa_history_payload,
                     previous_answer=previous_answer,
@@ -990,7 +1489,10 @@ class InterviewService:
                     question_kind=question_kind,
                 )
             except AppError as exc:
-                if exc.code not in {ErrorCode.BUSINESS_ERROR, ErrorCode.NETWORK_TIMEOUT}:
+                if exc.code not in {
+                    ErrorCode.BUSINESS_ERROR,
+                    ErrorCode.NETWORK_TIMEOUT,
+                }:
                     raise
                 fallback_error = exc
                 return agent.fallback_question(qa_history_payload, question_kind)
@@ -1002,7 +1504,15 @@ class InterviewService:
             node_type="round_question_generator",
             agent_type=round_record.agent_type,
             purpose=purpose,
-            payload=payload,
+            payload={
+                **payload,
+                "prompt_version": prompt_version,
+                "interview_strategy": strategy_payload,
+                "skill_trace_id": skill_bundle.trace_id,
+                "skill_call_count": len(skill_bundle.calls),
+                "selected_skills": [item.name for item in skill_bundle.selected],
+            },
+            prompt_version=prompt_version,
             operation=generate_or_fallback,
         )
         if fallback_error is not None:
@@ -1014,7 +1524,8 @@ class InterviewService:
                 had_degradation=True,
             )
             self._update_round_execution(round_record.id, execution_status="degraded")
-            _record_harness_event(
+            record_harness_event(
+                connection=getattr(self.repository, "connection", None),
                 user_id=user_id,
                 interview_id=interview.id,
                 round_id=round_record.id,
@@ -1028,6 +1539,114 @@ class InterviewService:
             )
         return question
 
+    def _run_skill_layer(
+        self,
+        *,
+        user_id: int,
+        interview: InterviewRecord,
+        round_record: InterviewRoundRecord,
+        payload: dict[str, Any],
+        qa_history_payload: list[dict[str, Any]],
+        resume_data: dict[str, Any],
+        previous_answer: str | None,
+        effective_memories: list[dict[str, Any]],
+        question_kind: str,
+        interview_strategy: dict[str, Any],
+    ) -> SkillRunBundle:
+        stage: SkillStage = "post_answer" if previous_answer else "pre_question"
+        context = SkillContext(
+            user_id=user_id,
+            interview_id=interview.id,
+            round_id=round_record.id,
+            round_type=round_record.round_type,
+            stage=stage,
+            target_position=interview.target_position,
+            job_description=interview.job_description or "",
+            resume=resume_data,
+            qa_history=qa_history_payload,
+            previous_answer=previous_answer,
+            question_kind=question_kind,
+            effective_memories=effective_memories,
+            interview_strategy=interview_strategy,
+        )
+        try:
+            bundle = DEFAULT_SKILL_RUNNER.run(context=context, llm_client=self.llm_client)
+        except Exception as exc:
+            trace_id = uuid.uuid4().hex
+            record_harness_event(
+                connection=getattr(self.repository, "connection", None),
+                user_id=user_id,
+                interview_id=interview.id,
+                round_id=round_record.id,
+                node_type="skill_runner",
+                event_type="degraded",
+                payload={
+                    "trace_id": trace_id,
+                    "reason": "skill_runner_failed",
+                    "error": str(exc)[:300] or exc.__class__.__name__,
+                },
+            )
+            return SkillRunBundle(trace_id=trace_id, selected=[], calls=[])
+        self._record_skill_call_traces(
+            user_id=user_id,
+            interview=interview,
+            round_record=round_record,
+            question_id=_skill_question_id(payload),
+            bundle=bundle,
+        )
+        if bundle.calls:
+            record_harness_event(
+                connection=getattr(self.repository, "connection", None),
+                user_id=user_id,
+                interview_id=interview.id,
+                round_id=round_record.id,
+                node_type="skill_runner",
+                event_type="skill_calls_completed",
+                payload={
+                    "trace_id": bundle.trace_id,
+                    "stage": stage,
+                    "skill_names": [call.skill_name for call in bundle.calls],
+                    "failed_count": sum(1 for call in bundle.calls if call.error_message),
+                },
+            )
+        return bundle
+
+    def _record_skill_call_traces(
+        self,
+        *,
+        user_id: int,
+        interview: InterviewRecord,
+        round_record: InterviewRoundRecord,
+        question_id: int | None,
+        bundle: SkillRunBundle,
+    ) -> None:
+        create_trace = getattr(self.repository, "create_skill_call_trace", None)
+        if not callable(create_trace):
+            return
+        for call in bundle.calls:
+            try:
+                create_trace(
+                    user_id=user_id,
+                    interview_id=interview.id,
+                    round_id=round_record.id,
+                    question_id=question_id,
+                    trace_id=call.trace_id,
+                    round_type=call.round_type,
+                    stage=call.stage,
+                    skill_name=call.skill_name,
+                    selection_source=call.selection_source,
+                    selection_reason=call.selection_reason,
+                    input_summary=call.input_summary,
+                    output_summary=call.output_summary,
+                    structured_signals=call.structured_signals,
+                    confidence=call.confidence,
+                    llm_enhanced=call.llm_enhanced,
+                    elapsed_ms=call.elapsed_ms,
+                    error_message=call.error_message,
+                )
+            except Exception:
+                continue
+
     def _generate_round_summary(
         self,
         *,
@@ -1038,11 +1657,14 @@ class InterviewService:
         is_reference_only: bool,
     ) -> dict[str, Any]:
         if self.evaluation_service is None:
-            agent = get_round_agent(round_record.round_type, self.llm_client)
-            agent.spec = resolve_round_spec(
-                self.repository,
-                version_bundle_id=interview.version_bundle_id,
-                base_spec=agent.spec,
+            agent = get_round_agent(
+                round_record.round_type,
+                self.llm_client,
+                spec=resolve_round_spec(
+                    getattr(self.repository, "connection", None),
+                    interview.harness_bundle_id,
+                    round_record.round_type,
+                ),
             )
             return cast(
                 dict[str, Any],
@@ -1053,7 +1675,16 @@ class InterviewService:
                     node_type="round_evaluator",
                     agent_type=round_record.agent_type,
                     purpose="fallback_round_summary",
-                    payload={"history_count": len(history), "is_reference_only": is_reference_only},
+                    payload={
+                        "history_count": len(history),
+                        "is_reference_only": is_reference_only,
+                    },
+                    prompt_version=resolve_artifact_version(
+                        getattr(self.repository, "connection", None),
+                        interview.harness_bundle_id,
+                        f"interviewer.{round_record.round_type}",
+                        f"interviewer-{round_record.round_type}-v1",
+                    ),
                     operation=lambda: agent.summarize(
                         history,
                         is_reference_only=is_reference_only,
@@ -1084,6 +1715,7 @@ class InterviewService:
         agent_type: str | None,
         purpose: str,
         payload: dict[str, Any],
+        prompt_version: str | None = None,
         operation: Callable[[], Any],
     ) -> Any:
         self._update_interview_harness(interview.id, harness_status="running")
@@ -1100,6 +1732,7 @@ class InterviewService:
                 agent_type=agent_type,
                 purpose=purpose,
                 payload=payload,
+                prompt_version=prompt_version,
                 operation=operation,
             )
         except AppError as exc:
@@ -1170,6 +1803,18 @@ class InterviewService:
                 ErrorCode.BUSINESS_ERROR,
                 status.HTTP_409_CONFLICT,
                 message="面试已暂停，请先继续面试。",
+            )
+
+    def _ensure_round_time_remaining(
+        self,
+        interview: InterviewRecord,
+        round_record: InterviewRoundRecord,
+    ) -> None:
+        if _round_remaining_seconds(round_record, interview, datetime.utcnow()) <= 0:
+            raise AppError(
+                ErrorCode.BUSINESS_ERROR,
+                status.HTTP_409_CONFLICT,
+                message="本轮面试已达到限时，请提交当前回答或结束本轮。",
             )
 
     def _update_interview_harness(self, interview_id: int, **values: Any) -> None:
@@ -1305,9 +1950,7 @@ def _merge_generation_history(
     active_history_payload: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     payload_by_id = {
-        int(item["id"]): item
-        for item in active_history_payload
-        if isinstance(item.get("id"), int)
+        int(item["id"]): item for item in active_history_payload if isinstance(item.get("id"), int)
     }
     return [payload_by_id.get(qa.id, _qa_history([qa])[0]) for qa in audit_history]
 
@@ -1326,34 +1969,97 @@ def _normalize_selected_rounds(selected_rounds: list[str] | None) -> list[str]:
     return normalized
 
 
+def _normalize_interview_goal(value: str) -> str:
+    goal = (value or DEFAULT_INTERVIEW_GOAL).strip()
+    if goal not in GOAL_LABELS:
+        raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+    return goal
+
+
+def _normalize_interview_difficulty(value: str) -> str:
+    difficulty = (value or DEFAULT_INTERVIEW_DIFFICULTY).strip()
+    if difficulty not in DIFFICULTY_LABELS:
+        raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+    return difficulty
+
+
+def _normalize_time_limit_minutes(value: int) -> int:
+    if value not in TIME_LIMIT_MINUTES:
+        raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+    return value
+
+
+def _normalize_practice_text(value: str) -> str:
+    text = value.strip()
+    if not text:
+        raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+    return text[:500]
+
+
+def _normalize_optional_practice_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text[:500] if text else None
+
+
+def _practice_rounds(interview: InterviewRecord, round_type: str | None) -> list[str]:
+    if round_type is not None:
+        if round_type not in ROUND_SPECS:
+            raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+        return [round_type]
+    return _normalize_selected_rounds(interview.selected_rounds)
+
+
+def _practice_job_description(
+    *,
+    original_job_description: str | None,
+    weakness: str,
+    suggestion: str | None,
+    round_type: str | None,
+) -> str:
+    parts = [
+        "【专项再练】",
+        f"本次面试来源于历史报告的薄弱项：{weakness}",
+    ]
+    if suggestion:
+        parts.append(f"改进建议：{suggestion}")
+    if round_type:
+        parts.append(f"优先围绕{_round_label(round_type)}相关能力追问。")
+    parts.append("请面试官优先验证该薄弱项是否补齐，并根据回答质量继续追问。")
+    if original_job_description:
+        parts.extend(["", "原岗位 JD：", original_job_description.strip()])
+    return "\n".join(parts)[:JOB_DESCRIPTION_MAX_LENGTH]
+
+
 def _round_rows(
     interview_id: int,
     selected_rounds: list[str],
     *,
-    repository: Any | None = None,
-    version_bundle_id: int | None = None,
+    specs: dict[str, Any] | None = None,
+    difficulty: str = DEFAULT_INTERVIEW_DIFFICULTY,
+    time_limit_minutes: int = DEFAULT_TIME_LIMIT_MINUTES,
 ) -> list[dict[str, Any]]:
     selected = set(selected_rounds)
     rows: list[dict[str, Any]] = []
-    row_order = [*selected_rounds, *[item for item in ROUND_ORDER if item not in selected]]
+    row_order = [
+        *selected_rounds,
+        *[item for item in ROUND_ORDER if item not in selected],
+    ]
     for round_type in row_order:
-        spec = ROUND_SPECS[round_type]
-        if repository is not None:
-            spec = resolve_round_spec(
-                repository,
-                version_bundle_id=version_bundle_id,
-                base_spec=spec,
-            )
+        spec = (specs or ROUND_SPECS)[round_type]
         rows.append(
             {
                 "interview_id": interview_id,
                 "agent_type": spec.agent_type,
                 "round_type": round_type,
                 "status": "pending" if round_type in selected else "skipped",
-                "min_main_questions": spec.min_main_questions,
+                "min_main_questions": 0,
                 "max_main_questions": spec.max_main_questions,
-                "min_total_questions": spec.min_total_questions,
+                "min_total_questions": 0,
                 "max_total_questions": spec.max_total_questions,
+                "difficulty": difficulty,
+                "time_limit_minutes": time_limit_minutes,
             }
         )
     return rows
@@ -1365,9 +2071,7 @@ def _ordered_rounds(
 ) -> list[InterviewRoundRecord]:
     selected_order = interview.selected_rounds or list(ROUND_ORDER)
     order = {round_type: index for index, round_type in enumerate(selected_order)}
-    skipped_order = {
-        round_type: len(order) + index for index, round_type in enumerate(ROUND_ORDER)
-    }
+    skipped_order = {round_type: len(order) + index for index, round_type in enumerate(ROUND_ORDER)}
     return sorted(
         rounds,
         key=lambda item: order.get(item.round_type, skipped_order.get(item.round_type, len(order))),
@@ -1378,16 +2082,7 @@ def _round_response(
     round_record: InterviewRoundRecord,
     interview: InterviewRecord | None = None,
 ) -> InterviewRoundResponse:
-    elapsed_seconds = 0
-    if round_record.started_at is not None:
-        ended_at = round_record.ended_at
-        if ended_at is None and round_record.status == "in_progress":
-            if interview is not None and interview.overall_status == "paused":
-                ended_at = interview.last_active_at
-            else:
-                ended_at = datetime.utcnow()
-        if ended_at is not None:
-            elapsed_seconds = max(0, int((ended_at - round_record.started_at).total_seconds()))
+    elapsed_seconds = _round_elapsed_seconds(round_record, interview, datetime.utcnow())
 
     return InterviewRoundResponse(
         id=round_record.id,
@@ -1399,6 +2094,8 @@ def _round_response(
         started_at=round_record.started_at,
         ended_at=round_record.ended_at,
         elapsed_seconds=elapsed_seconds,
+        difficulty=cast(InterviewDifficulty, round_record.difficulty),
+        time_limit_minutes=cast(TimeLimitMinutes, round_record.time_limit_minutes),
         execution_status=round_record.execution_status,
         retry_count=round_record.retry_count,
     )
@@ -1417,6 +2114,7 @@ def _round_question_response(qa: QARecord) -> RoundQuestionResponse:
         regenerated_from_question_id=qa.regenerated_from_question_id,
         question_type=qa.question_type,
         question=qa.question,
+        is_last_question=_is_final_question(qa),
     )
 
 
@@ -1443,6 +2141,142 @@ def _feedback_report_response(
     )
 
 
+def _answer_evaluation_response(
+    qa: QARecord,
+    round_record: InterviewRoundRecord,
+    question_score: Any | None,
+) -> dict[str, Any]:
+    if question_score is not None:
+        payload = dict(question_score.model_dump())
+        payload.update(
+            {
+                "question_id": qa.id,
+                "round_id": qa.round_id,
+                "status": "succeeded",
+            }
+        )
+        return payload
+    return _fallback_answer_evaluation(qa, round_record)
+
+
+def _fallback_answer_evaluation(
+    qa: QARecord,
+    round_record: InterviewRoundRecord,
+) -> dict[str, Any]:
+    answer = (qa.answer or "").strip()
+    issues: list[str] = []
+    strengths: list[str] = []
+
+    if len(answer) < 40:
+        issues.append("回答偏短，可以补充背景、行动和结果。")
+    if not any(ch.isdigit() for ch in answer) and not _contains_any(
+        answer,
+        ("提升", "降低", "增长", "减少", "用户", "耗时", "成本", "指标", "数据"),
+    ):
+        issues.append("可以补充量化结果或影响范围。")
+    if not _contains_any(
+        answer,
+        ("我负责", "我主导", "我设计", "我推进", "我的", "负责", "落地", "实现"),
+    ):
+        issues.append("可以更明确说明你本人承担的动作。")
+    if not _contains_any(
+        answer,
+        ("取舍", "原因", "因为", "所以", "权衡", "方案", "对比", "风险", "边界"),
+    ):
+        issues.append("可以补充技术取舍、原因或边界条件。")
+
+    if answer:
+        strengths.append("回答已经提供了可继续追问的基础信息。")
+    if answer and not issues:
+        strengths.append("回答结构较完整，可以继续保持具体证据。")
+
+    return {
+        "question_id": qa.id,
+        "round_id": qa.round_id,
+        "round_type": round_record.round_type,
+        "status": "fallback",
+        "total_score": None,
+        "dimension_scores": [],
+        "strengths": strengths[:2],
+        "issues": issues[:4],
+        "evidence": [answer[:120]] if answer else [],
+        "should_follow_up": bool(issues),
+        "follow_up_direction": issues[0] if issues else None,
+    }
+
+
+def _contains_any(value: str, markers: tuple[str, ...]) -> bool:
+    normalized = value.lower()
+    return any(marker.lower() in normalized for marker in markers)
+
+
+def _is_final_question(qa: QARecord) -> bool:
+    return qa.question_type == FINAL_QUESTION_TYPE
+
+
+def _with_final_question_notice(question_type: str, question: str) -> tuple[str, str]:
+    text = question.strip()
+    if not text.startswith(FINAL_QUESTION_PREFIX):
+        text = f"{FINAL_QUESTION_PREFIX}{text}"
+    return FINAL_QUESTION_TYPE, text
+
+
+def _final_round_question(
+    round_type: str,
+    resume_data: dict[str, Any] | None = None,
+    history: list[QARecord] | None = None,
+) -> str:
+    uncovered_projects = _uncovered_projects(resume_data or {}, history or [])
+    if round_type == "resume" and len(uncovered_projects) == 1:
+        return (
+            f"{FINAL_QUESTION_PREFIX}我们切换到简历中的「{uncovered_projects[0]}」。"
+            "请说明这个项目的背景、你的具体职责和最能证明结果的一项产出。"
+        )
+    if round_type == "resume" and uncovered_projects:
+        project_list = "、".join(f"「{title}」" for title in uncovered_projects)
+        return (
+            f"{FINAL_QUESTION_PREFIX}请依次简要补充尚未覆盖的项目：{project_list}。"
+            "每个项目说明背景、你的具体职责和一项结果。"
+        )
+    focus = {
+        "resume": (
+            "请从整份简历中选择最能证明岗位匹配度的一项经历，"
+            "补充一个此前没有说到的关键事实。"
+        ),
+        "technical": "请总结你解决复杂技术问题时最重要的判断原则，并结合一个具体例子说明。",
+        "manager": "请用一个具体案例总结你推动目标落地时最关键的行动和结果。",
+        "hr": "请简要说明你选择这个岗位的核心原因，以及你希望在其中获得怎样的成长。",
+    }.get(round_type, "请补充一个最能代表你岗位能力、此前尚未提到的关键事实。")
+    return f"{FINAL_QUESTION_PREFIX}{focus}"
+
+
+def _uncovered_projects(
+    resume_data: dict[str, Any],
+    history: list[QARecord],
+) -> list[str]:
+    projects = resume_data.get("project_experience")
+    if not isinstance(projects, list):
+        return []
+    questions = " ".join(item.question for item in history)
+    normalized_questions = "".join(char for char in questions.casefold() if char.isalnum())
+    uncovered: list[str] = []
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        title = next(
+            (
+                str(project.get(key) or "").strip()
+                for key in ("name", "project_name", "title")
+                if str(project.get(key) or "").strip()
+            ),
+            "",
+        )
+        normalized_title = "".join(char for char in title.casefold() if char.isalnum())
+        if normalized_title and normalized_title not in normalized_questions:
+            uncovered.append(title)
+    return uncovered
+
+
 def _answer_action_for_question(qa: QARecord) -> str:
     return "follow_up" if qa.question_kind == "follow_up" else "next_question"
 
@@ -1457,6 +2291,7 @@ def _qa_state_item(
         "sequence": qa.sequence,
         "question_type": qa.question_type,
         "question": qa.question,
+        "is_last_question": _is_final_question(qa),
         "answer": qa.answer,
         "question_kind": qa.question_kind,
         "question_status": qa.question_status,
@@ -1478,10 +2313,7 @@ def _next_question_kind(
     counts = count_questions(history)
     if counts["total"] >= round_record.max_total_questions:
         return "main"
-    if (
-        current_qa.question_kind == "main"
-        and counts["main"] >= round_record.max_main_questions
-    ):
+    if current_qa.question_kind == "main" and counts["main"] >= round_record.max_main_questions:
         return "follow_up"
     has_follow_up = any(qa.parent_question_id == current_qa.id for qa in history)
     if current_qa.question_kind == "main" and not has_follow_up:
@@ -1507,6 +2339,42 @@ def _elapsed_seconds(interview: InterviewRecord, now: datetime) -> int:
     if delta <= 0:
         return interview.elapsed_seconds
     return interview.elapsed_seconds + min(delta, ELAPSED_SECONDS_CAP)
+
+
+def _elapsed_seconds_uncapped(interview: InterviewRecord, now: datetime) -> int:
+    if interview.last_active_at is None or interview.overall_status != "in_progress":
+        return interview.elapsed_seconds
+    delta = int((now - interview.last_active_at).total_seconds())
+    if delta <= 0:
+        return interview.elapsed_seconds
+    return interview.elapsed_seconds + delta
+
+
+def _round_elapsed_seconds(
+    round_record: InterviewRoundRecord,
+    interview: InterviewRecord | None,
+    now: datetime,
+) -> int:
+    if round_record.started_at is None:
+        return 0
+    ended_at = round_record.ended_at
+    if ended_at is None and round_record.status == "in_progress":
+        if interview is not None and interview.overall_status == "paused":
+            ended_at = interview.last_active_at
+        else:
+            ended_at = now
+    if ended_at is None:
+        return 0
+    return max(0, int((ended_at - round_record.started_at).total_seconds()))
+
+
+def _round_remaining_seconds(
+    round_record: InterviewRoundRecord,
+    interview: InterviewRecord | None,
+    now: datetime,
+) -> int:
+    limit_seconds = max(0, int(round_record.time_limit_minutes or 45) * 60)
+    return max(0, limit_seconds - _round_elapsed_seconds(round_record, interview, now))
 
 
 def _overall_report(
@@ -1572,65 +2440,12 @@ def _execute_with_harness(
     agent_type: str | None,
     purpose: str,
     payload: dict[str, Any],
+    prompt_version: str | None = None,
     operation: Callable[[], Any],
 ) -> Any:
-    service = _get_harness_service()
-    if service is None:
-        repository = _get_harness_repository(connection)
-        if repository is None:
-            return operation()
-        request = _harness_request(
-            user_id=user_id,
-            interview_id=interview_id,
-            round_id=round_id,
-            node_type=node_type,
-            agent_type=agent_type,
-            purpose=purpose,
-            payload=payload,
-        )
-        try:
-            trace_id = repository.create_trace(request)
-        except Exception:
-            return operation()
-        if connection is not None:
-            connection.commit()
-        try:
-            result = operation()
-        except Exception as exc:
-            try:
-                repository.update_trace_status(
-                    trace_id,
-                    status="failed",
-                    validation_status="failed",
-                    error_code="BUSINESS_EXECUTION_FAILED",
-                    error_detail=str(exc) or exc.__class__.__name__,
-                )
-                _save_fallback_rule_evaluations(
-                    repository=repository,
-                    request=request,
-                    trace_id=trace_id,
-                    validation_status="failed",
-                    error_detail=str(exc) or exc.__class__.__name__,
-                )
-            except Exception:
-                pass
-            raise
-        try:
-            repository.update_trace_status(
-                trace_id,
-                status="completed",
-                validation_status="passed",
-                output_snapshot={"result": _snapshot_value(result)},
-            )
-            _save_fallback_rule_evaluations(
-                repository=repository,
-                request=request,
-                trace_id=trace_id,
-                validation_status="passed",
-            )
-        except Exception:
-            pass
-        return result
+    repository = _get_harness_repository(connection)
+    if repository is None:
+        return operation()
     request = _harness_request(
         user_id=user_id,
         interview_id=interview_id,
@@ -1639,62 +2454,80 @@ def _execute_with_harness(
         agent_type=agent_type,
         purpose=purpose,
         payload=payload,
+        prompt_version=prompt_version,
     )
-    for method_name in ("execute_callable", "run_callable", "wrap"):
-        method = getattr(service, method_name, None)
-        if callable(method):
-            result = method(request, operation)
-            return _harness_business_result(result)
-    execute = getattr(service, "execute", None)
-    if callable(execute):
-        try:
-            result = execute(request=request, operation=operation)
-        except TypeError:
-            result = execute(request, operation)
-        return _harness_business_result(result)
-    return operation()
-
-
-def _save_fallback_rule_evaluations(
-    *,
-    repository: Any,
-    request: Any,
-    trace_id: int,
-    validation_status: str,
-    error_detail: str | None = None,
-    checkpoint_id: int | None = None,
-) -> None:
     try:
-        from app.harness.output_validation import OutputValidationResult
-        from app.harness.rules import RuleEvaluator
-
-        validation = OutputValidationResult(
-            validation_status=_coerce_validation_status(validation_status),
-            errors=[error_detail] if validation_status == "failed" and error_detail else [],
+        trace_id = repository.create_trace(request)
+    except Exception:
+        return operation()
+    if connection is not None:
+        connection.commit()
+    policy = resolve_interview_harness_policy(connection, interview_id)
+    max_retries = min(3, max(0, int(policy.get("max_retries") or 0)))
+    retry_records: list[dict[str, Any]] = []
+    result: Any = None
+    last_error: Exception | None = None
+    for attempt in range(1, max_retries + 2):
+        try:
+            result = operation()
+            validate_runtime_output(_snapshot_value(result))
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt <= max_retries:
+                retry_records.append(
+                    {
+                        "attempt": attempt,
+                        "error": str(exc) or exc.__class__.__name__,
+                    }
+                )
+    if last_error is not None:
+        try:
+            repository.update_trace_status(
+                trace_id,
+                status="failed",
+                validation_status="failed",
+                error_code="BUSINESS_EXECUTION_FAILED",
+                error_detail=str(last_error) or last_error.__class__.__name__,
+                retry_records=retry_records,
+            )
+            _save_fallback_rule_evaluations(
+                repository=repository,
+                request=request,
+                trace_id=trace_id,
+                validation_status="failed",
+                error_detail=str(last_error) or last_error.__class__.__name__,
+            )
+        except Exception:
+            pass
+        if connection is not None:
+            record_runtime_execution(
+                connection,
+                interview_id,
+                succeeded=False,
+                hard_error=is_hard_runtime_error(last_error),
+            )
+        raise last_error
+    try:
+        repository.update_trace_status(
+            trace_id,
+            status="completed",
+            validation_status="passed",
+            output_snapshot={"result": _snapshot_value(result)},
+            retry_records=retry_records,
         )
-        evaluator = RuleEvaluator(repository)
-        evaluations = evaluator.evaluate_node(
-            request,
+        _save_fallback_rule_evaluations(
+            repository=repository,
+            request=request,
             trace_id=trace_id,
-            checkpoint_id=checkpoint_id,
-            output_validation=validation,
-            retry_count=0,
-            event_write_failed=False,
-        )
-        evaluator.save_all(
-            user_id=request.user_id,
-            interview_id=request.interview_id,
-            trace_id=trace_id,
-            evaluations=evaluations,
+            validation_status="passed",
         )
     except Exception:
-        return
-
-
-def _coerce_validation_status(value: str) -> ValidationStatus:
-    if value in {"pending", "passed", "warning", "failed"}:
-        return cast(ValidationStatus, value)
-    return "failed"
+        pass
+    if connection is not None:
+        record_runtime_execution(connection, interview_id, succeeded=True)
+    return result
 
 
 def _save_harness_checkpoint(
@@ -1706,127 +2539,17 @@ def _save_harness_checkpoint(
     node_type: str,
     snapshot: dict[str, Any],
 ) -> int | None:
-    service = _get_harness_service()
-    if service is None:
-        repository = _get_harness_repository(connection)
-        if repository is None:
-            return None
-        checkpoint = _harness_checkpoint(
-            user_id=user_id,
-            interview_id=interview_id,
-            round_id=round_id,
-            node_type=node_type,
-            snapshot=snapshot,
-        )
-        return cast(int, repository.create_checkpoint(checkpoint))
-    payload = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": round_id,
-        "node_type": node_type,
-        "snapshot": snapshot,
-    }
-    for method_name in ("save_checkpoint", "create_checkpoint", "checkpoint"):
-        method = getattr(service, method_name, None)
-        if callable(method):
-            result = method(**payload)
-            return _extract_int_attr(result, "checkpoint_id") or _extract_int_attr(result, "id")
-    return None
-
-
-def _record_harness_event(
-    *,
-    user_id: int,
-    interview_id: int,
-    round_id: int | None,
-    node_type: str,
-    event_type: str,
-    payload: dict[str, Any],
-) -> None:
-    service = _get_harness_service()
-    if service is None:
-        return
-    event_payload = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": round_id,
-        "node_type": node_type,
-        "event_type": event_type,
-        "payload": payload,
-    }
-    for method_name in ("record_event", "create_event", "trace_event"):
-        method = getattr(service, method_name, None)
-        if callable(method):
-            method(**event_payload)
-            return
-
-
-def _get_harness_service() -> Any | None:
-    try:
-        module = import_module("app.harness.execution")
-    except Exception:
+    repository = _get_harness_repository(connection)
+    if repository is None:
         return None
-    for factory_name in ("get_harness_execution_service", "get_execution_service"):
-        factory = getattr(module, factory_name, None)
-        if callable(factory):
-            return factory()
-    service = getattr(module, "harness_execution_service", None)
-    if service is not None:
-        return service
-    service_class = getattr(module, "HarnessExecutionService", None)
-    if callable(service_class):
-        try:
-            return service_class()
-        except TypeError:
-            return None
-    return None
-
-
-def _get_harness_repository(connection: Any | None) -> Any | None:
-    if connection is None:
-        return None
-    try:
-        module = import_module("app.repositories.harness")
-        repository_class = getattr(module, "HarnessRepository", None)
-        if callable(repository_class):
-            return repository_class(connection)
-    except Exception:
-        return None
-    return None
-
-
-def _harness_request(
-    *,
-    user_id: int,
-    interview_id: int,
-    round_id: int | None,
-    node_type: str,
-    agent_type: str | None,
-    purpose: str,
-    payload: dict[str, Any],
-) -> Any:
-    payload_key = _harness_payload_key(payload)
-    data = {
-        "user_id": user_id,
-        "interview_id": interview_id,
-        "round_id": round_id,
-        "node_id": f"{interview_id}:{round_id or 'interview'}:{node_type}",
-        "node_type": node_type,
-        "agent_type": agent_type or node_type,
-        "purpose": purpose,
-        "context_refs": payload,
-        "input_payload": payload,
-        "execution_mode": "normal",
-        "idempotency_key": f"{interview_id}:{round_id or 0}:{node_type}:{purpose}:{payload_key}",
-    }
-    try:
-        contracts = import_module("app.harness.contracts")
-        request_class = getattr(contracts, "HarnessExecutionRequest", None)
-        if callable(request_class):
-            return request_class(**data)
-    except Exception:
-        pass
-    return data
+    checkpoint = _harness_checkpoint(
+        user_id=user_id,
+        interview_id=interview_id,
+        round_id=round_id,
+        node_type=node_type,
+        snapshot=snapshot,
+    )
+    return cast(int, repository.create_checkpoint(checkpoint))
 
 
 def _harness_checkpoint(
@@ -1850,57 +2573,19 @@ def _harness_checkpoint(
     return contracts.CheckpointCreate(**data)
 
 
-def _harness_business_result(result: Any) -> Any:
-    if result is None:
-        return None
-    if hasattr(result, "business_result"):
-        return result.business_result
-    if isinstance(result, dict) and "business_result" in result:
-        return result["business_result"]
-    return result
-
-
-def _harness_payload_key(payload: dict[str, Any]) -> str:
-    encoded = json.dumps(
-        _snapshot_value(payload),
-        ensure_ascii=False,
-        sort_keys=True,
-        default=str,
-    )
-    return hashlib.sha1(encoded.encode("utf-8")).hexdigest()[:12]
-
-
-def _extract_int_attr(value: Any, name: str) -> int | None:
-    if value is None:
-        return None
-    raw_value = getattr(value, name, None)
-    if raw_value is None and isinstance(value, dict):
-        raw_value = value.get(name)
-    return int(raw_value) if raw_value is not None else None
-
-
-def _snapshot_value(value: Any) -> Any:
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if isinstance(value, dict):
-        return {key: _snapshot_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_snapshot_value(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
-
-
-def _recommendation(score: int) -> str:
-    if score >= 85:
-        return "强烈建议录用"
-    if score >= 75:
-        return "建议录用"
-    if score >= 65:
-        return "谨慎录用"
-    if score >= 60:
-        return "暂缓决定"
-    return "不建议录用"
+def _skill_question_id(payload: dict[str, Any]) -> int | None:
+    for key in (
+        "answered_question_id",
+        "regenerated_question_id",
+        "skipped_question_id",
+    ):
+        value = payload.get(key)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def _require_multi_round(interview: InterviewRecord) -> None:
