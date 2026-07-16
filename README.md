@@ -5,11 +5,11 @@
 <h1 align="center">InterviewArena</h1>
 
 <p align="center">
-  <strong>由四位 AI 面试官驱动的多轮模拟面试训练平台</strong>
+  <strong>多 Agent 协作、长期记忆与可观测 Harness 驱动的 AI 面试训练系统</strong>
 </p>
 
 <p align="center">
-  从简历深挖、技术面、主管面到 HR 面，用逐题反馈、长期记忆与专项复盘形成持续训练闭环。
+  不止完成一次模拟面试，而是让每轮表现成为下一次训练的上下文、证据与改进起点。
 </p>
 
 <p align="center">
@@ -22,26 +22,67 @@
 </p>
 
 <p align="center">
+  <a href="#核心优势">核心优势</a> ·
+  <a href="#训练闭环">训练闭环</a> ·
   <a href="#产品预览">产品预览</a> ·
-  <a href="#训练流程">训练流程</a> ·
-  <a href="#核心能力">核心能力</a> ·
   <a href="#系统架构">系统架构</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#质量保障">质量保障</a>
 </p>
 
-## 项目简介
+## 核心优势
 
-InterviewArena 是一个前后端分离的 AI 面试练习系统。它不只负责“出题”，而是围绕一次完整面试训练持续工作：解析候选人简历，组织多轮面试，给出逐题评分和追问建议，生成带证据覆盖说明的综合报告，再把长期薄弱项沉淀为可检索记忆与复盘任务。
+InterviewArena 的重点不是“接入一个模型然后连续出题”，而是把面试训练拆成可编排、可记忆、可评估、可恢复的完整 Agent 系统。
 
-系统内置四类面试官：
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>🤝 多 Agent 分工编排</strong><br /><br />
+      简历、技术、主管、HR 四类面试官拥有独立提示词、关注维度和结束策略；评估 Agent 与 Skill Runner 参与逐题、逐轮和最终总结，由统一编排器传递上下文。
+    </td>
+    <td width="33%" valign="top">
+      <strong>🧠 真正回流的长期记忆</strong><br /><br />
+      分别沉淀候选人表现、面试官经验和 Agent 经验；支持查询改写、BM25、可选 Chroma / Embedding / Reranker、生命周期与版本管理，并在下一轮按策略检索使用。
+    </td>
+    <td width="33%" valign="top">
+      <strong>🛡️ Agent Harness</strong><br /><br />
+      Trace、规则校验、结构化输出验证、自动重试、降级和 Checkpoint 贯穿长流程；独立诊断页展示规则通过率、失败节点、重试记录与可恢复状态。
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>📐 证据化多级评估</strong><br /><br />
+      单题评价、轮次总结和综合报告三级汇总，保留维度得分、优缺点、建议与证据；报告额外展示评分覆盖率、得分来源和可信度状态。
+    </td>
+    <td width="33%" valign="top">
+      <strong>🔁 可持续训练闭环</strong><br /><br />
+      从逐题反馈或最终报告生成复盘收藏，追踪薄弱项练习进度；新的面试再次读取历史记忆，让训练从“重复做题”变成持续修正。
+    </td>
+    <td width="33%" valign="top">
+      <strong>🧪 有安全门的自主进化</strong><br /><br />
+      可选实验链路结合真实与合成样本、影子评估、Hard Gates、多轮裁判和观察窗口；质量下降时支持回滚，且默认关闭以避免意外模型调用。
+    </td>
+  </tr>
+</table>
 
-| 轮次   | 关注重点                         | 代表色 |
-| ------ | -------------------------------- | ------ |
-| 简历面 | 项目真实性、个人贡献、经历完整度 | 蓝色   |
-| 技术面 | 技术基础、方案设计、工程取舍     | 紫色   |
-| 主管面 | 协作推动、问题处理、管理潜力     | 橙色   |
-| HR 面  | 求职动机、职业规划、岗位匹配     | 粉色   |
+### 不是装饰性的“智能化”
+
+- **动态提问策略**：根据核心主题覆盖、简历项目轮换、回答质量和剩余时间决定主问题、追问与结束时机，并避免重复问题。
+- **任务化与中断恢复**：简历解析、面试操作、记忆总结和自主进化均有独立任务状态；回答草稿、心跳、互斥锁、重试与 Checkpoint 降低长流程中断损失。
+- **从训练到运营的完整视图**：工作台、历史详情、通知、复盘收藏、长期记忆和 Harness 状态页共同覆盖训练与运行诊断。
+- **工程契约与质量门禁**：FastAPI OpenAPI 自动生成前端 TypeScript Contract，并通过 Ruff、mypy、pytest、ESLint、Prettier、vue-tsc、Vite Build 与 Playwright 持续校验。
+
+## 训练闭环
+
+<p align="center">
+  <img src=".github/assets/readme-training-flow.png" width="100%" alt="InterviewArena 从简历解析、岗位策略、多 Agent 面试、证据化评估、长期记忆到专项复盘的训练闭环，Harness 贯穿全流程" />
+</p>
+
+1. **建立上下文**：异步解析 `.doc` / `.docx` 简历，结合目标岗位、难度、时长和历史记忆形成面试策略。
+2. **多 Agent 推进**：四类面试官按轮次分工，围绕未覆盖主题和当前回答动态提问；每次回答即时进入结构化评估。
+3. **让结果继续产生价值**：综合报告沉淀为长期记忆、薄弱项与复盘收藏，再回流到下一场面试，形成持续训练循环。
+
+> Harness 不是流程末尾的日志模块，而是覆盖提问、评估、记忆与任务执行的可靠性底座。
 
 ## 产品预览
 
@@ -74,83 +115,17 @@ InterviewArena 是一个前后端分离的 AI 面试练习系统。它不只负�
 
 > 截图来自当前 Vue 前端的实际页面；其中账户、岗位、评分等数据为演示数据。
 
-## 训练流程
-
-```mermaid
-flowchart LR
-    A["上传并解析简历"] --> B["配置岗位与面试策略"]
-    B --> C["简历面"]
-    C --> D["技术面"]
-    D --> E["主管面"]
-    E --> F["HR 面"]
-    F --> G["综合评估"]
-    G --> H["记忆沉淀"]
-    H --> I["薄弱项复盘与专项再练"]
-```
-
-1. 上传 `.doc` 或 `.docx` 简历，系统异步解析结构化经历与项目。
-2. 选择目标岗位、求职目标、难度、时长和面试轮次。
-3. AI 面试官根据简历、岗位信息和历史记忆进行提问与追问。
-4. 每次回答都会得到维度评分、优势、不足、证据和下一步建议。
-5. 完成后生成四轮评分、能力画像、综合结论和报告可信度说明。
-6. 薄弱项、优势和回答偏好进入长期记忆，可继续生成复盘收藏或专项训练。
-
-## 核心能力
-
-### 面试训练
-
-- **四类面试官协作**：简历、技术、主管与 HR 面试官分别使用独立提示词、轮次策略和评价标准。
-- **动态追问**：根据当前回答的证据完整度和评分结果决定追问方向。
-- **逐题即时反馈**：展示维度得分、做得好的地方、优先改进项和建议回答方向。
-- **中断恢复**：回答草稿、任务心跳、重试与检查点机制用于降低长流程中断带来的损失。
-
-### 评估与成长
-
-- **综合面试报告**：汇总四轮表现、优势、不足、改进建议、岗位匹配和录用建议。
-- **报告可信度**：展示完成轮次、有效回答、逐题评分覆盖率与各轮得分来源。
-- **长期候选人记忆**：沉淀稳定优势、重复薄弱项和回答偏好，并支持状态与索引管理。
-- **复盘训练闭环**：从逐题评价或综合报告生成复盘收藏，再围绕薄弱项开启专项面试。
-
-### 工程与运行
-
-- **前后端 API Contract**：FastAPI OpenAPI 自动导出为前端 TypeScript contract，并在 CI 中校验同步状态。
-- **任务化长流程**：简历解析、面试操作、记忆处理和自主进化均有独立任务状态与恢复逻辑。
-- **运行诊断 Harness**：记录执行 Trace、规则校验、重试、降级和检查点，便于定位 Agent 流程问题。
-- **自主进化实验**：支持合成样本、影子评估和观察窗口；该能力默认关闭，避免意外产生额外模型调用。
-
 ## 系统架构
 
-```mermaid
-flowchart TB
-    Browser["浏览器"] --> Vue["Vue 3 + Vite SPA"]
-    Vue -->|"/api · Cookie Auth · CSRF"| FastAPI["FastAPI API"]
+<p align="center">
+  <img src=".github/assets/readme-architecture.png" width="100%" alt="InterviewArena 分层系统架构：Vue 3、FastAPI、面试编排器、四类 Agent、评估、技能、Memory RAG、Harness、安全进化以及数据与模型基础设施" />
+</p>
 
-    subgraph Backend["后端领域模块"]
-        FastAPI --> Auth["认证与用户偏好"]
-        FastAPI --> Resume["简历解析与管理"]
-        FastAPI --> Interview["多轮面试编排"]
-        FastAPI --> Evaluation["逐题与综合评估"]
-        FastAPI --> Memory["记忆检索与生命周期"]
-        FastAPI --> Dashboard["工作台、历史、通知与复盘"]
-        Interview --> Agents["简历 / 技术 / 主管 / HR Agents"]
-        Interview --> Harness["Trace · 规则 · 重试 · 检查点"]
-    end
-
-    Resume --> Files["本地简历与头像文件"]
-    Auth --> MySQL[("MySQL")]
-    Resume --> MySQL
-    Interview --> MySQL
-    Evaluation --> MySQL
-    Memory --> MySQL
-    Dashboard --> MySQL
-
-    Resume --> LLM["DeepSeek 兼容 API"]
-    Agents --> LLM
-    Evaluation --> LLM
-    Memory --> LLM
-    Memory -.->|可选向量索引| Chroma[("Chroma")]
-    Memory -.->|可选本地模型| LocalModels["Embedding / Reranker"]
-```
+- **主请求链路**：Vue 3 SPA 通过带 Cookie Auth 与 CSRF 防护的 FastAPI API 进入面试编排器。
+- **智能编排层**：四类面试 Agent、Evaluation、Skill Runner 与 Memory RAG 共享受控上下文，但保持职责与输出契约独立。
+- **可靠性层**：Harness 包围智能链路，统一记录 Trace、规则、结构验证、重试、降级和 Checkpoint；运行状态可在前端独立查看。
+- **记忆与数据层**：MySQL 保存业务与运行数据，本地文件保存简历和头像；记忆默认可使用 BM25，并可选接入 Chroma、本地 Embedding 与 Reranker。
+- **安全进化旁路**：自主进化不进入默认请求路径，候选策略必须经过合成样本、影子评估、Hard Gates 和观察窗口后才能激活。
 
 ### 技术栈
 
