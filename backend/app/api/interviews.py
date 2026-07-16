@@ -3,7 +3,7 @@ import contextlib
 from collections.abc import Iterator
 from datetime import datetime
 from threading import Event, Thread
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from starlette.status import HTTP_204_NO_CONTENT
@@ -223,20 +223,41 @@ def create_weakness_practice(
 def list_history_page(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    query: str = Query(default="", max_length=128),
+    status_filter: Literal["created", "in_progress", "finished"] | None = Query(
+        default=None,
+        alias="status",
+    ),
     current_user: UserRecord = CurrentUserDep,
     service: HistoryService = HistoryServiceDep,
 ) -> HistoryListResponse:
-    return service.list_history_page(current_user, limit=limit, offset=offset)
+    return service.list_history_page(
+        current_user,
+        limit=limit,
+        offset=offset,
+        query=query,
+        status_filter=status_filter,
+    )
 
 
 @router.get("/reports/page", response_model=ReportListResponse)
 def list_reports_page(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    query: str = Query(default="", max_length=128),
+    score_filter: Literal["high", "middle"] | None = Query(default=None),
+    sort: Literal["recent", "score-desc", "score-asc"] = Query(default="recent"),
     current_user: UserRecord = CurrentUserDep,
     service: HistoryService = HistoryServiceDep,
 ) -> ReportListResponse:
-    return service.list_reports_page(current_user, limit=limit, offset=offset)
+    return service.list_reports_page(
+        current_user,
+        limit=limit,
+        offset=offset,
+        query=query,
+        score_filter=score_filter,
+        sort=sort,
+    )
 
 
 @router.delete("/history", status_code=HTTP_204_NO_CONTENT)

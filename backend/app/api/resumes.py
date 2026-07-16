@@ -34,8 +34,8 @@ from app.services.llm import get_llm_client
 from app.services.resume_parser import (
     MAX_RESUME_BYTES,
     ResumeParserService,
-    make_resume_path,
     resolve_upload_dir,
+    store_resume_upload,
     validate_resume_extension,
 )
 from app.services.resumes import ResumeService
@@ -125,10 +125,12 @@ def upload_resume_async(
         if existing_task is not None:
             return _parse_task_response(existing_task, resumes)
 
-        upload_dir = resolve_upload_dir(parser.settings)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        original_path = make_resume_path(file.filename or "resume.docx", upload_dir)
-        original_path.write_bytes(content)
+        upload_dir = resolve_upload_dir(parser.settings) / str(current_user.id)
+        original_path = store_resume_upload(
+            file.filename or "resume.docx",
+            upload_dir,
+            content,
+        )
         try:
             task = resumes.create_parse_task(
                 user_id=current_user.id,
@@ -136,8 +138,7 @@ def upload_resume_async(
                 content_hash=content_hash,
             )
         except Exception:
-            with suppress(OSError):
-                original_path.unlink()
+            _remove_resume_upload(original_path)
             raise
 
     background_tasks.add_task(parse_resume_upload_task, task.id, current_user.id)
@@ -252,6 +253,8 @@ def parse_resume_upload_task(
             with usage_limiter.guard(task.user_id, "resume_upload"):
                 parser = ResumeParserService(llm_client=get_llm_client())
                 parse_path = Path(task.original_file_path)
+                if resume_content_hash(parse_path.read_bytes()) != task.content_hash:
+                    raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
                 structured_data = parser.parse(parse_path)
             with mysql_connection() as connection:
                 repository = ResumeRepository(connection)
@@ -268,8 +271,7 @@ def parse_resume_upload_task(
     except Exception as exc:
         _stop_resume_parse_task_heartbeat(heartbeat)
         if task is not None:
-            with suppress(OSError):
-                Path(task.original_file_path).unlink()
+            _remove_resume_upload(Path(task.original_file_path))
         if task is not None and task.processing_token is not None:
             with mysql_connection() as connection:
                 ResumeRepository(connection).mark_parse_task_failed(
@@ -312,6 +314,13 @@ def _stop_resume_parse_task_heartbeat(heartbeat: tuple[Event, Thread] | None) ->
     stop_event, thread = heartbeat
     stop_event.set()
     thread.join(timeout=1)
+
+
+def _remove_resume_upload(path: Path) -> None:
+    with suppress(OSError):
+        path.unlink()
+    with suppress(OSError):
+        path.parent.rmdir()
 
 
 class ResumeParseTaskRunner:

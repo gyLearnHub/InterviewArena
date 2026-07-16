@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.repositories.history import (
+    DashboardAggregateRecord,
     FeedbackReportRecord,
     HistoryInterviewRecord,
     HistoryQARecord,
@@ -21,13 +22,55 @@ class FakeDashboardHistoryRepository:
     ) -> None:
         self.records = records
         self.practice_progress = practice_progress or []
+        self.recent_limits: list[int] = []
+        self.report_limits: list[int] = []
 
-    def list_by_user(self, user_id: int) -> list[HistoryInterviewRecord]:
-        return [
+    def get_dashboard_aggregate(self, user_id: int) -> DashboardAggregateRecord:
+        records = [record for record in self.records if record.user_id == user_id]
+        reports = [record for record in records if record.feedback_report is not None]
+        return DashboardAggregateRecord(
+            interview_count=len(records),
+            report_count=len(reports),
+            personalized_feedback_used=any(
+                bool(record.feedback_report and record.feedback_report.used_candidate_memory)
+                for record in reports
+            ),
+        )
+
+    def list_dashboard_recent_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 5,
+    ) -> list[HistoryInterviewRecord]:
+        self.recent_limits.append(limit)
+        records = [record for record in self.records if record.user_id == user_id]
+        return sorted(
+            records,
+            key=lambda record: (record.last_active_at or record.created_at, record.id),
+            reverse=True,
+        )[:limit]
+
+    def list_dashboard_reports_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 8,
+    ) -> list[HistoryInterviewRecord]:
+        self.report_limits.append(limit)
+        records = [
             record
             for record in self.records
-            if record.user_id == user_id
+            if record.user_id == user_id and record.feedback_report is not None
         ]
+        return sorted(
+            records,
+            key=lambda record: (
+                record.feedback_report.created_at if record.feedback_report else datetime.min,
+                record.id,
+            ),
+            reverse=True,
+        )[:limit]
 
     def get_by_id(self, interview_id: int) -> HistoryInterviewRecord | None:
         return next((record for record in self.records if record.id == interview_id), None)
@@ -341,6 +384,30 @@ def test_dashboard_summary_supports_empty_history() -> None:
     assert response.score_delta is None
     assert response.abilities == []
     assert response.weak_points == []
+
+
+def test_dashboard_summary_uses_bounded_repository_queries() -> None:
+    repository = FakeDashboardHistoryRepository([
+        _record(
+            index,
+            started_at=datetime(2026, 6, 1, 10, index % 60, 0),
+            feedback_report=FeedbackReportRecord(
+                score=60 + index % 30,
+                weaknesses=[f"weakness-{index}"],
+                suggestions=[f"suggestion-{index}"],
+                created_at=datetime(2026, 6, 1, 11, index % 60, 0),
+            ),
+        )
+        for index in range(1, 101)
+    ])
+
+    response = DashboardService(repository).get_summary(_user(1))
+
+    assert response.interview_count == 100
+    assert response.report_count == 100
+    assert repository.recent_limits == [5]
+    assert repository.report_limits == [8]
+    assert len(response.score_trend) == 8
 
 
 def _user(user_id: int) -> UserRecord:

@@ -25,7 +25,13 @@ from app.repositories.resumes import (
 )
 from app.repositories.users import UserRecord
 from app.services import resume_parser as resume_parser_module
-from app.services.resume_parser import ResumeParserService, convert_doc_to_docx, extract_docx_text
+from app.services.resume_parser import (
+    MAX_DOCX_MEMBER_BYTES,
+    ResumeParserService,
+    convert_doc_to_docx,
+    extract_docx_text,
+    store_resume_upload,
+)
 from app.services.resumes import ACTIVE_INTERVIEW_DELETE_MESSAGE, ResumeService
 from app.services.usage_limits import usage_limiter
 from docx import Document
@@ -467,7 +473,9 @@ def test_upload_docx_success_binds_current_user(
     assert task["structured_data"] == structured_resume()
     assert len(repository.created) == 1
     assert repository.created[0].user_id == 42
-    assert Path(repository.created[0].original_file_path).name == "resume.docx"
+    stored_path = Path(repository.created[0].original_file_path)
+    assert stored_path.parent.name == "42"
+    assert stored_path.suffix == ".docx"
     assert "Python 开发" in llm_client.received_text
     assert llm_client.parse_calls == 1
 
@@ -776,10 +784,10 @@ def test_upload_same_resume_reuses_existing_file_and_record(
     assert second_task["status"] == "completed"
     assert second_task["resume_id"] == first_task["resume_id"]
     assert len(repository.created) == 1
-    assert Path(repository.created[0].original_file_path).name == "resume.docx"
-    assert sorted(
-        path.name for path in Path(repository.created[0].original_file_path).parent.iterdir()
-    ) == ["resume.docx"]
+    stored_path = Path(repository.created[0].original_file_path)
+    assert stored_path.parent.name == "42"
+    assert stored_path.suffix == ".docx"
+    assert list(stored_path.parent.iterdir()) == [stored_path]
     assert llm_client.parse_calls == 1
 
 
@@ -947,7 +955,9 @@ def test_upload_does_not_scan_historical_files_without_matching_hash(
     assert task["resume_id"] == 101
     assert len(repository.created) == 101
     assert repository.list_by_user_calls == 0
-    assert Path(repository.created[-1].original_file_path).name == "fresh.docx"
+    stored_path = Path(repository.created[-1].original_file_path)
+    assert stored_path.parent.name == "42"
+    assert stored_path.suffix == ".docx"
     assert llm_client.parse_calls == 1
 
 
@@ -1028,7 +1038,7 @@ def test_upload_removes_file_when_parse_fails(tmp_path: Path) -> None:
     assert task["status"] == "failed"
     assert repository.created == []
     assert upload_dir.exists()
-    assert list(upload_dir.iterdir()) == []
+    assert not any(path.is_file() for path in upload_dir.rglob("*"))
 
 
 def test_upload_removes_file_when_database_create_fails(tmp_path: Path) -> None:
@@ -1055,7 +1065,7 @@ def test_upload_removes_file_when_database_create_fails(tmp_path: Path) -> None:
     assert task["status"] == "failed"
     assert repository.created == []
     assert upload_dir.exists()
-    assert list(upload_dir.iterdir()) == []
+    assert not any(path.is_file() for path in upload_dir.rglob("*"))
 
 
 def test_upload_doc_conversion_uses_isolated_temp_output(tmp_path: Path) -> None:
@@ -1092,13 +1102,15 @@ def test_upload_doc_conversion_uses_isolated_temp_output(tmp_path: Path) -> None
 
     task = read_parse_task(client, repository, response)
     assert task["status"] == "completed"
-    assert Path(repository.created[0].original_file_path).name == "resume.doc"
+    stored_path = Path(repository.created[0].original_file_path)
+    assert stored_path.parent.name == "1"
+    assert stored_path.suffix == ".doc"
     assert "本次转换后的简历" in llm_client.received_text
     assert "旧简历内容" in extract_docx_text(existing_docx)
     assert converted_dirs
-    assert converted_dirs[0].parent == upload_dir
+    assert converted_dirs[0].parent == upload_dir / "1"
     assert not converted_dirs[0].exists()
-    assert sorted(path.name for path in upload_dir.iterdir()) == ["resume.doc", "resume.docx"]
+    assert sorted(path.name for path in upload_dir.iterdir()) == ["1", "resume.docx"]
 
 
 def test_upload_propagates_deepseek_failure(tmp_path: Path) -> None:
@@ -1162,6 +1174,28 @@ def test_extract_docx_text_reads_textbox_content(tmp_path: Path) -> None:
     text = extract_docx_text(docx_path)
 
     assert "文本框里的简历内容" in text
+
+
+def test_store_resume_upload_uses_exclusive_unique_paths(tmp_path: Path) -> None:
+    first = store_resume_upload("resume.docx", tmp_path, b"first")
+    second = store_resume_upload("resume.docx", tmp_path, b"second")
+
+    assert first != second
+    assert first.suffix == second.suffix == ".docx"
+    assert first.read_bytes() == b"first"
+    assert second.read_bytes() == b"second"
+
+
+def test_extract_docx_text_rejects_oversized_archive_member(tmp_path: Path) -> None:
+    docx_path = tmp_path / "bomb.docx"
+    with ZipFile(docx_path, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types />")
+        archive.writestr("word/document.xml", b"A" * (MAX_DOCX_MEMBER_BYTES + 1))
+
+    with pytest.raises(AppError) as exc_info:
+        extract_docx_text(docx_path)
+
+    assert exc_info.value.code == ErrorCode.RESUME_PARSE_FAILED
 
 
 def test_parse_restores_project_title_missing_from_llm_result(tmp_path: Path) -> None:

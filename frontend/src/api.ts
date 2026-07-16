@@ -854,20 +854,36 @@ export function createWeaknessPractice(
 }
 
 export function listHistoryPage(
-  options: { limit?: number; offset?: number } = {}
+  options: {
+    limit?: number;
+    offset?: number;
+    query?: string;
+    status?: "created" | "in_progress" | "finished";
+  } = {}
 ): Promise<HistoryListResponse> {
   const params = new URLSearchParams();
   params.set("limit", String(options.limit || 20));
   params.set("offset", String(options.offset || 0));
+  if (options.query) params.set("query", options.query);
+  if (options.status) params.set("status", options.status);
   return request(`/interviews/history/page?${params.toString()}`);
 }
 
 export function listReportsPage(
-  options: { limit?: number; offset?: number } = {}
+  options: {
+    limit?: number;
+    offset?: number;
+    query?: string;
+    scoreFilter?: "high" | "middle";
+    sort?: "recent" | "score-desc" | "score-asc";
+  } = {}
 ): Promise<ReportListResponse> {
   const params = new URLSearchParams();
   params.set("limit", String(options.limit || 20));
   params.set("offset", String(options.offset || 0));
+  if (options.query) params.set("query", options.query);
+  if (options.scoreFilter) params.set("score_filter", options.scoreFilter);
+  if (options.sort) params.set("sort", options.sort);
   return request(`/interviews/reports/page?${params.toString()}`);
 }
 

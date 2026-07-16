@@ -611,7 +611,9 @@ const isDashboardShell = computed(() => route.name === "dashboard");
 const isInterviewRoute = computed(() =>
   ["interview-entry", "multi-round-interview"].includes(String(route.name))
 );
-const isHistoryRoute = computed(() => ["history", "history-detail"].includes(String(route.name)));
+const isHistoryRoute = computed(() =>
+  ["history", "reports", "history-detail"].includes(String(route.name))
+);
 const isReviewBookmarkRoute = computed(() => route.name === "review-bookmarks");
 const isMemoryRoute = computed(() => route.name === "memories");
 const isHelpRoute = computed(() => route.name === "help-center");
@@ -629,6 +631,7 @@ const pageMeta = computed(() => {
     dashboard: { title: "工作台", kicker: "面试训练总览" },
     "interview-entry": { title: "新建面试", kicker: "配置多轮模拟面试" },
     history: { title: "历史记录", kicker: "复盘与继续训练" },
+    reports: { title: "面试报告", kicker: "评分趋势与报告复盘" },
     "history-detail": { title: "面试详情", kicker: "单场面试复盘" },
     "review-bookmarks": { title: "复盘收藏", kicker: "错题与专项训练" },
     memories: { title: "我的记忆", kicker: "个性化记忆管理" },

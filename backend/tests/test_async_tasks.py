@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import app.api.interviews as interviews_api
@@ -1059,13 +1060,19 @@ def test_interview_task_repository_does_not_create_foreign_or_unscoped_round_tas
     assert connection.tasks == {}
 
 
-def test_resume_background_task_holds_usage_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resume_background_task_holds_usage_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     events: list[str] = []
+    resume_path = tmp_path / "resume.docx"
+    resume_content = b"resume-content"
+    resume_path.write_bytes(resume_content)
     task = ResumeParseTaskRecord(
         id=5,
         user_id=8,
-        original_file_path="resume.docx",
-        content_hash="hash",
+        original_file_path=str(resume_path),
+        content_hash=resumes_api.resume_content_hash(resume_content),
         status="processing",
         created_at=datetime(2026, 7, 7, 12, 0),
         processing_token="lease-token",

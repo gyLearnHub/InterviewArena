@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import status
 
@@ -38,6 +38,8 @@ class HistoryRepositoryProtocol(Protocol):
         *,
         limit: int | None = None,
         offset: int = 0,
+        query: str = "",
+        status_filter: str | None = None,
     ) -> list[HistoryInterviewRecord]:
         ...
 
@@ -47,6 +49,9 @@ class HistoryRepositoryProtocol(Protocol):
         *,
         limit: int | None = None,
         offset: int = 0,
+        query: str = "",
+        score_filter: str | None = None,
+        sort: str = "recent",
     ) -> list[ReportListRecord]:
         ...
 
@@ -77,6 +82,8 @@ class HistoryService:
         *,
         limit: int,
         offset: int,
+        query: str = "",
+        status_filter: Literal["created", "in_progress", "finished"] | None = None,
     ) -> HistoryListResponse:
         page_size = _page_size(limit)
         page_offset = max(offset, 0)
@@ -84,6 +91,8 @@ class HistoryService:
             current_user.id,
             limit=page_size + 1,
             offset=page_offset,
+            query=query,
+            status_filter=status_filter,
         )
         items = [
             _to_list_item(record)
@@ -103,6 +112,9 @@ class HistoryService:
         *,
         limit: int,
         offset: int,
+        query: str = "",
+        score_filter: Literal["high", "middle"] | None = None,
+        sort: Literal["recent", "score-desc", "score-asc"] = "recent",
     ) -> ReportListResponse:
         page_size = _page_size(limit)
         page_offset = max(offset, 0)
@@ -110,6 +122,9 @@ class HistoryService:
             current_user.id,
             limit=page_size + 1,
             offset=page_offset,
+            query=query,
+            score_filter=score_filter,
+            sort=sort,
         )
         items = [
             _to_report_item(record)

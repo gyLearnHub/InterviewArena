@@ -37,8 +37,19 @@ class FakeHistoryRepository:
         *,
         limit: int | None = None,
         offset: int = 0,
+        query: str = "",
+        status_filter: str | None = None,
     ) -> list[HistoryInterviewRecord]:
         records = self._list_interviews(user_id)
+        keyword = query.strip().lower()
+        if keyword:
+            records = [
+                record
+                for record in records
+                if keyword in record.target_position.lower() or keyword == str(record.id)
+            ]
+        if status_filter:
+            records = [record for record in records if record.overall_status == status_filter]
         return records[offset:] if limit is None else records[offset : offset + limit]
 
     def _list_interviews(self, user_id: int) -> list[HistoryInterviewRecord]:
@@ -49,7 +60,16 @@ class FakeHistoryRepository:
             reverse=True,
         )
 
-    def list_reports_by_user(self, user_id: int) -> list[ReportListRecord]:
+    def list_reports_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        query: str = "",
+        score_filter: str | None = None,
+        sort: str = "recent",
+    ) -> list[ReportListRecord]:
         records = [
             ReportListRecord(
                 interview_id=record.id,
@@ -63,11 +83,27 @@ class FakeHistoryRepository:
             for record in self.records
             if record.user_id == user_id and record.feedback_report is not None
         ]
-        return sorted(
-            records,
-            key=lambda record: (record.created_at or datetime.min, record.interview_id),
-            reverse=True,
-        )
+        keyword = query.strip().lower()
+        if keyword:
+            records = [
+                record
+                for record in records
+                if keyword in record.target_position.lower() or keyword == str(record.interview_id)
+            ]
+        if score_filter == "high":
+            records = [record for record in records if record.score >= 80]
+        elif score_filter == "middle":
+            records = [record for record in records if 60 <= record.score < 80]
+        if sort == "score-desc":
+            records.sort(key=lambda record: (record.score, record.interview_id), reverse=True)
+        elif sort == "score-asc":
+            records.sort(key=lambda record: (record.score, -record.interview_id))
+        else:
+            records.sort(
+                key=lambda record: (record.created_at or datetime.min, record.interview_id),
+                reverse=True,
+            )
+        return records[offset:] if limit is None else records[offset : offset + limit]
 
     def get_by_id(self, interview_id: int) -> HistoryInterviewRecord | None:
         self.get_by_id_calls += 1
@@ -141,6 +177,46 @@ def test_history_list_orders_by_started_or_created_time_desc() -> None:
     response = service.list_history_page(_user(1), limit=20, offset=0).items
 
     assert [item.interview_id for item in response] == [2, 3, 1]
+
+
+def test_history_page_filters_before_pagination() -> None:
+    records = [
+        _record(index, 1, target_position="稀有岗位" if index == 1 else "后端开发")
+        for index in range(1, 22)
+    ]
+    service = HistoryService(_fake_repository(records))
+
+    response = service.list_history_page(_user(1), limit=20, offset=0, query="稀有岗位")
+
+    assert [item.interview_id for item in response.items] == [1]
+    assert response.next_offset is None
+
+
+def test_report_page_sorts_globally_before_pagination() -> None:
+    records = [
+        _record(
+            index,
+            1,
+            feedback_report=FeedbackReportRecord(
+                score=score,
+                weaknesses=[],
+                suggestions=[],
+                created_at=datetime(2026, 6, index, 10, 0, 0),
+            ),
+        )
+        for index, score in ((1, 70), (2, 99), (3, 80))
+    ]
+    service = HistoryService(_fake_repository(records))
+
+    response = service.list_reports_page(
+        _user(1),
+        limit=1,
+        offset=0,
+        sort="score-desc",
+    )
+
+    assert [item.interview_id for item in response.items] == [2]
+    assert response.next_offset == 1
 
 
 def test_history_detail_returns_multi_round_fields_without_qa_history() -> None:
@@ -373,12 +449,13 @@ def _record(
     started_at: datetime | None = datetime(2026, 6, 11, 10, 0, 0),
     created_at: datetime = datetime(2026, 6, 11, 9, 0, 0),
     feedback_report: FeedbackReportRecord | None = DEFAULT_FEEDBACK_REPORT,
+    target_position: str = "后端开发",
 ) -> HistoryInterviewRecord:
     return HistoryInterviewRecord(
         id=interview_id,
         user_id=user_id,
         resume_id=101,
-        target_position="后端开发",
+        target_position=target_position,
         status="finished",
         mode="multi_round",
         job_description=None,

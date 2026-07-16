@@ -159,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import {
   ApiError,
@@ -242,40 +242,7 @@ const items = computed<DisplayItem[]>(() =>
       }))
 );
 const listItems = computed(() => items.value);
-const filteredItems = computed(() => {
-  const keyword = searchText.value.toLowerCase();
-  return [...listItems.value]
-    .filter((item) => {
-      const matchesKeyword =
-        !keyword ||
-        item.target_position.toLowerCase().includes(keyword) ||
-        String(item.interview_id).includes(keyword);
-      const matchesStatus =
-        isReportsMode.value || !statusFilter.value || item.status === statusFilter.value;
-      const matchesScore =
-        !isReportsMode.value ||
-        !scoreFilter.value ||
-        (scoreFilter.value === "empty" && item.score === null) ||
-        (scoreFilter.value === "high" && typeof item.score === "number" && item.score >= 80) ||
-        (scoreFilter.value === "middle" &&
-          typeof item.score === "number" &&
-          item.score >= 60 &&
-          item.score < 80);
-      return matchesKeyword && matchesStatus && matchesScore;
-    })
-    .sort((left, right) => {
-      if (sortMode.value === "score-desc") {
-        return scoreSortValue(right.score) - scoreSortValue(left.score);
-      }
-      if (sortMode.value === "score-asc") {
-        return scoreSortValue(left.score) - scoreSortValue(right.score);
-      }
-      return (
-        dateSortValue(right.updated_at || right.created_at) -
-        dateSortValue(left.updated_at || left.created_at)
-      );
-    });
-});
+const filteredItems = computed(() => listItems.value);
 const sortSummary = computed(() => {
   const map: Record<string, string> = {
     recent: "按最近更新时间",
@@ -292,11 +259,11 @@ onMounted(async () => {
 async function refreshHistory(): Promise<boolean> {
   try {
     if (isReportsMode.value) {
-      const response = await listReportsPage({ limit: PAGE_SIZE, offset: 0 });
+      const response = await listReportsPage(reportListOptions(0));
       reportItems.value = response.items;
       reportsNextOffset.value = response.next_offset;
     } else {
-      const response = await listHistoryPage({ limit: PAGE_SIZE, offset: 0 });
+      const response = await listHistoryPage(historyListOptions(0));
       historyItems.value = response.items;
       historyNextOffset.value = response.next_offset;
     }
@@ -321,11 +288,11 @@ async function loadMore() {
   loadingMore.value = true;
   try {
     if (isReportsMode.value) {
-      const response = await listReportsPage({ limit: PAGE_SIZE, offset: nextOffset });
+      const response = await listReportsPage(reportListOptions(nextOffset));
       reportItems.value = [...reportItems.value, ...response.items];
       reportsNextOffset.value = response.next_offset;
     } else {
-      const response = await listHistoryPage({ limit: PAGE_SIZE, offset: nextOffset });
+      const response = await listHistoryPage(historyListOptions(nextOffset));
       historyItems.value = [...historyItems.value, ...response.items];
       historyNextOffset.value = response.next_offset;
     }
@@ -411,16 +378,25 @@ function formatScore(score: number | null): string {
   return score === null ? "未出分" : `${score} 分`;
 }
 
-function scoreSortValue(score: number | null): number {
-  return typeof score === "number" ? score : -1;
+function historyListOptions(offset: number) {
+  return {
+    limit: PAGE_SIZE,
+    offset,
+    query: searchText.value,
+    ...(statusFilter.value
+      ? { status: statusFilter.value as "created" | "in_progress" | "finished" }
+      : {})
+  };
 }
 
-function dateSortValue(value: string | null): number {
-  if (!value) {
-    return 0;
-  }
-  const time = new Date(value).getTime();
-  return Number.isNaN(time) ? 0 : time;
+function reportListOptions(offset: number) {
+  return {
+    limit: PAGE_SIZE,
+    offset,
+    query: searchText.value,
+    ...(scoreFilter.value ? { scoreFilter: scoreFilter.value as "high" | "middle" } : {}),
+    sort: sortMode.value as "recent" | "score-desc" | "score-asc"
+  };
 }
 
 function showInfo(text: string) {
@@ -444,6 +420,16 @@ watch(isReportsMode, async () => {
   scoreFilter.value = "";
   await refreshHistory();
 });
+
+let filterRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+watch([searchText, statusFilter, scoreFilter, sortMode], () => {
+  window.clearTimeout(filterRefreshTimer);
+  filterRefreshTimer = window.setTimeout(() => {
+    void refreshHistory();
+  }, 250);
+});
+
+onBeforeUnmount(() => window.clearTimeout(filterRefreshTimer));
 </script>
 
 <style scoped>

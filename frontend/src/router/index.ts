@@ -46,7 +46,8 @@ const router = createRouter({
     {
       path: "/reports",
       name: "reports",
-      redirect: { name: "history" },
+      component: HistoryView,
+      props: { mode: "reports" },
       meta: { requiresAuth: true }
     },
     {

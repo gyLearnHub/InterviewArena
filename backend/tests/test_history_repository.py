@@ -11,6 +11,7 @@ class RecordingCursor:
         existing_tables: set[str] | None = None,
     ) -> None:
         self.statements: list[str] = []
+        self.parameters: list[Any] = []
         self.existing_tables = (
             set(DEFAULT_RECORDING_TABLES) if existing_tables is None else existing_tables
         )
@@ -27,6 +28,7 @@ class RecordingCursor:
         normalized = " ".join(sql.split())
         self.last_statement = normalized
         self.statements.append(normalized)
+        self.parameters.append(_params)
         self.rowcount = 1 if normalized.startswith("DELETE FROM interviews") else 0
 
     def fetchall(self) -> list[dict[str, Any]]:
@@ -36,6 +38,9 @@ class RecordingCursor:
             if table in self.existing_tables:
                 return [{"Field": "id"}]
         return []
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return None
 
 
 class RecordingConnection:
@@ -483,6 +488,75 @@ def test_list_interviews_falls_back_when_optional_interview_columns_are_missing(
     assert "'multi_round' AS mode" in statement
     assert "NULL AS last_active_at" in statement
     assert "i.last_active_at" not in statement
+
+
+def test_history_list_applies_filters_before_limit() -> None:
+    connection = RecordingConnection()
+    repository = HistoryRepository(connection)
+
+    repository.list_interviews_by_user(
+        1,
+        limit=21,
+        offset=0,
+        query="稀有岗位",
+        status_filter="finished",
+    )
+
+    index = next(
+        index
+        for index, statement in enumerate(connection.cursor_instance.statements)
+        if "FROM interviews i" in statement and "WHERE i.user_id" in statement
+    )
+    statement = connection.cursor_instance.statements[index]
+    params = connection.cursor_instance.parameters[index]
+    assert "i.target_position LIKE %s" in statement
+    assert "i.status = %s" in statement
+    assert statement.index("i.status = %s") < statement.index("LIMIT %s OFFSET %s")
+    assert params == (1, "%稀有岗位%", "finished", 21, 0)
+
+
+def test_report_list_applies_score_filter_and_global_sort_before_limit() -> None:
+    connection = RecordingConnection()
+    repository = HistoryRepository(connection)
+
+    repository.list_reports_by_user(
+        1,
+        limit=21,
+        query="18",
+        score_filter="high",
+        sort="score-desc",
+    )
+
+    index = next(
+        index
+        for index, statement in enumerate(connection.cursor_instance.statements)
+        if "FROM feedback_reports fr" in statement
+    )
+    statement = connection.cursor_instance.statements[index]
+    params = connection.cursor_instance.parameters[index]
+    assert "(i.target_position LIKE %s OR i.id = %s)" in statement
+    assert "fr.score >= %s" in statement
+    assert "ORDER BY fr.score DESC" in statement
+    assert statement.index("ORDER BY fr.score DESC") < statement.index("LIMIT %s OFFSET %s")
+    assert params == (1, "%18%", 18, 80, 21, 0)
+
+
+def test_dashboard_queries_are_bounded_and_skip_resume_json() -> None:
+    connection = RecordingConnection()
+    repository = HistoryRepository(connection)
+
+    aggregate = repository.get_dashboard_aggregate(1)
+    repository.list_dashboard_recent_by_user(1, limit=5)
+    repository.list_dashboard_reports_by_user(1, limit=8)
+
+    statements = connection.cursor_instance.statements
+    dashboard_lists = [statement for statement in statements if "JSON_OBJECT()" in statement]
+    assert aggregate.interview_count == 0
+    assert aggregate.report_count == 0
+    assert len(dashboard_lists) == 2
+    assert all("resume_structured_data" in statement for statement in dashboard_lists)
+    assert all("r.structured_data" not in statement for statement in dashboard_lists)
+    assert all("LIMIT %s" in statement for statement in dashboard_lists)
 
 
 def _index_of(statements: list[str], text: str) -> int:

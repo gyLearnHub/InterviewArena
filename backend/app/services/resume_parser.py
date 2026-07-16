@@ -6,6 +6,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 from xml.etree import ElementTree
 
 from docx import Document
@@ -19,6 +20,10 @@ from app.schemas.resume import StructuredResumeData
 from app.services.llm import LLMClient
 
 MAX_RESUME_BYTES = 10 * 1024 * 1024
+MAX_DOCX_MEMBERS = 2_048
+MAX_DOCX_MEMBER_BYTES = 16 * 1024 * 1024
+MAX_DOCX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 200
 SUPPORTED_EXTENSIONS = {".doc", ".docx"}
 
 ProjectConverter = Callable[[Path, Path], Path]
@@ -82,18 +87,22 @@ def validate_resume_extension(filename: str) -> str:
     return extension
 
 
-def make_resume_path(filename: str, upload_dir: Path) -> Path:
+def store_resume_upload(filename: str, upload_dir: Path, content: bytes) -> Path:
     extension = validate_resume_extension(filename)
-    safe_stem = Path(filename).stem.strip().replace(" ", "_") or "resume"
-    candidate = upload_dir / f"{safe_stem}{extension}"
-    counter = 1
-    while candidate.exists():
-        candidate = upload_dir / f"{safe_stem}_{counter}{extension}"
-        counter += 1
-    return candidate
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    for _attempt in range(3):
+        candidate = upload_dir / f"{uuid4().hex}{extension}"
+        try:
+            with candidate.open("xb") as target:
+                target.write(content)
+            return candidate
+        except FileExistsError:
+            continue
+    raise RuntimeError("unable to allocate a unique resume upload path")
 
 
 def extract_docx_text(path: Path) -> str:
+    validate_docx_archive(path)
     try:
         document = Document(str(path))
     except Exception as exc:
@@ -130,10 +139,11 @@ def extract_docx_xml_text(path: Path) -> str:
 
     try:
         with zipfile.ZipFile(path) as archive:
+            validate_docx_archive(path, archive=archive)
             for part_name in xml_parts:
                 if part_name not in archive.namelist():
                     continue
-                root = ElementTree.fromstring(archive.read(part_name))
+                root = ElementTree.fromstring(_read_archive_member(archive, part_name))
                 for paragraph in root.findall(".//w:p", namespaces):
                     if paragraph.findall(".//w:p", namespaces):
                         continue
@@ -147,6 +157,46 @@ def extract_docx_xml_text(path: Path) -> str:
         raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT) from exc
 
     return "\n".join(paragraphs)
+
+
+def validate_docx_archive(path: Path, *, archive: zipfile.ZipFile | None = None) -> None:
+    try:
+        if archive is None:
+            with zipfile.ZipFile(path) as opened_archive:
+                _validate_docx_members(opened_archive.infolist())
+        else:
+            _validate_docx_members(archive.infolist())
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT) from exc
+
+
+def _validate_docx_members(members: list[zipfile.ZipInfo]) -> None:
+    if not members or len(members) > MAX_DOCX_MEMBERS:
+        raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
+
+    total_size = 0
+    for member in members:
+        member_path = Path(member.filename.replace("\\", "/"))
+        if member.flag_bits & 0x1 or member_path.is_absolute() or ".." in member_path.parts:
+            raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
+        if member.is_dir():
+            continue
+
+        total_size += member.file_size
+        if member.file_size > MAX_DOCX_MEMBER_BYTES or total_size > MAX_DOCX_UNCOMPRESSED_BYTES:
+            raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
+        if member.file_size > 0:
+            compressed_size = max(1, member.compress_size)
+            if member.file_size / compressed_size > MAX_DOCX_COMPRESSION_RATIO:
+                raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
+
+
+def _read_archive_member(archive: zipfile.ZipFile, member_name: str) -> bytes:
+    with archive.open(member_name) as source:
+        content = source.read(MAX_DOCX_MEMBER_BYTES + 1)
+    if len(content) > MAX_DOCX_MEMBER_BYTES:
+        raise AppError(ErrorCode.RESUME_PARSE_FAILED, HTTP_422_UNPROCESSABLE_CONTENT)
+    return content
 
 
 DATE_RANGE_HEADING = re.compile(

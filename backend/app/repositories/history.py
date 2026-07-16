@@ -102,6 +102,13 @@ class ReportListRecord:
     created_at: datetime | None
 
 
+@dataclass(frozen=True)
+class DashboardAggregateRecord:
+    interview_count: int
+    report_count: int
+    personalized_feedback_used: bool
+
+
 class HistoryRepository:
     def __init__(self, connection: Any) -> None:
         self.connection = connection
@@ -165,18 +172,152 @@ class HistoryRepository:
             rows = cursor.fetchall()
         return [_to_history_record(row) for row in rows]
 
+    def get_dashboard_aggregate(self, user_id: int) -> DashboardAggregateRecord:
+        used_memory_expression = (
+            "COALESCE(MAX(fr.used_candidate_memory), 0)"
+            if self._has_column("feedback_reports", "used_candidate_memory")
+            else "0"
+        )
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                    COUNT(i.id) AS interview_count,
+                    COUNT(fr.interview_id) AS report_count,
+                    {used_memory_expression} AS personalized_feedback_used
+                FROM interviews i
+                LEFT JOIN feedback_reports fr ON fr.interview_id = i.id
+                WHERE i.user_id = %s
+                """,
+                (user_id,),
+            )
+            row = cursor.fetchone() or {}
+        return DashboardAggregateRecord(
+            interview_count=int(row.get("interview_count") or 0),
+            report_count=int(row.get("report_count") or 0),
+            personalized_feedback_used=bool(row.get("personalized_feedback_used")),
+        )
+
+    def list_dashboard_recent_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 5,
+    ) -> list[HistoryInterviewRecord]:
+        return self._list_dashboard_records(user_id, limit=limit, reports_only=False)
+
+    def list_dashboard_reports_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 8,
+    ) -> list[HistoryInterviewRecord]:
+        return self._list_dashboard_records(user_id, limit=limit, reports_only=True)
+
+    def _list_dashboard_records(
+        self,
+        user_id: int,
+        *,
+        limit: int,
+        reports_only: bool,
+    ) -> list[HistoryInterviewRecord]:
+        feedback_reliability_select = self._feedback_reliability_select()
+        feedback_memory_select = self._feedback_memory_select()
+        interview_selects = self._interview_optional_selects()
+        history_order = self._history_order_expression()
+        report_filter = "AND fr.interview_id IS NOT NULL" if reports_only else ""
+        order_expression = (
+            "COALESCE(fr.created_at, i.ended_at, i.started_at, i.created_at)"
+            if reports_only
+            else history_order
+        )
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    i.id,
+                    i.user_id,
+                    i.resume_id,
+                    i.target_position,
+                    i.status,
+                    {mode_select}
+                    {job_description_select}
+                    {overall_status_select}
+                    {elapsed_seconds_select}
+                    i.started_at,
+                    i.ended_at,
+                    {last_active_at_select}
+                    {harness_status_select}
+                    {recovery_count_select}
+                    {had_degradation_select}
+                    {last_harness_error_select}
+                    i.created_at,
+                    JSON_OBJECT() AS resume_structured_data,
+                    i.created_at AS resume_created_at,
+                    fr.score AS feedback_score,
+                    fr.weaknesses AS feedback_weaknesses,
+                    fr.suggestions AS feedback_suggestions,
+                    fr.recommendation AS feedback_recommendation,
+                    fr.round_scores AS feedback_round_scores,
+                    fr.strengths AS feedback_strengths,
+                    fr.ability_analysis AS feedback_ability_analysis,
+                    fr.job_match AS feedback_job_match,
+                    fr.final_conclusion AS feedback_final_conclusion,
+                    fr.confidence AS feedback_confidence,
+                    fr.reference_note AS feedback_reference_note,
+                    {feedback_memory_select}
+                    {feedback_reliability_select}
+                    fr.created_at AS feedback_created_at
+                FROM interviews i
+                LEFT JOIN feedback_reports fr ON fr.interview_id = i.id
+                WHERE i.user_id = %s
+                  {report_filter}
+                ORDER BY {order_expression} DESC, i.id DESC
+                LIMIT %s
+                """.format(
+                    feedback_reliability_select=feedback_reliability_select,
+                    feedback_memory_select=feedback_memory_select,
+                    report_filter=report_filter,
+                    order_expression=order_expression,
+                    **interview_selects,
+                ),
+                (user_id, max(1, min(limit, 100))),
+            )
+            rows = cursor.fetchall()
+        return [_to_history_record(row) for row in rows]
+
     def list_interviews_by_user(
         self,
         user_id: int,
         *,
         limit: int | None = None,
         offset: int = 0,
+        query: str = "",
+        status_filter: str | None = None,
     ) -> list[HistoryInterviewRecord]:
         with self.connection.cursor() as cursor:
             interview_selects = self._interview_optional_selects()
             history_order = self._history_order_expression()
             pagination_clause = ""
             params: list[Any] = [user_id]
+            filters: list[str] = []
+            keyword = query.strip()
+            if keyword:
+                if keyword.isdigit():
+                    filters.append("(i.target_position LIKE %s OR i.id = %s)")
+                    params.extend([f"%{keyword}%", int(keyword)])
+                else:
+                    filters.append("i.target_position LIKE %s")
+                    params.append(f"%{keyword}%")
+            if status_filter:
+                status_expression = (
+                    "COALESCE(i.overall_status, i.status)"
+                    if self._has_column("interviews", "overall_status")
+                    else "i.status"
+                )
+                filters.append(f"{status_expression} = %s")
+                params.append(status_filter)
+            filter_clause = "" if not filters else "AND " + " AND ".join(filters)
             if limit is not None:
                 pagination_clause = "LIMIT %s OFFSET %s"
                 params.extend([limit, max(offset, 0)])
@@ -200,14 +341,16 @@ class HistoryRepository:
                     {had_degradation_select}
                     {last_harness_error_select}
                     i.created_at,
-                    r.structured_data AS resume_structured_data,
-                    r.created_at AS resume_created_at
+                    JSON_OBJECT() AS resume_structured_data,
+                    i.created_at AS resume_created_at
                 FROM interviews i
                 JOIN resumes r ON r.id = i.resume_id
                 WHERE i.user_id = %s
+                  {filter_clause}
                 ORDER BY {history_order} DESC, i.id DESC
                 {pagination_clause}
                 """.format(
+                    filter_clause=filter_clause,
                     history_order=history_order,
                     pagination_clause=pagination_clause,
                     **interview_selects,
@@ -223,12 +366,35 @@ class HistoryRepository:
         *,
         limit: int | None = None,
         offset: int = 0,
+        query: str = "",
+        score_filter: str | None = None,
+        sort: str = "recent",
     ) -> list[ReportListRecord]:
         with self.connection.cursor() as cursor:
             feedback_reliability_select = self._feedback_reliability_select()
             feedback_memory_select = self._feedback_memory_select("used_candidate_memory")
             pagination_clause = ""
             params: list[Any] = [user_id]
+            filters: list[str] = []
+            keyword = query.strip()
+            if keyword:
+                if keyword.isdigit():
+                    filters.append("(i.target_position LIKE %s OR i.id = %s)")
+                    params.extend([f"%{keyword}%", int(keyword)])
+                else:
+                    filters.append("i.target_position LIKE %s")
+                    params.append(f"%{keyword}%")
+            if score_filter == "high":
+                filters.append("fr.score >= %s")
+                params.append(80)
+            elif score_filter == "middle":
+                filters.append("fr.score >= %s AND fr.score < %s")
+                params.extend([60, 80])
+            filter_clause = "" if not filters else "AND " + " AND ".join(filters)
+            order_clause = {
+                "score-desc": "fr.score DESC, fr.created_at DESC, fr.interview_id DESC",
+                "score-asc": "fr.score ASC, fr.created_at DESC, fr.interview_id DESC",
+            }.get(sort, "fr.created_at DESC, fr.interview_id DESC")
             if limit is not None:
                 pagination_clause = "LIMIT %s OFFSET %s"
                 params.extend([limit, max(offset, 0)])
@@ -245,7 +411,8 @@ class HistoryRepository:
                 FROM feedback_reports fr
                 JOIN interviews i ON i.id = fr.interview_id
                 WHERE i.user_id = %s
-                ORDER BY fr.created_at DESC, fr.interview_id DESC
+                  {filter_clause}
+                ORDER BY {order_clause}
                 {pagination_clause}
                 """,
                 tuple(params),

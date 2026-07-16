@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from app.repositories.history import HistoryInterviewRecord, WeaknessPracticeProgressRecord
+from app.repositories.history import (
+    DashboardAggregateRecord,
+    HistoryInterviewRecord,
+    WeaknessPracticeProgressRecord,
+)
 from app.repositories.users import UserRecord
 from app.schemas.dashboard import (
     DashboardAbilitySummary,
@@ -18,7 +22,23 @@ from app.services.weakness_practice_progress import PRACTICE_STATUS_PENDING, wea
 
 
 class DashboardHistoryRepositoryProtocol(Protocol):
-    def list_by_user(self, user_id: int) -> list[HistoryInterviewRecord]:
+    def get_dashboard_aggregate(self, user_id: int) -> DashboardAggregateRecord:
+        ...
+
+    def list_dashboard_recent_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 5,
+    ) -> list[HistoryInterviewRecord]:
+        ...
+
+    def list_dashboard_reports_by_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 8,
+    ) -> list[HistoryInterviewRecord]:
         ...
 
     def get_by_id(self, interview_id: int) -> HistoryInterviewRecord | None:
@@ -74,36 +94,36 @@ class DashboardService:
         self.memory_task_repository = memory_task_repository
 
     def get_summary(self, current_user: UserRecord) -> DashboardSummary:
+        aggregate = self.history_repository.get_dashboard_aggregate(current_user.id)
         records = [
             record
-            for record in self.history_repository.list_by_user(current_user.id)
+            for record in self.history_repository.list_dashboard_recent_by_user(
+                current_user.id,
+                limit=5,
+            )
             if record.user_id == current_user.id
         ]
-        report_records = [record for record in records if record.feedback_report is not None]
-        latest_interview_record = max(
-            records,
-            key=lambda record: (record.started_at or record.created_at, record.id),
-            default=None,
-        )
-        latest_report_record = max(
-            report_records,
-            key=_report_sort_key,
-            default=None,
-        )
+        report_records = [
+            record
+            for record in self.history_repository.list_dashboard_reports_by_user(
+                current_user.id,
+                limit=8,
+            )
+            if record.user_id == current_user.id and record.feedback_report is not None
+        ]
+        latest_interview_record = records[0] if records else None
+        latest_report_record = report_records[0] if report_records else None
         detailed_records = self._recent_detailed_records(records)
         practice_progress = self._weakness_practice_progress(current_user.id)
-        personalized_feedback_used = any(
-            bool(record.feedback_report and record.feedback_report.used_candidate_memory)
-            for record in report_records
-        )
+        personalized_feedback_used = aggregate.personalized_feedback_used
         memory_status, candidate_memory_count = self._memory_state(
             current_user=current_user,
             personalized_feedback_used=personalized_feedback_used,
         )
 
         return DashboardSummary(
-            interview_count=len(records),
-            report_count=len(report_records),
+            interview_count=aggregate.interview_count,
+            report_count=aggregate.report_count,
             personalized_feedback_used=personalized_feedback_used,
             memory_status=memory_status,
             candidate_memory_count=candidate_memory_count,
