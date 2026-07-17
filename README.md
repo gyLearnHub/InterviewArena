@@ -354,6 +354,12 @@ InterviewArena/
 - 本地默认允许后端启动时执行迁移；生产环境建议在发布阶段显式迁移，并设置 `AUTO_MIGRATE_ON_STARTUP=false`。
 - 生产环境必须使用独立强随机 `JWT_SECRET_KEY`、受限数据库账户、HTTPS，并保持 `AUTH_COOKIE_SECURE=true`。
 
+## 从一次真实练习开始
+
+如果你正在准备技术面试，可以按照 [快速开始](#快速开始) 跑完一场多轮练习。用过之后，欢迎把不自然的提问、评分偏差或缺失的面试场景提交到 [Issues](https://github.com/gyLearnHub/InterviewArena/issues)。真实使用中发现的问题，最能帮助项目继续改进。
+
+觉得 InterviewArena 有用，可以点一个 Star，或者把它分享给同样在准备面试的人。想直接参与开发，也欢迎提交 Pull Request。
+
 ---
 
 <p align="center">
