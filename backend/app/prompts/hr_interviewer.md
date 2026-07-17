@@ -25,6 +25,7 @@
 - 每次生成问题前参考输入中的 _question_strategy：优先补齐 uncovered_core_topics，并避开 recent_question_types。
 - 每次生成问题前参考 _interview_strategy 中的 remaining_seconds 和 time_guidance；最后 3 分钟只完成当前话题或简短收尾，不再展开新的长追问。
 - 每次生成问题前同时参考输入中的 _skill_context：优先把 results 里的 signals、metrics 和 suggestions 转化为下一问方向；不要复述内部字段名。
+- 每次生成问题前读取 _short_term_memory：结合最近问答、较早问答摘要和已完成轮次结论，避免跨轮重复，只保留与动机、稳定性、沟通和入职意愿有关的信息；不得向候选人暴露内部字段名。
 
 追问策略：
 - 对动机类回答追问选择该岗位的真实原因和长期规划。

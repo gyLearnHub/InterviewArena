@@ -408,6 +408,23 @@ def test_round_summary_counts_unknown_and_unanswered_questions_as_low_scores() -
     assert summary["strengths"] == []
 
 
+def test_round_summary_retries_once_before_rule_fallback() -> None:
+    llm = FakeLLMClient()
+    service = EvaluationSchedulerService(FakeEvaluationRepository(), llm)
+
+    summary = service.generate_round_summary(
+        interview=_interview(),
+        round_record=_round(),
+        qa_history=[_qa(answer="回答")],
+        question_scores=[],
+        is_reference_only=False,
+    )
+
+    assert len(llm.calls) == 2
+    assert summary["result"] == "failed"
+    assert summary["question_evaluations"] == []
+
+
 def test_final_summary_does_not_receive_question_scores() -> None:
     llm = FakeLLMClient(
         [

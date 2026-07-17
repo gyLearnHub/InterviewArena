@@ -26,6 +26,7 @@ from app.schemas.history import (
     ResumeSummary,
 )
 from app.services.interview_strategy import round_label as _round_label
+from app.services.short_term_memory_store import ShortTermMemoryStoreError
 
 
 class HistoryRepositoryProtocol(Protocol):
@@ -71,10 +72,26 @@ class HistoryRepositoryProtocol(Protocol):
     def delete_all_by_user(self, user_id: int) -> int:
         ...
 
+    def list_interview_ids_by_user(self, user_id: int) -> list[int]:
+        ...
+
+
+class ShortTermMemoryStoreProtocol(Protocol):
+    def delete(self, user_id: int, interview_id: int) -> bool:
+        ...
+
+    def delete_many(self, user_id: int, interview_ids: list[int]) -> int:
+        ...
+
 
 class HistoryService:
-    def __init__(self, history_repository: HistoryRepositoryProtocol) -> None:
+    def __init__(
+        self,
+        history_repository: HistoryRepositoryProtocol,
+        short_term_memory_store: ShortTermMemoryStoreProtocol | None = None,
+    ) -> None:
         self.history_repository = history_repository
+        self.short_term_memory_store = short_term_memory_store
 
     def list_history_page(
         self,
@@ -144,9 +161,32 @@ class HistoryService:
         deleted = self.history_repository.delete_by_id_for_user(interview_id, current_user.id)
         if not deleted:
             raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        if self.short_term_memory_store is not None:
+            try:
+                self.short_term_memory_store.delete(current_user.id, interview_id)
+            except ShortTermMemoryStoreError as exc:
+                raise _short_memory_cleanup_error() from exc
 
     def clear_history(self, current_user: UserRecord) -> None:
+        interview_ids = (
+            self.history_repository.list_interview_ids_by_user(current_user.id)
+            if self.short_term_memory_store is not None
+            else []
+        )
         self.history_repository.delete_all_by_user(current_user.id)
+        if self.short_term_memory_store is not None and interview_ids:
+            try:
+                self.short_term_memory_store.delete_many(current_user.id, interview_ids)
+            except ShortTermMemoryStoreError as exc:
+                raise _short_memory_cleanup_error() from exc
+
+
+def _short_memory_cleanup_error() -> AppError:
+    return AppError(
+        ErrorCode.BUSINESS_ERROR,
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        message="短期记忆清理暂时失败，请稍后重试删除。",
+    )
 
 
 def _to_list_item(record: HistoryInterviewRecord) -> HistoryListItem:

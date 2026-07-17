@@ -12,6 +12,7 @@ from app.repositories.history import (
 )
 from app.repositories.users import UserRecord
 from app.services.history import HistoryService
+from app.services.short_term_memory_store import ShortTermMemoryStoreError
 
 DEFAULT_FEEDBACK_REPORT = FeedbackReportRecord(
     score=88,
@@ -138,6 +139,28 @@ class FakeHistoryRepository:
         original_count = len(self.records)
         self.records = [record for record in self.records if record.user_id != user_id]
         return original_count - len(self.records)
+
+    def list_interview_ids_by_user(self, user_id: int) -> list[int]:
+        return [record.id for record in self.records if record.user_id == user_id]
+
+
+class FakeShortTermMemoryStore:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.deleted: list[tuple[int, int]] = []
+        self.batch_deleted: list[tuple[int, list[int]]] = []
+
+    def delete(self, user_id: int, interview_id: int) -> bool:
+        if self.fail:
+            raise ShortTermMemoryStoreError("redis unavailable")
+        self.deleted.append((user_id, interview_id))
+        return True
+
+    def delete_many(self, user_id: int, interview_ids: list[int]) -> int:
+        if self.fail:
+            raise ShortTermMemoryStoreError("redis unavailable")
+        self.batch_deleted.append((user_id, interview_ids))
+        return len(interview_ids)
 
 
 def test_history_list_only_returns_current_user_records() -> None:
@@ -433,6 +456,37 @@ def test_clear_history_removes_only_current_user_records() -> None:
     service.clear_history(_user(1))
 
     assert [record.id for record in repository.records] == [3]
+
+
+def test_delete_history_item_clears_short_term_memory() -> None:
+    repository = _fake_repository([_record(1, 1), _record(2, 1)])
+    store = FakeShortTermMemoryStore()
+    service = HistoryService(repository, store)
+
+    service.delete_history_item(1, _user(1))
+
+    assert store.deleted == [(1, 1)]
+
+
+def test_clear_history_clears_all_short_term_memory_keys_for_user() -> None:
+    repository = _fake_repository([_record(1, 1), _record(2, 1), _record(3, 2)])
+    store = FakeShortTermMemoryStore()
+    service = HistoryService(repository, store)
+
+    service.clear_history(_user(1))
+
+    assert store.batch_deleted == [(1, [1, 2])]
+
+
+def test_history_delete_surfaces_short_term_memory_cleanup_failure() -> None:
+    repository = _fake_repository([_record(1, 1)])
+    service = HistoryService(repository, FakeShortTermMemoryStore(fail=True))
+
+    with pytest.raises(AppError) as error_info:
+        service.delete_history_item(1, _user(1))
+
+    assert error_info.value.status_code == 503
+    assert error_info.value.code == ErrorCode.BUSINESS_ERROR
 
 
 def _fake_repository(records: list[HistoryInterviewRecord]) -> FakeHistoryRepository:

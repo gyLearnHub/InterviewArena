@@ -80,6 +80,7 @@ from app.services.interview_strategy import (
 from app.services.llm import LLMClient
 from app.services.memory_retrieval import MemoryRetrievalService
 from app.services.memory_tasks import MemoryTaskService
+from app.services.short_term_memory import ShortTermMemoryService
 from app.services.weakness_practice_progress import (
     classify_practice_status,
     weakness_key,
@@ -108,6 +109,7 @@ class InterviewService:
         memory_task_service: MemoryTaskService | None = None,
         memory_retrieval_service: MemoryRetrievalService | None = None,
         preferences_repository: PreferencesRepository | None = None,
+        short_term_memory_service: ShortTermMemoryService | None = None,
     ) -> None:
         self.repository = repository
         self.llm_client = llm_client
@@ -115,6 +117,7 @@ class InterviewService:
         self.memory_task_service = memory_task_service
         self.memory_retrieval_service = memory_retrieval_service
         self.preferences_repository = preferences_repository
+        self.short_term_memory_service = short_term_memory_service
 
     def create_interview(
         self,
@@ -329,6 +332,18 @@ class InterviewService:
             else {}
         )
         finished_round_ids = {item.id for item in rounds if item.status in FINISHED_ROUND_STATUSES}
+        short_term_memory = (
+            self.short_term_memory_service.sync_from_records(
+                user_id,
+                interview,
+                rounds=rounds,
+                qa_records=qa_history,
+                score_by_id=question_scores,
+            )
+            if self.short_term_memory_service is not None
+            and interview.overall_status not in {"finished", "completed", "cancelled"}
+            else None
+        )
         return InterviewStateResponse(
             interview_id=interview.id,
             mode=interview.mode,
@@ -357,6 +372,7 @@ class InterviewService:
                 )
                 for qa in qa_history
             ],
+            short_term_memory=short_term_memory,
         )
 
     def list_rounds(self, interview: InterviewRecord) -> list[InterviewRoundRecord]:
@@ -1463,6 +1479,16 @@ class InterviewService:
             "_job_description": interview.job_description or "",
             "_interview_strategy": strategy_payload,
         }
+        if self.short_term_memory_service is not None:
+            short_memory_context, qa_history_payload, _ = (
+                self.short_term_memory_service.prompt_context(
+                    user_id=user_id,
+                    interview=interview,
+                    round_record=round_record,
+                    qa_history=qa_history_payload,
+                )
+            )
+            resume_payload["_short_term_memory"] = short_memory_context
         skill_bundle = self._run_skill_layer(
             user_id=user_id,
             interview=interview,

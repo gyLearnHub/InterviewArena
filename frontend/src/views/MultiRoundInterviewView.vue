@@ -75,6 +75,21 @@
 
     <main v-if="activeRound" class="room-main">
       <section class="conversation-panel">
+        <header class="conversation-heading">
+          <div>
+            <strong>{{ activeRound.interviewer }}</strong>
+            <span>{{ activeRound.label }}</span>
+          </div>
+          <span
+            v-if="shortTermMemoryStatus"
+            class="short-memory-badge"
+            :class="shortTermMemoryStatus.status"
+            data-testid="short-term-memory-status"
+            :title="shortTermMemoryTitle"
+          >
+            {{ shortTermMemoryLabel }}
+          </span>
+        </header>
         <div
           :ref="setActiveMessagesEl"
           class="round-messages conversation-messages"
@@ -512,6 +527,7 @@ import {
   type MultiRoundState,
   type RoundAnswerResponse,
   type RoundSummary,
+  type ShortTermMemoryStatus,
   type RoundType,
   type TimeLimitMinutes,
   type QuestionEvaluation
@@ -601,6 +617,7 @@ const route = useRoute();
 const router = useRouter();
 const interviewId = computed(() => Number(route.params.id));
 const state = ref<MultiRoundState | null>(null);
+const shortTermMemoryStatus = ref<ShortTermMemoryStatus | null>(null);
 const currentQuestion = ref<MultiRoundQuestion | null>(null);
 const message = ref("");
 const hasError = ref(false);
@@ -686,6 +703,21 @@ const activeRoundType = computed<RoundType | null>(
 const activeRound = computed(
   () => displayRounds.value.find((round) => round.type === activeRoundType.value) || null
 );
+const shortTermMemoryLabel = computed(() => {
+  const status = shortTermMemoryStatus.value?.status;
+  if (status === "compressed") return "短期记忆已压缩";
+  if (status === "recovered") return "短期记忆已恢复";
+  if (status === "degraded") return "短期记忆降级";
+  return "短期记忆正常";
+});
+const shortTermMemoryTitle = computed(() => {
+  const memory = shortTermMemoryStatus.value;
+  if (!memory) return "";
+  if (memory.status === "degraded") return "Redis 暂不可用，当前由 MySQL 同步重建上下文。";
+  if (memory.status === "recovered") return "Redis 缓存已从 MySQL 面试记录恢复。";
+  if (memory.status === "compressed") return "较早问答已压缩，最近问答保留原文。";
+  return "Redis 短期记忆工作正常。";
+});
 const currentActionRound = computed(() => {
   const type = currentRoundType.value;
   return type ? displayRounds.value.find((round) => round.type === type) || null : null;
@@ -1304,6 +1336,9 @@ async function applyActionPayload(
   }
 
   latestRoundSummary.value = payload.round_summary || null;
+  if (payload.short_term_memory) {
+    shortTermMemoryStatus.value = payload.short_term_memory;
+  }
   latestRoundSummaryRoundType.value = fallbackType;
   if (payload.answer_evaluation) {
     attachAnswerEvaluation(fallbackType, payload.answer_evaluation);
@@ -1331,6 +1366,7 @@ async function applyActionPayload(
 
 function applyState(nextState: MultiRoundState) {
   state.value = nextState;
+  shortTermMemoryStatus.value = nextState.short_term_memory || null;
   stateLoadedAt.value = Date.now();
   elapsedTick.value = Date.now();
   currentQuestion.value = nextState.current_question;
@@ -2541,7 +2577,7 @@ function clearMessage() {
 
 .conversation-panel {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -2549,6 +2585,55 @@ function clearMessage() {
   border-radius: 16px;
   background: var(--panel-strong);
   box-shadow: var(--shadow-md);
+}
+
+.conversation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 94%, var(--accent));
+}
+
+.conversation-heading > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.conversation-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.short-memory-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, #2f9e71 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, #2f9e71 11%, transparent);
+  color: #237755 !important;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.short-memory-badge.compressed,
+.short-memory-badge.recovered {
+  border-color: color-mix(in srgb, #b7791f 34%, transparent);
+  background: color-mix(in srgb, #d69e2e 12%, transparent);
+  color: #946314 !important;
+}
+
+.short-memory-badge.degraded {
+  border-color: color-mix(in srgb, #c05621 34%, transparent);
+  background: color-mix(in srgb, #dd6b20 12%, transparent);
+  color: #a0441b !important;
 }
 
 .round-messages {

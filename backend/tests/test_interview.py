@@ -858,16 +858,33 @@ class FakeQuestionEvaluationService:
         )
 
 
+class RecordingShortTermMemoryService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def sync_from_records(self, user_id: int, interview: InterviewRecord, **records: Any) -> Any:
+        self.calls.append({"user_id": user_id, "interview": interview, **records})
+        return {
+            "status": "healthy",
+            "source": "redis",
+            "compressed": False,
+            "fallback_used": False,
+            "updated_at": datetime.utcnow(),
+        }
+
+
 def make_service(
     llm_client: FakeLLMClient | None = None,
     evaluation_service: Any | None = None,
+    short_term_memory_service: Any | None = None,
 ) -> tuple[InterviewService, FakeInterviewRepository]:
     repository = FakeInterviewRepository()
     return (
         InterviewService(
             repository=repository,  # type: ignore[arg-type]
-            llm_client=llm_client or FakeLLMClient(),
+            llm_client=llm_client or FakeLLMClient(),  # type: ignore[arg-type]
             evaluation_service=evaluation_service,
+            short_term_memory_service=short_term_memory_service,
         ),
         repository,
     )
@@ -1076,6 +1093,29 @@ def test_create_interview_saves_strategy_configuration() -> None:
     assert state.interview_goal == "big_tech"
     assert state.difficulty == "pressure"
     assert state.time_limit_minutes == 60
+
+
+def test_get_state_reuses_loaded_records_and_does_not_rebuild_finished_memory() -> None:
+    short_memory = RecordingShortTermMemoryService()
+    service, repository = make_service(short_term_memory_service=short_memory)
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(1, 1, "后端开发")
+
+    active_state = service.get_state(1, interview.id)
+
+    assert active_state.short_term_memory is not None
+    assert len(short_memory.calls) == 1
+    assert short_memory.calls[0]["rounds"] == repository.list_rounds(interview.id)
+    assert short_memory.calls[0]["qa_records"] == repository.list_qa(interview.id)
+    current = repository.interviews[interview.id]
+    repository.interviews[interview.id] = InterviewRecord(
+        **{**current.__dict__, "overall_status": "finished"}
+    )
+
+    finished_state = service.get_state(1, interview.id)
+
+    assert finished_state.short_term_memory is None
+    assert len(short_memory.calls) == 1
 
 
 def test_create_interview_rejects_invalid_strategy_configuration() -> None:

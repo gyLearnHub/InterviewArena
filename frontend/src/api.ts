@@ -521,6 +521,14 @@ export type QuestionEvaluationDimension = {
   reason?: string;
 };
 
+export type ShortTermMemoryStatus = {
+  status: "healthy" | "compressed" | "recovered" | "degraded";
+  source: "redis" | "mysql";
+  compressed: boolean;
+  fallback_used: boolean;
+  updated_at?: string | null;
+};
+
 export type MultiRoundQuestion = {
   id: number;
   round_id: number;
@@ -571,6 +579,7 @@ export type MultiRoundState = {
   recovery_count?: number;
   had_degradation?: boolean;
   last_harness_error?: string | null;
+  short_term_memory?: ShortTermMemoryStatus | null;
 };
 
 export type HarnessTraceItem = {
@@ -676,6 +685,7 @@ export type RoundAnswerResponse = {
   round_summary: RoundSummary | null;
   answer_evaluation?: QuestionEvaluation | null;
   round?: InterviewRound;
+  short_term_memory?: ShortTermMemoryStatus | null;
 };
 
 export type AnswerDraftResponse = {

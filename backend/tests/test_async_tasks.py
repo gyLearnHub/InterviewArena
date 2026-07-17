@@ -713,6 +713,31 @@ def test_interview_background_task_holds_usage_lease(monkeypatch: pytest.MonkeyP
     assert FakeTaskRepository.completed == [(7, {"ok": True})]
 
 
+def test_short_memory_sync_failure_after_operation_is_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = InterviewOperationTaskRecord(
+        id=9,
+        user_id=3,
+        interview_id=11,
+        round_id=22,
+        operation="answer_round_question",
+        status="processing",
+        payload={"round_id": 22},
+    )
+    monkeypatch.setattr(
+        interviews_api,
+        "mysql_connection",
+        lambda: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+
+    result = interviews_api._sync_short_term_memory_after_operation(task)
+
+    assert result.status == "degraded"
+    assert result.source == "mysql"
+    assert result.fallback_used is True
+
+
 def test_interview_background_task_recovers_completion_after_processing_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

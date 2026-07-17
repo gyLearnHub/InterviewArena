@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.short_term_memory import ShortTermMemoryStatus
+
 JOB_DESCRIPTION_MAX_LENGTH = 8_000
 ROUND_ANSWER_MAX_LENGTH = 8_000
 InterviewGoal = Literal["internship", "campus", "big_tech"]
@@ -139,6 +141,7 @@ class RoundAnswerResponse(BaseModel):
     question: RoundQuestionResponse | None = None
     round_summary: dict[str, Any] | None = None
     answer_evaluation: dict[str, Any] | None = None
+    short_term_memory: ShortTermMemoryStatus | None = None
 
 
 class InterviewStateResponse(BaseModel):
@@ -159,3 +162,4 @@ class InterviewStateResponse(BaseModel):
     rounds: list[InterviewRoundResponse]
     current_question: RoundQuestionResponse | None = None
     qa_history: list[dict[str, Any]] = Field(default_factory=list)
+    short_term_memory: ShortTermMemoryStatus | None = None

@@ -542,6 +542,14 @@ class HistoryRepository:
             }
         )
 
+    def list_interview_ids_by_user(self, user_id: int) -> list[int]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM interviews WHERE user_id = %s ORDER BY id",
+                (user_id,),
+            )
+            return [int(row["id"]) for row in cursor.fetchall()]
+
     def delete_by_id_for_user(self, interview_id: int, user_id: int) -> bool:
         with self.connection.cursor() as cursor:
             self._scrub_evolution_records_for_interview(cursor, interview_id, user_id)

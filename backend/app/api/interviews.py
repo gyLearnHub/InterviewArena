@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 from collections.abc import Iterator
 from datetime import datetime
 from threading import Event, Thread
@@ -57,6 +58,7 @@ from app.schemas.interview import (
     WeaknessPracticeRequest,
     WeaknessPracticeResponse,
 )
+from app.schemas.short_term_memory import ShortTermMemoryStatus
 from app.services.evaluations import EvaluationSchedulerService
 from app.services.history import HistoryService
 from app.services.interview_mutation_lock import interview_mutation_lock
@@ -64,9 +66,12 @@ from app.services.interviews import InterviewService
 from app.services.llm import LLMClient, get_llm_client
 from app.services.memory_retrieval import MemoryRetrievalService
 from app.services.memory_tasks import MemoryTaskService
+from app.services.short_term_memory import ShortTermMemoryService
+from app.services.short_term_memory_store import get_short_term_memory_store
 from app.services.usage_limits import usage_limiter
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
+LOGGER = logging.getLogger(__name__)
 LLMClientDep = Depends(get_llm_client)
 OptionalRoundFinishBody = Body(default=None)
 OptionalInterviewFinishBody = Body(default=None)
@@ -116,6 +121,11 @@ def get_interview_service(
         memory_repository=MemoryRepository(repository.connection),
         audit_repository=RagAuditRepository(repository.connection),
     )
+    short_term_memory_service = ShortTermMemoryService(
+        repository,
+        get_short_term_memory_store(),
+        evaluation_service,
+    )
     return InterviewService(
         repository,
         llm_client,
@@ -123,13 +133,14 @@ def get_interview_service(
         memory_task_service,
         memory_retrieval_service,
         preferences,
+        short_term_memory_service,
     )
 
 
 def get_history_service(
     repository: HistoryRepository = HistoryRepositoryDep,
 ) -> HistoryService:
-    return HistoryService(repository)
+    return HistoryService(repository, get_short_term_memory_store())
 
 
 CurrentUserDep = Depends(get_current_user)
@@ -725,6 +736,7 @@ def _run_interview_operation(
     task: InterviewOperationTaskRecord,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    result_payload: dict[str, Any]
     with mysql_connection() as connection:
         with interview_mutation_lock(connection, task.interview_id, wait_seconds=1):
             service = _build_interview_service(connection)
@@ -781,7 +793,44 @@ def _run_interview_operation(
                 )
             else:
                 raise AppError(ErrorCode.VALIDATION_ERROR, 422, message="未知面试任务。")
-            return result.model_dump(mode="json")
+            result_payload = result.model_dump(mode="json")
+
+    short_memory_status = _sync_short_term_memory_after_operation(task)
+    if task.operation != "finish_interview":
+        result_payload["short_term_memory"] = short_memory_status.model_dump(mode="json")
+    return result_payload
+
+
+def _sync_short_term_memory_after_operation(
+    task: InterviewOperationTaskRecord,
+) -> ShortTermMemoryStatus:
+    try:
+        with mysql_connection() as connection:
+            repository = InterviewRepository(connection)
+            llm_client = get_llm_client()
+            evaluation_service = EvaluationSchedulerService(
+                EvaluationRepository(connection),
+                llm_client,
+            )
+            service = ShortTermMemoryService(
+                repository,
+                get_short_term_memory_store(),
+                evaluation_service,
+            )
+            if task.operation == "finish_interview":
+                return service.delete(task.user_id, task.interview_id)
+            return service.sync(task.user_id, task.interview_id)
+    except Exception:
+        LOGGER.exception(
+            "short-term memory synchronization failed after interview operation",
+            extra={"task_id": task.id, "interview_id": task.interview_id},
+        )
+        return ShortTermMemoryStatus(
+            status="degraded",
+            source="mysql",
+            fallback_used=True,
+            updated_at=datetime.utcnow(),
+        )
 
 
 def _load_task_for_execution(
@@ -939,16 +988,22 @@ async def stop_interview_operation_task_runner(task: asyncio.Task[None]) -> None
 def _build_interview_service(connection: Any) -> InterviewService:
     repository = InterviewRepository(connection)
     llm_client = get_llm_client()
+    evaluation_service = EvaluationSchedulerService(EvaluationRepository(connection), llm_client)
     return InterviewService(
         repository,
         llm_client,
-        EvaluationSchedulerService(EvaluationRepository(connection), llm_client),
+        evaluation_service,
         MemoryTaskService(MemoryTaskRepository(connection), PreferencesRepository(connection)),
         MemoryRetrievalService(
             memory_repository=MemoryRepository(connection),
             audit_repository=RagAuditRepository(connection),
         ),
         PreferencesRepository(connection),
+        ShortTermMemoryService(
+            repository,
+            get_short_term_memory_store(),
+            evaluation_service,
+        ),
     )
 
 

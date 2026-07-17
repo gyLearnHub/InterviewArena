@@ -5543,6 +5543,16 @@
             },
             "type": "array",
             "title": "Qa History"
+          },
+          "short_term_memory": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShortTermMemoryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7250,6 +7260,56 @@
         },
         "type": "object",
         "title": "RoundStartRequest"
+      },
+      "ShortTermMemoryStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "compressed",
+              "recovered",
+              "degraded"
+            ],
+            "title": "Status"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "redis",
+              "mysql"
+            ],
+            "title": "Source"
+          },
+          "compressed": {
+            "type": "boolean",
+            "title": "Compressed",
+            "default": false
+          },
+          "fallback_used": {
+            "type": "boolean",
+            "title": "Fallback Used",
+            "default": false
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "source"
+        ],
+        "title": "ShortTermMemoryStatus"
       },
       "StructuredResumeData": {
         "properties": {

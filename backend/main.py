@@ -50,6 +50,7 @@ from app.core.errors import register_exception_handlers
 from app.db.mysql import mysql_connection
 from app.services.avatar_storage import resolve_avatar_upload_dir
 from app.services.memory_tasks import start_memory_task_runner, stop_memory_task_runner
+from app.services.short_term_memory_store import close_short_term_memory_store
 from scripts.migrate_v1 import migrate
 
 
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await stop_interview_operation_task_runner(interview_operation_task_runner)
         await stop_resume_parse_task_runner(resume_parse_task_runner)
         await stop_memory_task_runner(task)
+        close_short_term_memory_store()
 
 
 def create_app() -> FastAPI:

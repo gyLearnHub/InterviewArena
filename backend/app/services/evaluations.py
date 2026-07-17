@@ -350,6 +350,7 @@ class EvaluationSchedulerService:
                     question_scores=question_scores,
                     is_reference_only=is_reference_only,
                 ),
+                max_retries_override=1,
             )
         except Exception as exc:
             self.repository.save_failure(
@@ -645,13 +646,23 @@ class EvaluationSchedulerService:
         purpose: str,
         payload: dict[str, Any],
         operation: Callable[[], Any],
+        max_retries_override: int | None = None,
     ) -> Any:
         connection = getattr(self.repository, "connection", None)
         if connection is not None:
             connection.commit()
         repository = _get_harness_repository(connection)
         if repository is None:
-            return operation()
+            max_retries = max(0, max_retries_override or 0)
+            fallback_error: Exception | None = None
+            for _ in range(max_retries + 1):
+                try:
+                    return operation()
+                except Exception as exc:
+                    fallback_error = exc
+            if fallback_error is not None:
+                raise fallback_error
+            raise RuntimeError("evaluation operation did not run")
         request = _harness_request(
             user_id=user_id,
             interview_id=interview_id,
@@ -671,7 +682,11 @@ class EvaluationSchedulerService:
         if connection is not None:
             connection.commit()
         policy = resolve_interview_harness_policy(connection, interview_id)
-        max_retries = min(3, max(0, int(policy.get("max_retries") or 0)))
+        max_retries = (
+            min(3, max(0, max_retries_override))
+            if max_retries_override is not None
+            else min(3, max(0, int(policy.get("max_retries") or 0)))
+        )
         retry_records: list[dict[str, Any]] = []
         result: Any = None
         last_error: Exception | None = None

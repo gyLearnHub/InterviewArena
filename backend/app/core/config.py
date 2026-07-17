@@ -36,6 +36,11 @@ class Settings:
     memory_retrieval_timeout_seconds: int = 4
     memory_enabled_default: bool = True
     memory_min_relevance_score: float = 0.15
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    short_memory_ttl_seconds: int = 604800
+    short_memory_recent_qa_limit: int = 5
+    short_memory_token_budget: int = 8000
+    short_memory_redis_timeout_seconds: float = 1.0
     usage_limit_active_timeout_seconds: int = 900
     interview_task_processing_timeout_seconds: int = 900
     interview_task_heartbeat_seconds: int = 30
@@ -168,6 +173,23 @@ def get_settings() -> Settings:
             "MEMORY_MIN_RELEVANCE_SCORE",
             Settings.memory_min_relevance_score,
         ),
+        redis_url=_get_env("REDIS_URL", Settings.redis_url),
+        short_memory_ttl_seconds=_read_int(
+            "SHORT_MEMORY_TTL_SECONDS",
+            Settings.short_memory_ttl_seconds,
+        ),
+        short_memory_recent_qa_limit=_read_int(
+            "SHORT_MEMORY_RECENT_QA_LIMIT",
+            Settings.short_memory_recent_qa_limit,
+        ),
+        short_memory_token_budget=_read_int(
+            "SHORT_MEMORY_TOKEN_BUDGET",
+            Settings.short_memory_token_budget,
+        ),
+        short_memory_redis_timeout_seconds=_read_float(
+            "SHORT_MEMORY_REDIS_TIMEOUT_SECONDS",
+            Settings.short_memory_redis_timeout_seconds,
+        ),
         usage_limit_active_timeout_seconds=_read_int(
             "USAGE_LIMIT_ACTIVE_TIMEOUT_SECONDS",
             Settings.usage_limit_active_timeout_seconds,
@@ -267,6 +289,14 @@ def _validate_settings(settings: Settings) -> None:
             raise RuntimeError("JWT_SECRET_KEY must be at least 32 characters long.")
     if settings.interview_task_processing_timeout_seconds < 1:
         raise RuntimeError("INTERVIEW_TASK_PROCESSING_TIMEOUT_SECONDS must be at least 1.")
+    if settings.short_memory_ttl_seconds < 60:
+        raise RuntimeError("SHORT_MEMORY_TTL_SECONDS must be at least 60.")
+    if settings.short_memory_recent_qa_limit < 1:
+        raise RuntimeError("SHORT_MEMORY_RECENT_QA_LIMIT must be at least 1.")
+    if settings.short_memory_token_budget < 1000:
+        raise RuntimeError("SHORT_MEMORY_TOKEN_BUDGET must be at least 1000.")
+    if settings.short_memory_redis_timeout_seconds <= 0:
+        raise RuntimeError("SHORT_MEMORY_REDIS_TIMEOUT_SECONDS must be positive.")
     if settings.interview_task_heartbeat_seconds < 1:
         raise RuntimeError("INTERVIEW_TASK_HEARTBEAT_SECONDS must be at least 1.")
     if (
