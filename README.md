@@ -5,7 +5,7 @@
 <h1 align="center">InterviewArena</h1>
 
 <p align="center">
-  <strong>多 Agent 协作、长期记忆与可观测 Harness 驱动的 AI 面试训练系统</strong>
+  <strong>多 Agent 协作、长短期记忆与可观测 Harness 驱动的 AI 面试训练系统</strong>
 </p>
 
 <p align="center">
@@ -23,6 +23,7 @@
 
 <p align="center">
   <a href="#核心优势">核心优势</a> ·
+  <a href="#长短期记忆">长短期记忆</a> ·
   <a href="#训练闭环">训练闭环</a> ·
   <a href="#产品预览">产品预览</a> ·
   <a href="#系统架构">系统架构</a> ·
@@ -41,8 +42,8 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
       简历、技术、主管、HR 四类面试官拥有独立提示词、关注维度和结束策略；评估 Agent 与 Skill Runner 参与逐题、逐轮和最终总结，由统一编排器传递上下文。
     </td>
     <td width="33%" valign="top">
-      <strong>🧠 真正回流的长期记忆</strong><br /><br />
-      分别沉淀候选人表现、面试官经验和 Agent 经验；支持查询改写、BM25、可选 Chroma / Embedding / Reranker、生命周期与版本管理，并在下一轮按策略检索使用。
+      <strong>🧠 分层的长短期记忆</strong><br /><br />
+      短期记忆在单场面试中保留最近问答、滚动摘要和已完成轮次；长期记忆沉淀跨场表现与 Agent 经验。两层记忆分别控制时效和检索范围，再共同进入面试上下文。
     </td>
     <td width="33%" valign="top">
       <strong>🛡️ Agent Harness</strong><br /><br />
@@ -67,19 +68,30 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
 
 ### 不是装饰性的“智能化”
 
-- **动态提问策略**：根据核心主题覆盖、简历项目轮换、回答质量和剩余时间决定主问题、追问与结束时机，并避免重复问题。
-- **任务化与中断恢复**：简历解析、面试操作、记忆总结和自主进化均有独立任务状态；回答草稿、心跳、互斥锁、重试与 Checkpoint 降低长流程中断损失。
+- **动态提问策略**：结合短期问答、历史记忆、核心主题覆盖、简历项目轮换和剩余时间决定主问题、追问与结束时机，并避免重复问题。
+- **任务化与中断恢复**：简历解析、面试操作、短期记忆同步、长期记忆总结和自主进化都有明确状态；回答草稿、心跳、互斥锁、重试与 Checkpoint 降低长流程中断损失。
 - **从训练到运营的完整视图**：工作台、历史详情、通知、复盘收藏、长期记忆和 Harness 状态页共同覆盖训练与运行诊断。
 - **工程契约与质量门禁**：FastAPI OpenAPI 自动生成前端 TypeScript Contract，并通过 Ruff、mypy、pytest、ESLint、Prettier、vue-tsc、Vite Build 与 Playwright 持续校验。
+
+## 长短期记忆
+
+两层记忆解决的问题不同：短期记忆保证当前面试能够接着聊，长期记忆让下一场训练不必从零开始。系统不会把所有历史记录直接塞进 Prompt，而是按生命周期和使用场景控制上下文。
+
+| 记忆层   | 保存内容                                                                 | 生命周期与存储                                                                | 直接收益                                                   |
+| -------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 短期记忆 | 最近问答、滚动摘要、已完成轮次、待追问方向、一致性标记和相关证据         | Redis 按用户和面试隔离，支持 TTL、版本校验和 Token 预算压缩；MySQL 是重建来源 | 跨轮承接回答，减少重复提问，及时发现前后矛盾               |
+| 长期记忆 | 候选人的优势、薄弱项和表达偏好，以及面试官经验、Agent 经验和训练复盘结果 | MySQL 持久化，默认支持 BM25，可选 Chroma、Embedding 与 Reranker               | 跨场个性化提问，持续追踪能力变化，复用已经验证过的面试经验 |
+
+生成问题时，系统会同时使用当前面试的短期快照和按场景检索出的长期记忆。最近回答保留必要原文，较早内容压成滚动摘要，跨场信息只取相关条目，因此上下文更集中，Token 消耗也更可控。Redis 不可用时，短期记忆会从 MySQL 重建并进入降级状态；面试结束后，临时快照被清理，值得保留的结果再异步沉淀为长期记忆。
 
 ## 训练闭环
 
 <p align="center">
-  <img src=".github/assets/readme-training-flow.png" width="100%" alt="InterviewArena 从简历解析、岗位策略、多 Agent 面试、证据化评估、长期记忆到专项复盘的训练闭环，Harness 贯穿全流程" />
+  <img src=".github/assets/readme-training-flow.png" width="100%" alt="InterviewArena 从简历解析、岗位策略、短期上下文、多 Agent 面试、证据化评估、长期记忆到专项复盘的训练闭环，Harness 贯穿全流程" />
 </p>
 
-1. **建立上下文**：异步解析 `.doc` / `.docx` 简历，结合目标岗位、难度、时长和历史记忆形成面试策略。
-2. **多 Agent 推进**：四类面试官按轮次分工，围绕未覆盖主题和当前回答动态提问；每次回答即时进入结构化评估。
+1. **建立上下文**：异步解析 `.doc` / `.docx` 简历，结合目标岗位、难度、时长和长期记忆形成面试策略。
+2. **多 Agent 推进**：四类面试官按轮次分工，短期记忆持续汇总最近问答和已完成轮次；每次回答即时进入结构化评估。
 3. **让结果继续产生价值**：综合报告沉淀为长期记忆、薄弱项与复盘收藏，再回流到下一场面试，形成持续训练循环。
 
 > Harness 不是流程末尾的日志模块，而是覆盖提问、评估、记忆与任务执行的可靠性底座。
@@ -124,19 +136,19 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
 - **主请求链路**：Vue 3 SPA 通过带 Cookie Auth 与 CSRF 防护的 FastAPI API 进入面试编排器。
 - **智能编排层**：四类面试 Agent、Evaluation、Skill Runner 与 Memory RAG 共享受控上下文，但保持职责与输出契约独立。
 - **可靠性层**：Harness 包围智能链路，统一记录 Trace、规则、结构验证、重试、降级和 Checkpoint；运行状态可在前端独立查看。
-- **记忆与数据层**：MySQL 保存业务与运行数据，本地文件保存简历和头像；记忆默认可使用 BM25，并可选接入 Chroma、本地 Embedding 与 Reranker。
+- **记忆与数据层**：Redis 保存单场面试的短期快照，MySQL 保存业务数据和可重建来源；长期记忆默认使用 BM25，并可选接入 Chroma、本地 Embedding 与 Reranker。
 - **安全进化旁路**：自主进化不进入默认请求路径，候选策略必须经过合成样本、影子评估、Hard Gates 和观察窗口后才能激活。
 
 ### 技术栈
 
-| 层级 | 主要技术                                                      |
-| ---- | ------------------------------------------------------------- |
-| 前端 | Vue 3.5、Vue Router 4、TypeScript 6、Vite 6                   |
-| 后端 | Python 3.11、FastAPI、Pydantic 2、Uvicorn、PyMySQL、HTTPX     |
-| 数据 | MySQL 8+、本地文件存储、可选 Chroma 与本地 Embedding/Reranker |
-| 测试 | pytest、Playwright                                            |
-| 质量 | Ruff、mypy strict、ESLint、Prettier、vue-tsc、Vite build      |
-| CI   | GitHub Actions、OpenAPI contract 同步检查                     |
+| 层级 | 主要技术                                                             |
+| ---- | -------------------------------------------------------------------- |
+| 前端 | Vue 3.5、Vue Router 4、TypeScript 6、Vite 6                          |
+| 后端 | Python 3.11、FastAPI、Pydantic 2、Uvicorn、PyMySQL、HTTPX            |
+| 数据 | MySQL 8+、Redis、本地文件存储、可选 Chroma 与本地 Embedding/Reranker |
+| 测试 | pytest、Playwright                                                   |
+| 质量 | Ruff、mypy strict、ESLint、Prettier、vue-tsc、Vite build             |
+| CI   | GitHub Actions、OpenAPI contract 同步检查                            |
 
 ## 快速开始
 
@@ -145,6 +157,7 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
 - Python 3.11+
 - Node.js 20+
 - MySQL 8+ 或兼容版本
+- 可选：Redis。用于短期记忆缓存；不可用时系统会从 MySQL 重建上下文
 - 可访问的 DeepSeek 兼容模型 API
 - 可选：处理旧版 `.doc` 文件时需要本机安装 LibreOffice；`.docx` 不需要转换
 
@@ -221,21 +234,26 @@ npm run dev
 
 完整模板位于 [`backend/.env.example`](backend/.env.example)。常用配置如下：
 
-| 配置项                    | 用途                             | 本地开发建议                            |
-| ------------------------- | -------------------------------- | --------------------------------------- |
-| `DATABASE_URL`            | MySQL 连接地址                   | 指向已创建的 `interview_arena` 数据库   |
-| `JWT_SECRET_KEY`          | 登录令牌签名密钥                 | 必须设置，且不少于 32 个字符            |
-| `DEEPSEEK_API_KEY`        | 模型 API 密钥                    | 使用面试与评估能力时必须配置            |
-| `DEEPSEEK_BASE_URL`       | DeepSeek 兼容 API 地址           | 默认 `https://api.deepseek.com`         |
-| `DEEPSEEK_MODEL`          | 实际调用的模型名称               | 填写当前账户可用模型                    |
-| `AUTH_COOKIE_SECURE`      | 是否仅通过 HTTPS 发送认证 Cookie | 本地 HTTP 使用 `false`，生产使用 `true` |
-| `CORS_ALLOWED_ORIGINS`    | 允许携带凭据的前端来源           | 默认包含本地 Vite 地址                  |
-| `AUTO_MIGRATE_ON_STARTUP` | 后端启动时是否执行迁移           | 本地可保持 `true`，生产建议 `false`     |
-| `MEMORY_ENABLED_DEFAULT`  | 新用户是否默认启用长期记忆       | 默认 `true`                             |
-| `CHROMA_ENABLED`          | 是否尝试启用 Chroma 向量索引     | 默认 `false`                            |
-| `EMBEDDING_MODEL_PATH`    | 可选本地嵌入模型路径             | 不使用本地模型时留空                    |
-| `RERANKER_MODEL_PATH`     | 可选本地重排模型路径             | 不使用本地模型时留空                    |
-| `EVOLUTION_ENABLED`       | 是否启用自主进化任务             | 默认 `false`                            |
+| 配置项                               | 用途                             | 本地开发建议                            |
+| ------------------------------------ | -------------------------------- | --------------------------------------- |
+| `DATABASE_URL`                       | MySQL 连接地址                   | 指向已创建的 `interview_arena` 数据库   |
+| `JWT_SECRET_KEY`                     | 登录令牌签名密钥                 | 必须设置，且不少于 32 个字符            |
+| `DEEPSEEK_API_KEY`                   | 模型 API 密钥                    | 使用面试与评估能力时必须配置            |
+| `DEEPSEEK_BASE_URL`                  | DeepSeek 兼容 API 地址           | 默认 `https://api.deepseek.com`         |
+| `DEEPSEEK_MODEL`                     | 实际调用的模型名称               | 填写当前账户可用模型                    |
+| `AUTH_COOKIE_SECURE`                 | 是否仅通过 HTTPS 发送认证 Cookie | 本地 HTTP 使用 `false`，生产使用 `true` |
+| `CORS_ALLOWED_ORIGINS`               | 允许携带凭据的前端来源           | 默认包含本地 Vite 地址                  |
+| `AUTO_MIGRATE_ON_STARTUP`            | 后端启动时是否执行迁移           | 本地可保持 `true`，生产建议 `false`     |
+| `MEMORY_ENABLED_DEFAULT`             | 新用户是否默认启用长期记忆       | 默认 `true`                             |
+| `REDIS_URL`                          | 短期记忆 Redis 连接地址          | 默认 `redis://127.0.0.1:6379/0`         |
+| `SHORT_MEMORY_TTL_SECONDS`           | 短期记忆过期时间                 | 默认 `604800`，即 7 天                  |
+| `SHORT_MEMORY_RECENT_QA_LIMIT`       | 短期记忆保留的最近问答数量       | 默认 `5`                                |
+| `SHORT_MEMORY_TOKEN_BUDGET`          | 短期记忆上下文 Token 预算        | 默认 `8000`                             |
+| `SHORT_MEMORY_REDIS_TIMEOUT_SECONDS` | Redis 读写超时                   | 默认 `1` 秒，超时后从 MySQL 降级重建    |
+| `CHROMA_ENABLED`                     | 是否尝试启用 Chroma 向量索引     | 默认 `false`                            |
+| `EMBEDDING_MODEL_PATH`               | 可选本地嵌入模型路径             | 不使用本地模型时留空                    |
+| `RERANKER_MODEL_PATH`                | 可选本地重排模型路径             | 不使用本地模型时留空                    |
+| `EVOLUTION_ENABLED`                  | 是否启用自主进化任务             | 默认 `false`                            |
 
 如果前端不通过 Vite 代理访问后端，可设置：
 
