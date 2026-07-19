@@ -136,6 +136,11 @@ class FakeResumeRepository:
         self.parse_tasks: list[ResumeParseTaskRecord] = []
         self.unfinished_interview_resume_ids: set[tuple[int, int]] = set()
         self.parser: ResumeParserService | None = None
+        self.commit_error: Exception | None = None
+
+    def commit(self) -> None:
+        if self.commit_error is not None:
+            raise self.commit_error
 
     def create(
         self,
@@ -730,6 +735,31 @@ def test_resume_service_delete_rejects_active_interview_dependency() -> None:
     assert exc_info.value.code == ErrorCode.CONFLICT
     assert exc_info.value.message == ACTIVE_INTERVIEW_DELETE_MESSAGE
     assert repository.created[0].deleted_at is None
+
+
+def test_resume_service_preserves_file_when_commit_fails(tmp_path: Path) -> None:
+    upload_dir = tmp_path / "resume"
+    upload_dir.mkdir()
+    original_path = upload_dir / "backend.docx"
+    original_path.write_bytes(b"resume")
+    repository = FakeResumeRepository()
+    repository.created.append(
+        ResumeRecord(
+            id=7,
+            user_id=42,
+            original_file_path=str(original_path),
+            structured_data=structured_resume(),
+        )
+    )
+    repository.commit_error = RuntimeError("commit failed")
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        ResumeService(repository, upload_dir=upload_dir).delete_resume(
+            resume_id=7,
+            user_id=42,
+        )
+
+    assert original_path.exists()
 
 
 def test_upload_same_deleted_resume_creates_fresh_record(

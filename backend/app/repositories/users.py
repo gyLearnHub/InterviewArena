@@ -22,6 +22,9 @@ class UserRepository:
     def __init__(self, connection: Any) -> None:
         self.connection = connection
 
+    def commit(self) -> None:
+        self.connection.commit()
+
     def get_by_id(self, user_id: int) -> UserRecord | None:
         with self.connection.cursor() as cursor:
             cursor.execute(

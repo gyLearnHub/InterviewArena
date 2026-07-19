@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -234,15 +235,15 @@ def run_memory_task(interview_id: int, max_runs: int) -> dict[str, Any]:
                 return {"status": "missing", "interview_id": interview_id, "task_id": task_id}
             if task.status in {"completed", "failed"}:
                 return _json_safe(task.__dict__)
-            _mark_task_processing(connection, task.id)
+            processing_token = _mark_task_processing(connection, task.id)
             task = tasks.get_by_id(task.id)
             if task is None:
                 return {"status": "missing", "interview_id": interview_id, "task_id": task_id}
             try:
                 result = MemoryTaskRunner()._handle_task(connection, task)
-                tasks.mark_completed(task.id, result)
+                tasks.mark_completed(task.id, processing_token, result)
             except Exception as exc:
-                tasks.mark_failed_or_retry(task, _safe_error(exc))
+                tasks.mark_failed_or_retry(task, _safe_error(exc), processing_token)
         task_snapshot = _memory_task_snapshot(interview_id)
         if task_snapshot and task_snapshot.get("status") in {"completed", "failed"}:
             return task_snapshot
@@ -270,16 +271,22 @@ def _memory_task_id(interview_id: int) -> int | None:
     return int(row["id"]) if row else None
 
 
-def _mark_task_processing(connection: Any, task_id: int) -> None:
+def _mark_task_processing(connection: Any, task_id: int) -> str:
+    processing_token = uuid4().hex
     with connection.cursor() as cursor:
         cursor.execute(
             """
             UPDATE memory_tasks
-            SET status = 'processing', started_at = UTC_TIMESTAMP(), error_message = NULL
+            SET status = 'processing',
+                started_at = UTC_TIMESTAMP(),
+                heartbeat_at = UTC_TIMESTAMP(),
+                processing_token = %s,
+                error_message = NULL
             WHERE id = %s
             """,
-            (task_id,),
+            (processing_token, task_id),
         )
+    return processing_token
 
 
 def _memory_task_snapshot(interview_id: int) -> dict[str, Any] | None:

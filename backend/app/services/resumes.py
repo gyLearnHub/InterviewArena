@@ -18,6 +18,9 @@ class ResumeDeleteRepository(Protocol):
     def soft_delete_for_user(self, resume_id: int, user_id: int) -> bool:
         ...
 
+    def commit(self) -> None:
+        ...
+
     def get_original_file_path_for_user(self, resume_id: int, user_id: int) -> str | None:
         ...
 
@@ -44,6 +47,7 @@ class ResumeService:
         )
         deleted = self.repository.soft_delete_for_user(resume_id, user_id)
         if deleted:
+            self.repository.commit()
             _delete_original_file(original_file_path, self.upload_dir)
             return
 

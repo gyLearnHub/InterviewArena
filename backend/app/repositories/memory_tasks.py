@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 DEFAULT_PROCESSING_TIMEOUT_SECONDS = 15 * 60
 
@@ -24,6 +25,8 @@ class MemoryTaskRecord:
     started_at: datetime | None
     completed_at: datetime | None
     dedupe_key: str | None = None
+    processing_token: str | None = None
+    heartbeat_at: datetime | None = None
 
 
 class MemoryTaskRepository:
@@ -109,6 +112,7 @@ class MemoryTaskRepository:
         processing_timeout_seconds: int = DEFAULT_PROCESSING_TIMEOUT_SECONDS,
     ) -> MemoryTaskRecord | None:
         timeout_seconds = max(1, processing_timeout_seconds)
+        processing_token = uuid4().hex
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -116,12 +120,15 @@ class MemoryTaskRepository:
                 SET status = 'failed',
                     completed_at = UTC_TIMESTAMP(),
                     error_message = 'processing_timeout',
-                    dedupe_key = NULL
+                    dedupe_key = NULL,
+                    processing_token = NULL,
+                    heartbeat_at = NULL
                 WHERE status = 'processing'
                   AND retry_count >= max_retries
                   AND (
-                      started_at IS NULL
-                      OR started_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s SECOND)
+                      COALESCE(heartbeat_at, started_at) IS NULL
+                      OR COALESCE(heartbeat_at, started_at)
+                         <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s SECOND)
                   )
                 """,
                 (timeout_seconds,),
@@ -141,7 +148,9 @@ class MemoryTaskRepository:
                     END,
                     status = 'processing',
                     started_at = UTC_TIMESTAMP(),
-                    completed_at = NULL
+                    completed_at = NULL,
+                    processing_token = %s,
+                    heartbeat_at = UTC_TIMESTAMP()
                 WHERE status = 'pending'
                    OR (
                        status = 'retry_wait'
@@ -151,14 +160,15 @@ class MemoryTaskRepository:
                        status = 'processing'
                        AND retry_count < max_retries
                        AND (
-                           started_at IS NULL
-                           OR started_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s SECOND)
+                           COALESCE(heartbeat_at, started_at) IS NULL
+                           OR COALESCE(heartbeat_at, started_at)
+                              <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s SECOND)
                        )
                    )
                 ORDER BY created_at ASC, id ASC
                 LIMIT 1
                 """,
-                (timeout_seconds,),
+                (processing_token, timeout_seconds),
             )
             if cursor.rowcount != 1:
                 return None
@@ -169,7 +179,26 @@ class MemoryTaskRepository:
             task_id = int(row["task_id"])
         return self.get_by_id(task_id)
 
-    def mark_completed(self, task_id: int, result: dict[str, Any] | None = None) -> None:
+    def heartbeat(self, task_id: int, processing_token: str) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE memory_tasks
+                SET heartbeat_at = UTC_TIMESTAMP()
+                WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
+                """,
+                (task_id, processing_token),
+            )
+            return int(cursor.rowcount) > 0
+
+    def mark_completed(
+        self,
+        task_id: int,
+        processing_token: str,
+        result: dict[str, Any] | None = None,
+    ) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -178,13 +207,23 @@ class MemoryTaskRepository:
                     completed_at = UTC_TIMESTAMP(),
                     result = %s,
                     error_message = NULL,
-                    dedupe_key = NULL
+                    dedupe_key = NULL,
+                    processing_token = NULL,
+                    heartbeat_at = NULL
                 WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
                 """,
-                (json.dumps(result or {}, ensure_ascii=False), task_id),
+                (json.dumps(result or {}, ensure_ascii=False), task_id, processing_token),
             )
+            return int(cursor.rowcount) > 0
 
-    def mark_failed_or_retry(self, task: MemoryTaskRecord, error_message: str) -> None:
+    def mark_failed_or_retry(
+        self,
+        task: MemoryTaskRecord,
+        error_message: str,
+        processing_token: str,
+    ) -> bool:
         retry_count = task.retry_count + 1
         if retry_count < task.max_retries:
             status = "retry_wait"
@@ -207,8 +246,12 @@ class MemoryTaskRepository:
                     dedupe_key = CASE
                         WHEN %s = 'failed' THEN NULL
                         ELSE dedupe_key
-                    END
+                    END,
+                    processing_token = NULL,
+                    heartbeat_at = NULL
                 WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
                 """,
                 (
                     status,
@@ -218,8 +261,10 @@ class MemoryTaskRepository:
                     error_message[:1000],
                     status,
                     task.id,
+                    processing_token,
                 ),
             )
+            return int(cursor.rowcount) > 0
 
 
 def _to_task(row: dict[str, Any] | None) -> MemoryTaskRecord | None:
@@ -242,6 +287,8 @@ def _to_task(row: dict[str, Any] | None) -> MemoryTaskRecord | None:
         started_at=row.get("started_at"),
         completed_at=row.get("completed_at"),
         dedupe_key=row.get("dedupe_key"),
+        processing_token=row.get("processing_token"),
+        heartbeat_at=row.get("heartbeat_at"),
     )
 
 

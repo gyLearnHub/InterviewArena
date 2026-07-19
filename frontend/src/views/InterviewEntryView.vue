@@ -440,6 +440,8 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
+import { getUser } from "../auth";
+import { createInterviewDraftKey } from "../draftStorage";
 import agentIcon from "../assets/position-icons/agent.png";
 import backendIcon from "../assets/position-icons/backend.png";
 import customInputIcon from "../assets/position-icons/custom-input.png";
@@ -461,7 +463,8 @@ import {
 } from "../api";
 
 const router = useRouter();
-const DRAFT_KEY = "interview_arena_create_draft";
+const currentUserId = getUser()?.id ?? null;
+const draftKey = currentUserId === null ? null : createInterviewDraftKey(currentUserId);
 const currentStep = ref(1);
 const steps = [
   { id: 1, label: "基础信息" },
@@ -856,7 +859,9 @@ async function createMultiRoundInterview() {
       selectedRounds: selectedRounds.value,
       interviewGoal: interviewGoal.value
     });
-    localStorage.removeItem(DRAFT_KEY);
+    if (draftKey) {
+      localStorage.removeItem(draftKey);
+    }
     router.push({ name: "multi-round-interview", params: { id: interview.id } });
   } catch (error) {
     message.value = error instanceof ApiError ? error.message : "面试创建失败，请稍后重试。";
@@ -940,8 +945,11 @@ function formatResumeValue(value: unknown): string {
 }
 
 function saveDraft(showMessage = false) {
+  if (!draftKey) {
+    return;
+  }
   localStorage.setItem(
-    DRAFT_KEY,
+    draftKey,
     JSON.stringify({
       targetPosition: targetPosition.value,
       customPosition: customPosition.value,
@@ -959,7 +967,10 @@ function saveDraft(showMessage = false) {
 }
 
 function loadDraft() {
-  const raw = localStorage.getItem(DRAFT_KEY);
+  if (!draftKey) {
+    return;
+  }
+  const raw = localStorage.getItem(draftKey);
   if (!raw) {
     return;
   }
@@ -988,7 +999,7 @@ function loadDraft() {
     resumeId.value = typeof draft.resumeId === "number" ? draft.resumeId : null;
     resumeName.value = draft.resumeName || "";
   } catch {
-    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(draftKey);
   }
 }
 

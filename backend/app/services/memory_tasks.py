@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from threading import Event, Thread
 from typing import Any
 
 from app.core.config import get_settings
@@ -59,12 +60,17 @@ class MemoryTaskRunner:
         task = self._claim_due_task()
         if task is None:
             return False
+        if task.processing_token is None:
+            raise RuntimeError("claimed memory task has no processing token")
 
+        heartbeat = _start_memory_task_heartbeat(task)
         try:
             with mysql_connection() as connection:
                 tasks = MemoryTaskRepository(connection)
                 result = self._handle_task(connection, task)
-                tasks.mark_completed(task.id, result)
+                completed = tasks.mark_completed(task.id, task.processing_token, result)
+                if not completed:
+                    raise RuntimeError("memory task processing lease was lost before completion")
                 if task.interview_id is not None and task.user_id is not None:
                     record_harness_event(
                         connection=connection,
@@ -78,8 +84,12 @@ class MemoryTaskRunner:
         except Exception as exc:
             with mysql_connection() as connection:
                 tasks = MemoryTaskRepository(connection)
-                tasks.mark_failed_or_retry(task, str(exc) or exc.__class__.__name__)
-                if task.interview_id is not None and task.user_id is not None:
+                failed = tasks.mark_failed_or_retry(
+                    task,
+                    str(exc) or exc.__class__.__name__,
+                    task.processing_token,
+                )
+                if failed and task.interview_id is not None and task.user_id is not None:
                     record_harness_event(
                         connection=connection,
                         user_id=task.user_id,
@@ -92,6 +102,8 @@ class MemoryTaskRunner:
                             "error": str(exc) or exc.__class__.__name__,
                         },
                     )
+        finally:
+            _stop_memory_task_heartbeat(heartbeat)
         return True
 
     def _claim_due_task(self) -> MemoryTaskRecord | None:
@@ -124,6 +136,37 @@ class MemoryTaskRunner:
                 interview_id=task.interview_id,
             )
         raise ValueError(f"unsupported memory task type: {task.task_type}")
+
+
+def _start_memory_task_heartbeat(task: MemoryTaskRecord) -> tuple[Event, Thread]:
+    if task.processing_token is None:
+        raise RuntimeError("memory task heartbeat requires a processing token")
+    stop_event = Event()
+    timeout_seconds = max(1, get_settings().memory_task_processing_timeout_seconds)
+    interval = max(1, min(30, timeout_seconds // 3))
+
+    def _heartbeat_loop() -> None:
+        while not stop_event.wait(interval):
+            try:
+                with mysql_connection() as connection:
+                    alive = MemoryTaskRepository(connection).heartbeat(
+                        task.id,
+                        task.processing_token or "",
+                    )
+                if not alive:
+                    return
+            except Exception:
+                continue
+
+    thread = Thread(target=_heartbeat_loop, name=f"memory-task-heartbeat-{task.id}", daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_memory_task_heartbeat(heartbeat: tuple[Event, Thread]) -> None:
+    stop_event, thread = heartbeat
+    stop_event.set()
+    thread.join(timeout=1)
 
 
 def start_memory_task_runner() -> asyncio.Task[None]:

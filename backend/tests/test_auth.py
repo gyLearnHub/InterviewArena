@@ -31,6 +31,11 @@ class FakeUserRepository:
         self.users_by_id: dict[int, UserRecord] = {}
         self.users_by_username: dict[str, UserRecord] = {}
         self.next_id = 1
+        self.commit_error: Exception | None = None
+
+    def commit(self) -> None:
+        if self.commit_error is not None:
+            raise self.commit_error
 
     def get_by_id(self, user_id: int) -> UserRecord | None:
         return self.users_by_id.get(user_id)
@@ -484,4 +489,35 @@ def test_upload_current_user_avatar_removes_previous_avatar(
     assert response.avatar_url is not None
     assert not old_avatar.exists()
     assert (tmp_path / response.avatar_url.rsplit("/", 1)[-1]).exists()
+    get_settings.cache_clear()
+
+
+def test_upload_current_user_avatar_preserves_previous_file_when_commit_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    repository = FakeUserRepository()
+    current_user = repository.create("alice", hash_password("secret"))
+    old_avatar = tmp_path / "old.png"
+    old_avatar.write_bytes(b"\x89PNG\r\n\x1a\nold")
+    repository.update_avatar_url(current_user.id, "/api/uploads/avatars/old.png")
+    repository.commit_error = RuntimeError("commit failed")
+    monkeypatch.setenv("AVATAR_UPLOAD_DIR", str(tmp_path))
+    get_settings.cache_clear()
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        asyncio.run(
+            upload_current_user_avatar(
+                file=UploadFile(
+                    BytesIO(b"\x89PNG\r\n\x1a\nnew"),
+                    filename="avatar.png",
+                    headers=Headers({"content-type": "image/png"}),
+                ),
+                current_user=current_user,
+                users=repository,  # type: ignore[arg-type]
+            )
+        )
+
+    assert old_avatar.exists()
+    assert list(tmp_path.glob("user_1_*.png")) == []
     get_settings.cache_clear()

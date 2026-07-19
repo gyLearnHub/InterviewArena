@@ -10,6 +10,7 @@ from scripts.migrate_v1 import (
     HARNESS_EVOLUTION_USER_SCOPE_MIGRATION_VERSION,
     INIT_SQL_TABLES_TO_CREATE,
     INTERVIEW_TASK_LEASE_MIGRATION_VERSION,
+    MEMORY_TASK_LEASE_MIGRATION_VERSION,
     MIGRATION_VERSION,
     RESUME_TASK_LEASE_MIGRATION_VERSION,
 )
@@ -144,6 +145,18 @@ def test_resume_parse_tasks_define_recoverable_processing_lease() -> None:
     assert RESUME_TASK_LEASE_MIGRATION_VERSION == "2026_07_13_resume_task_lease"
 
 
+def test_memory_tasks_define_recoverable_processing_lease() -> None:
+    ddl = _ddl()
+    table_ddl = ddl.split("create table if not exists memory_tasks", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+
+    assert "processing_token char(32) null" in table_ddl
+    assert "heartbeat_at datetime null" in table_ddl
+    assert MEMORY_TASK_LEASE_MIGRATION_VERSION == "2026_07_19_memory_task_lease"
+
+
 def test_published_baseline_version_remains_stable() -> None:
     assert MIGRATION_VERSION == "2026_07_06_v1"
     assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION == "2026_07_07_async_task_schema"
@@ -239,6 +252,7 @@ def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:
     assert "harness_replay_removal" in calls
     assert "review_bookmark_history_detach" in calls
     assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION in applied_versions
+    assert MEMORY_TASK_LEASE_MIGRATION_VERSION in applied_versions
 
 
 def test_stored_generated_column_is_rebuilt_as_virtual() -> None:
