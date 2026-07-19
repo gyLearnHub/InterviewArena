@@ -513,6 +513,8 @@ CREATE TABLE IF NOT EXISTS memory_tasks (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME NULL,
     completed_at DATETIME NULL,
+    processing_token CHAR(32) NULL,
+    heartbeat_at DATETIME NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_memory_tasks_summary_interview (task_type, interview_id),
     UNIQUE KEY uk_memory_tasks_dedupe_key (dedupe_key),

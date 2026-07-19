@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
       "interview_arena_user",
       JSON.stringify({ id: 1, username: "alice", display_name: "Alice" })
     );
-    window.localStorage.removeItem("interview_arena_create_draft");
+    window.localStorage.removeItem("interview_arena_create_draft:1");
   });
 
   await page.route("**/api/auth/me", async (route) => {
@@ -33,6 +33,26 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/notifications/unread-count", async (route) => {
     await route.fulfill({ json: { count: 0 } });
   });
+});
+
+test("does not restore another account's create-interview draft", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "interview_arena_create_draft:99",
+      JSON.stringify({
+        targetPosition: "上一账号岗位",
+        jobDescription: "private-draft-from-another-account",
+        resumeId: 909,
+        resumeName: "private-resume.docx"
+      })
+    );
+  });
+
+  await page.goto("/interviews/new");
+
+  await expect(page.getByText("上一账号岗位")).toHaveCount(0);
+  await expect(page.getByText("private-resume.docx")).toHaveCount(0);
+  await expect(page.getByLabel("岗位 JD")).not.toHaveValue("private-draft-from-another-account");
 });
 
 test("creates an interview from uploaded resume and enters the first round question", async ({

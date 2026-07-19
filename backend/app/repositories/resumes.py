@@ -62,6 +62,9 @@ class ResumeRepository:
     def __init__(self, connection: Any) -> None:
         self.connection = connection
 
+    def commit(self) -> None:
+        self.connection.commit()
+
     def create(
         self,
         user_id: int,

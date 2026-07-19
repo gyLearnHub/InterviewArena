@@ -73,6 +73,8 @@ RESUME_DELETE_SCRUB_MIGRATION_VERSION = "2026_07_12_resume_delete_scrub"
 RESUME_DELETE_SCRUB_MIGRATION_DESCRIPTION = "Scrub deleted resume content and files"
 RESUME_TASK_LEASE_MIGRATION_VERSION = "2026_07_13_resume_task_lease"
 RESUME_TASK_LEASE_MIGRATION_DESCRIPTION = "Add resume parse task leases and heartbeats"
+MEMORY_TASK_LEASE_MIGRATION_VERSION = "2026_07_19_memory_task_lease"
+MEMORY_TASK_LEASE_MIGRATION_DESCRIPTION = "Add memory task leases and heartbeats"
 HARNESS_EVOLUTION_MIGRATION_VERSION = "2026_07_13_harness_autonomous_evolution"
 HARNESS_EVOLUTION_MIGRATION_DESCRIPTION = "Add autonomous Harness artifact evolution"
 HARNESS_EVOLUTION_HARDENING_MIGRATION_VERSION = "2026_07_13_harness_evolution_hardening"
@@ -216,6 +218,27 @@ def migrate(connection: Any) -> None:
             connection,
             RESUME_TASK_LEASE_MIGRATION_VERSION,
             RESUME_TASK_LEASE_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, MEMORY_TASK_LEASE_MIGRATION_VERSION):
+        _add_column(
+            connection,
+            database,
+            "memory_tasks",
+            "processing_token",
+            "CHAR(32) NULL",
+        )
+        _add_column(
+            connection,
+            database,
+            "memory_tasks",
+            "heartbeat_at",
+            "DATETIME NULL",
+        )
+        _record_migration(
+            connection,
+            MEMORY_TASK_LEASE_MIGRATION_VERSION,
+            MEMORY_TASK_LEASE_MIGRATION_DESCRIPTION,
         )
 
     if not _migration_applied(connection, HARNESS_EVOLUTION_MIGRATION_VERSION):

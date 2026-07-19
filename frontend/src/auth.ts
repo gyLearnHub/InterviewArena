@@ -1,3 +1,5 @@
+import { clearSensitiveDrafts } from "./draftStorage";
+
 const LEGACY_TOKEN_KEY = "interview_arena_token";
 const USER_KEY = "interview_arena_user";
 export const AUTH_CHANGED_EVENT = "interview-arena:auth-changed";
@@ -30,6 +32,7 @@ export function saveAuth(user: AuthUser): void {
 }
 
 export function clearAuth(): void {
+  clearSensitiveDrafts(readStoredUserId());
   removeStorage(LEGACY_TOKEN_KEY);
   removeStorage(USER_KEY);
   emitAuthChanged();
@@ -64,5 +67,18 @@ function removeStorage(key: string): void {
     window.localStorage.removeItem(key);
   } catch {
     // Keep authentication flows usable in restricted storage contexts.
+  }
+}
+
+function readStoredUserId(): number | null {
+  const raw = readStorage(USER_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const user = JSON.parse(raw) as { id?: unknown };
+    return typeof user.id === "number" && Number.isInteger(user.id) ? user.id : null;
+  } catch {
+    return null;
   }
 }

@@ -49,6 +49,9 @@ def test_task_claim_retry_complete_lifecycle_is_supported() -> None:
     assert "retry_wait" in retry_source
     assert "failed" in retry_source
     assert "completed" in complete_source
+    for source in (retry_source, complete_source):
+        assert "status = 'processing'" in source
+        assert "processing_token" in source
 
 
 def test_task_claim_recovers_timed_out_processing_tasks() -> None:
@@ -58,7 +61,7 @@ def test_task_claim_recovers_timed_out_processing_tasks() -> None:
     assert "retry_count < max_retries" in claim_source
     assert "retry_count >= max_retries" in claim_source
     assert "date_sub(utc_timestamp(), interval %s second)" in claim_source
-    assert "started_at is null" in claim_source
+    assert "coalesce(heartbeat_at, started_at) is null" in claim_source
     assert "max(1, processing_timeout_seconds)" in claim_source
 
 
@@ -71,7 +74,8 @@ def test_unexpired_processing_tasks_are_not_reclaimed_without_timeout() -> None:
     processing_clause = claim_source[processing_clause_start:]
 
     assert "retry_count < max_retries" in processing_clause
-    assert "started_at <= date_sub(utc_timestamp(), interval %s second)" in processing_clause
+    assert "coalesce(heartbeat_at, started_at)" in processing_clause
+    assert "<= date_sub(utc_timestamp(), interval %s second)" in processing_clause
     assert "order by created_at asc, id asc" in processing_clause
 
 
@@ -93,20 +97,30 @@ def test_mark_failed_or_retry_schedules_retry_before_limit() -> None:
     connection = _FakeConnection()
     repository = MemoryTaskRepository(connection)
 
-    repository.mark_failed_or_retry(_task(retry_count=0, max_retries=3), "temporary")
+    updated = repository.mark_failed_or_retry(
+        _task(retry_count=0, max_retries=3),
+        "temporary",
+        "lease-token",
+    )
 
     _sql, params = connection.cursor_obj.executions[-1]
-    assert params == ("retry_wait", 1, 10, 10, "temporary", "retry_wait", 7)
+    assert updated is True
+    assert params == ("retry_wait", 1, 10, 10, "temporary", "retry_wait", 7, "lease-token")
 
 
 def test_mark_failed_or_retry_fails_at_retry_limit() -> None:
     connection = _FakeConnection()
     repository = MemoryTaskRepository(connection)
 
-    repository.mark_failed_or_retry(_task(retry_count=2, max_retries=3), "still failing")
+    updated = repository.mark_failed_or_retry(
+        _task(retry_count=2, max_retries=3),
+        "still failing",
+        "lease-token",
+    )
 
     _sql, params = connection.cursor_obj.executions[-1]
-    assert params == ("failed", 3, None, None, "still failing", "failed", 7)
+    assert updated is True
+    assert params == ("failed", 3, None, None, "still failing", "failed", 7, "lease-token")
 
 
 def test_memory_clear_vector_failure_is_recorded_for_retry(monkeypatch) -> None:
@@ -132,8 +146,11 @@ def test_memory_clear_vector_failure_is_recorded_for_retry(monkeypatch) -> None:
             self,
             failed_task: MemoryTaskRecord,
             error_message: str,
-        ) -> None:
+            processing_token: str,
+        ) -> bool:
+            assert processing_token == "lease-token"
             retry_calls.append((failed_task, error_message))
+            return True
 
     monkeypatch.setattr(memory_tasks_module, "mysql_connection", fake_mysql_connection)
     monkeypatch.setattr(memory_tasks_module, "MemoryTaskRepository", RecordingTaskRepository)
@@ -164,6 +181,8 @@ def _task(
         created_at=datetime(2026, 1, 1),
         started_at=None,
         completed_at=None,
+        processing_token="lease-token",
+        heartbeat_at=None,
     )
 
 
@@ -178,6 +197,7 @@ class _FakeConnection:
 class _FakeCursor:
     def __init__(self) -> None:
         self.executions: list[tuple[str, tuple[Any, ...] | None]] = []
+        self.rowcount = 1
 
     def __enter__(self) -> "_FakeCursor":
         return self

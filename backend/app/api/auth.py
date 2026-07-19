@@ -172,6 +172,12 @@ async def upload_current_user_avatar(
         with suppress(OSError):
             avatar_path.unlink()
         raise AppError(ErrorCode.UNAUTHORIZED, status.HTTP_401_UNAUTHORIZED)
+    try:
+        users.commit()
+    except Exception:
+        with suppress(OSError):
+            avatar_path.unlink()
+        raise
     delete_avatar_by_public_url(old_avatar_url, upload_dir, keep_url=user.avatar_url)
     return _to_user_public(user)
 
