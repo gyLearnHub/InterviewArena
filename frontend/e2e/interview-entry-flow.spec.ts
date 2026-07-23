@@ -14,6 +14,7 @@ type CreateInterviewPayload = {
   job_description?: string;
   selected_rounds?: string[];
   interview_goal?: string;
+  experience_mode?: string;
 };
 
 test.beforeEach(async ({ page }) => {
@@ -102,6 +103,7 @@ test("creates an interview from uploaded resume and enters the first round quest
         id: interviewId,
         status: "created",
         mode: "multi_round",
+        experience_mode: "simulation",
         interview_goal: "campus",
         difficulty: "normal",
         time_limit_minutes: 45,
@@ -118,6 +120,7 @@ test("creates an interview from uploaded resume and enters the first round quest
       json: {
         interview_id: interviewId,
         mode: "multi_round",
+        experience_mode: "simulation",
         overall_status: "created",
         target_position: "Agent 应用开发",
         job_description: jobDescription,
@@ -270,6 +273,11 @@ test("creates an interview from uploaded resume and enters the first round quest
   await expect(roundGrid.getByText("技术面")).toBeVisible();
 
   await page.getByRole("button", { name: "下一步" }).click();
+  await expect(page.getByRole("radio", { name: /训练模式/ })).toHaveAttribute(
+    "aria-checked",
+    "true"
+  );
+  await page.getByRole("radio", { name: /真实模拟模式/ }).click();
   await page.getByLabel("岗位 JD").fill(jobDescription);
 
   await page.getByRole("button", { name: "下一步" }).click();
@@ -287,11 +295,13 @@ test("creates an interview from uploaded resume and enters the first round quest
     target_position: "Agent 应用开发",
     job_description: jobDescription,
     selected_rounds: ["resume", "technical", "manager", "hr"],
-    interview_goal: "campus"
+    interview_goal: "campus",
+    experience_mode: "simulation"
   });
 
   await expect(page).toHaveURL(new RegExp(`/interviews/multi/${interviewId}$`));
   await expect(page.getByRole("heading", { name: "Agent 应用开发 · 模拟面试" })).toBeVisible();
+  await expect(page.getByTestId("experience-mode")).toHaveText("真实模拟 · 轮后反馈");
   await expect(page.locator(".round-card")).toHaveCount(4);
   expect(
     await page

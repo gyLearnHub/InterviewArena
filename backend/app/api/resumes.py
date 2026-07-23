@@ -24,13 +24,16 @@ from app.repositories.resumes import (
 )
 from app.repositories.users import UserRecord
 from app.schemas.resume import (
+    JobMatchAnalysisRequest,
+    JobMatchAnalysisResponse,
     ResumeDetailResponse,
     ResumeListItem,
     ResumeParseTaskResponse,
     ResumeUpdateRequest,
     StructuredResumeData,
 )
-from app.services.llm import get_llm_client
+from app.services.job_match_analysis import JobMatchAnalysisService
+from app.services.llm import LLMClient, get_llm_client
 from app.services.resume_parser import (
     MAX_RESUME_BYTES,
     ResumeParserService,
@@ -68,6 +71,23 @@ def get_resume_service(
 
 
 ResumeServiceDep = Depends(get_resume_service)
+
+
+def get_job_match_llm_client() -> LLMClient:
+    return get_llm_client()
+
+
+JobMatchLLMClientDep = Depends(get_job_match_llm_client)
+
+
+def get_job_match_analysis_service(
+    resumes: ResumeRepository = ResumeRepositoryDep,
+    llm_client: LLMClient = JobMatchLLMClientDep,
+) -> JobMatchAnalysisService:
+    return JobMatchAnalysisService(resumes, llm_client)
+
+
+JobMatchAnalysisServiceDep = Depends(get_job_match_analysis_service)
 
 
 @router.get("", response_model=list[ResumeListItem])
@@ -167,6 +187,24 @@ def get_resume_detail(
     if resume is None:
         raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
     return _to_resume_detail(resume)
+
+
+@router.post(
+    "/{resume_id}/job-match-analysis",
+    response_model=JobMatchAnalysisResponse,
+)
+def analyze_resume_job_match(
+    resume_id: int,
+    request: JobMatchAnalysisRequest,
+    current_user: UserRecord = CurrentUserDep,
+    service: JobMatchAnalysisService = JobMatchAnalysisServiceDep,
+) -> JobMatchAnalysisResponse:
+    return service.analyze(
+        resume_id=resume_id,
+        user_id=current_user.id,
+        target_position=request.target_position,
+        job_description=request.job_description,
+    )
 
 
 @router.patch("/{resume_id}", response_model=ResumeDetailResponse)

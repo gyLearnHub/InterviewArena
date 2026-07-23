@@ -653,6 +653,74 @@
         }
       }
     },
+    "/api/resumes/{resume_id}/job-match-analysis": {
+      "post": {
+        "tags": [
+          "resumes"
+        ],
+        "summary": "Analyze Resume Job Match",
+        "operationId": "analyze_resume_job_match_api_resumes__resume_id__job_match_analysis_post",
+        "parameters": [
+          {
+            "name": "resume_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Resume Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobMatchAnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobMatchAnalysisResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/resumes/{resume_id}/default": {
       "post": {
         "tags": [
@@ -1310,6 +1378,148 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterviewStateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/interviews/{interview_id}/questions/{question_id}/reanswers": {
+      "post": {
+        "tags": [
+          "interviews"
+        ],
+        "summary": "Create Question Reanswer",
+        "operationId": "create_question_reanswer_api_interviews__interview_id__questions__question_id__reanswers_post",
+        "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Question Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerReanswerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerReanswerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "interviews"
+        ],
+        "summary": "List Question Reanswers",
+        "operationId": "list_question_reanswers_api_interviews__interview_id__questions__question_id__reanswers_get",
+        "parameters": [
+          {
+            "name": "interview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Interview Id"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Question Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerReanswerListResponse"
                 }
               }
             }
@@ -3415,6 +3625,158 @@
         ],
         "title": "AnswerDraftResponse"
       },
+      "AnswerReanswerAttemptResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "attempt_number": {
+            "type": "integer",
+            "title": "Attempt Number"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "evaluation": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Evaluation"
+          },
+          "score_delta": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Delta"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "attempt_number",
+          "answer",
+          "evaluation",
+          "created_at"
+        ],
+        "title": "AnswerReanswerAttemptResponse"
+      },
+      "AnswerReanswerListResponse": {
+        "properties": {
+          "interview_id": {
+            "type": "integer",
+            "title": "Interview Id"
+          },
+          "question_id": {
+            "type": "integer",
+            "title": "Question Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "original_answer": {
+            "type": "string",
+            "title": "Original Answer"
+          },
+          "original_evaluation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Evaluation"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerReanswerAttemptResponse"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interview_id",
+          "question_id",
+          "question",
+          "original_answer"
+        ],
+        "title": "AnswerReanswerListResponse"
+      },
+      "AnswerReanswerRequest": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "title": "AnswerReanswerRequest"
+      },
+      "AnswerReanswerResponse": {
+        "properties": {
+          "interview_id": {
+            "type": "integer",
+            "title": "Interview Id"
+          },
+          "question_id": {
+            "type": "integer",
+            "title": "Question Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "original_answer": {
+            "type": "string",
+            "title": "Original Answer"
+          },
+          "original_evaluation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Evaluation"
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/AnswerReanswerAttemptResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interview_id",
+          "question_id",
+          "question",
+          "original_answer",
+          "attempt"
+        ],
+        "title": "AnswerReanswerResponse"
+      },
       "AuthRequest": {
         "properties": {
           "username": {
@@ -4599,6 +4961,15 @@
             "title": "Mode",
             "default": "multi_round"
           },
+          "experience_mode": {
+            "type": "string",
+            "enum": [
+              "training",
+              "simulation"
+            ],
+            "title": "Experience Mode",
+            "default": "training"
+          },
           "job_description": {
             "anyOf": [
               {
@@ -5071,6 +5442,15 @@
             "title": "Difficulty",
             "default": "normal"
           },
+          "experience_mode": {
+            "type": "string",
+            "enum": [
+              "training",
+              "simulation"
+            ],
+            "title": "Experience Mode",
+            "default": "training"
+          },
           "time_limit_minutes": {
             "type": "integer",
             "enum": [
@@ -5123,6 +5503,15 @@
             ],
             "title": "Difficulty",
             "default": "normal"
+          },
+          "experience_mode": {
+            "type": "string",
+            "enum": [
+              "training",
+              "simulation"
+            ],
+            "title": "Experience Mode",
+            "default": "training"
           },
           "time_limit_minutes": {
             "type": "integer",
@@ -5461,6 +5850,15 @@
             "title": "Difficulty",
             "default": "normal"
           },
+          "experience_mode": {
+            "type": "string",
+            "enum": [
+              "training",
+              "simulation"
+            ],
+            "title": "Experience Mode",
+            "default": "training"
+          },
           "time_limit_minutes": {
             "type": "integer",
             "enum": [
@@ -5564,6 +5962,98 @@
           "rounds"
         ],
         "title": "InterviewStateResponse"
+      },
+      "JobMatchAnalysisRequest": {
+        "properties": {
+          "target_position": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Target Position"
+          },
+          "job_description": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Job Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_position",
+          "job_description"
+        ],
+        "title": "JobMatchAnalysisRequest"
+      },
+      "JobMatchAnalysisResponse": {
+        "properties": {
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Summary"
+          },
+          "matched_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/MatchedRequirement"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Matched Requirements"
+          },
+          "missing_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/MissingRequirement"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Missing Requirements"
+          },
+          "risk_questions": {
+            "items": {
+              "$ref": "#/components/schemas/RiskQuestion"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Risk Questions"
+          },
+          "preparation_suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/PreparationSuggestion"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Preparation Suggestions"
+          },
+          "resume_id": {
+            "type": "integer",
+            "title": "Resume Id"
+          },
+          "target_position": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Target Position"
+          },
+          "analysis_basis": {
+            "type": "string",
+            "title": "Analysis Basis"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "summary",
+          "matched_requirements",
+          "missing_requirements",
+          "risk_questions",
+          "preparation_suggestions",
+          "resume_id",
+          "target_position",
+          "analysis_basis"
+        ],
+        "title": "JobMatchAnalysisResponse"
       },
       "LoginResponse": {
         "properties": {
@@ -5773,6 +6263,29 @@
         ],
         "title": "ManagedMemoryListResponse"
       },
+      "MatchedRequirement": {
+        "properties": {
+          "requirement": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Requirement"
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requirement",
+          "evidence"
+        ],
+        "title": "MatchedRequirement"
+      },
       "MemoryClearStatusResponse": {
         "properties": {
           "task_id": {
@@ -5822,6 +6335,29 @@
           "status"
         ],
         "title": "MemoryClearStatusResponse"
+      },
+      "MissingRequirement": {
+        "properties": {
+          "requirement": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Requirement"
+          },
+          "evidence_gap": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Evidence Gap"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requirement",
+          "evidence_gap"
+        ],
+        "title": "MissingRequirement"
       },
       "NotificationDetail": {
         "properties": {
@@ -6102,6 +6638,29 @@
           "count"
         ],
         "title": "NotificationUnreadCountResponse"
+      },
+      "PreparationSuggestion": {
+        "properties": {
+          "suggestion": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Suggestion"
+          },
+          "related_requirement": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Related Requirement"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "suggestion",
+          "related_requirement"
+        ],
+        "title": "PreparationSuggestion"
       },
       "ReportListItem": {
         "properties": {
@@ -7064,6 +7623,15 @@
             "title": "Difficulty",
             "default": "normal"
           },
+          "experience_mode": {
+            "type": "string",
+            "enum": [
+              "training",
+              "simulation"
+            ],
+            "title": "Experience Mode",
+            "default": "training"
+          },
           "time_limit_minutes": {
             "type": "integer",
             "enum": [
@@ -7127,6 +7695,29 @@
           "status"
         ],
         "title": "ReviewBookmarkUpdate"
+      },
+      "RiskQuestion": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "related_requirement": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Related Requirement"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question",
+          "related_requirement"
+        ],
+        "title": "RiskQuestion"
       },
       "RoundAnswerRequest": {
         "properties": {
@@ -7725,6 +8316,15 @@
             ],
             "title": "Difficulty",
             "default": "normal"
+          },
+          "experience_mode": {
+            "type": "string",
+            "enum": [
+              "training",
+              "simulation"
+            ],
+            "title": "Experience Mode",
+            "default": "training"
           },
           "time_limit_minutes": {
             "type": "integer",

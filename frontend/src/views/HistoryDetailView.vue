@@ -526,6 +526,14 @@
                     <h3>评价建议</h3>
                     <p>{{ questionEvaluationText(entry) }}</p>
                   </section>
+                  <QuestionReanswerPanel
+                    v-if="completedInterview && typeof entry.id === 'number' && answeredText(entry)"
+                    :interview-id="detail.interview_id"
+                    :question-id="entry.id"
+                    :question="questionText(entry)"
+                    :original-answer="answeredText(entry)"
+                    :original-evaluation="entry.question_evaluation"
+                  />
                 </div>
               </article>
             </div>
@@ -563,6 +571,7 @@ import hrInterviewer from "../assets/interviewers/hr-interviewer.webp";
 import managerInterviewer from "../assets/interviewers/manager-interviewer.webp";
 import resumeInterviewer from "../assets/interviewers/resume-interviewer.webp";
 import technicalInterviewer from "../assets/interviewers/technical-interviewer.webp";
+import QuestionReanswerPanel from "../components/QuestionReanswerPanel.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -587,6 +596,9 @@ const roundMeta: Record<RoundType, { image: string; interviewer: string; icon: s
 
 const rounds = computed<InterviewRound[]>(() => detail.value?.rounds || []);
 const qaEntries = computed<MultiRoundQaEntry[]>(() => detail.value?.qa_history || []);
+const completedInterview = computed(() =>
+  ["finished", "completed"].includes(detail.value?.overall_status || detail.value?.status || "")
+);
 const reportQuality = computed<ReportQualitySummary | null>(
   () => detail.value?.report_quality || null
 );
@@ -992,7 +1004,10 @@ function questionText(entry: MultiRoundQaEntry): string {
   return entry.question || entry.question_text || entry.prompt || "暂无问题内容";
 }
 function answerText(entry: MultiRoundQaEntry): string {
-  return entry.answer || entry.answer_text || entry.user_answer || "暂无回答";
+  return answeredText(entry) || "暂无回答";
+}
+function answeredText(entry: MultiRoundQaEntry): string {
+  return entry.answer || entry.answer_text || entry.user_answer || "";
 }
 function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "暂无";

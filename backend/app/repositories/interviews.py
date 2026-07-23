@@ -33,6 +33,7 @@ class InterviewRecord:
     selected_rounds: list[str] | None = None
     interview_goal: str = "campus"
     difficulty: str = "normal"
+    experience_mode: str = "training"
     time_limit_minutes: int = 45
     current_round: str | None = None
     overall_status: str = "created"
@@ -72,6 +73,17 @@ class AnswerDraftRecord:
     question_id: int
     answer: str
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class AnswerReanswerAttemptRecord:
+    id: int
+    interview_id: int
+    question_id: int
+    attempt_number: int
+    answer: str
+    evaluation: dict[str, Any] | None
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -147,6 +159,7 @@ class InterviewRepository:
         selected_rounds: list[str] | None = None,
         interview_goal: str = "campus",
         difficulty: str = "normal",
+        experience_mode: str = "training",
         time_limit_minutes: int = 45,
     ) -> InterviewRecord:
         selected_rounds_json = (
@@ -154,11 +167,12 @@ class InterviewRepository:
         )
         optional_columns = self._existing_columns(
             "interviews",
-            ["interview_goal", "difficulty", "time_limit_minutes"],
+            ["interview_goal", "difficulty", "experience_mode", "time_limit_minutes"],
         )
         optional_values = [
             ("interview_goal", interview_goal),
             ("difficulty", difficulty),
+            ("experience_mode", experience_mode),
             ("time_limit_minutes", time_limit_minutes),
         ]
         optional_values = [
@@ -206,6 +220,7 @@ class InterviewRepository:
             selected_rounds=selected_rounds,
             interview_goal=interview_goal,
             difficulty=difficulty,
+            experience_mode=experience_mode,
             time_limit_minutes=time_limit_minutes,
             overall_status="created",
         )
@@ -227,6 +242,7 @@ class InterviewRepository:
                     "had_degradation",
                     "interview_goal",
                     "difficulty",
+                    "experience_mode",
                     "time_limit_minutes",
                     "job_family_key",
                     "harness_bundle_id",
@@ -882,6 +898,129 @@ class InterviewRepository:
             row = cursor.fetchone()
         return _to_qa(row)
 
+    def get_qa_by_id(
+        self,
+        interview_id: int,
+        qa_id: int,
+    ) -> QARecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, interview_id, round_id, sequence, question_type, question, answer,
+                       question_kind, question_status, parent_question_id,
+                       regenerated_from_question_id, created_at
+                FROM interview_qa
+                WHERE id = %s AND interview_id = %s
+                """,
+                (qa_id, interview_id),
+            )
+            row = cursor.fetchone()
+        return _to_qa(row)
+
+    def create_reanswer_attempt(
+        self,
+        *,
+        interview_id: int,
+        question_id: int,
+        answer: str,
+    ) -> AnswerReanswerAttemptRecord:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COALESCE(MAX(attempt_number), 0) + 1 AS attempt_number
+                FROM answer_reanswer_attempts
+                WHERE interview_id = %s AND question_id = %s
+                """,
+                (interview_id, question_id),
+            )
+            row = cursor.fetchone() or {}
+            attempt_number = int(row.get("attempt_number") or 1)
+            cursor.execute(
+                """
+                INSERT INTO answer_reanswer_attempts (
+                    interview_id, question_id, attempt_number, answer
+                )
+                VALUES (%s, %s, %s, %s)
+                """,
+                (interview_id, question_id, attempt_number, answer),
+            )
+            attempt_id = int(cursor.lastrowid)
+        record = self.get_reanswer_attempt(interview_id, question_id, attempt_id)
+        if record is None:
+            raise RuntimeError("reanswer attempt was not saved")
+        return record
+
+    def get_reanswer_attempt(
+        self,
+        interview_id: int,
+        question_id: int,
+        attempt_id: int,
+    ) -> AnswerReanswerAttemptRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, interview_id, question_id, attempt_number, answer,
+                       evaluation, created_at
+                FROM answer_reanswer_attempts
+                WHERE id = %s AND interview_id = %s AND question_id = %s
+                """,
+                (attempt_id, interview_id, question_id),
+            )
+            row = cursor.fetchone()
+        return _to_reanswer_attempt(row)
+
+    def update_reanswer_evaluation(
+        self,
+        interview_id: int,
+        question_id: int,
+        attempt_id: int,
+        evaluation: dict[str, Any],
+    ) -> AnswerReanswerAttemptRecord:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE answer_reanswer_attempts
+                SET evaluation = %s
+                WHERE id = %s AND interview_id = %s AND question_id = %s
+                """,
+                (
+                    json.dumps(evaluation, ensure_ascii=False),
+                    attempt_id,
+                    interview_id,
+                    question_id,
+                ),
+            )
+            updated = int(cursor.rowcount) > 0
+        if not updated:
+            raise RuntimeError("reanswer attempt evaluation was not saved")
+        record = self.get_reanswer_attempt(interview_id, question_id, attempt_id)
+        if record is None:
+            raise RuntimeError("reanswer attempt was not found after evaluation")
+        return record
+
+    def list_reanswer_attempts(
+        self,
+        interview_id: int,
+        question_id: int,
+    ) -> list[AnswerReanswerAttemptRecord]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, interview_id, question_id, attempt_number, answer,
+                       evaluation, created_at
+                FROM answer_reanswer_attempts
+                WHERE interview_id = %s AND question_id = %s
+                ORDER BY attempt_number ASC, id ASC
+                """,
+                (interview_id, question_id),
+            )
+            rows = cursor.fetchall()
+        return [
+            record
+            for row in rows
+            if (record := _to_reanswer_attempt(row)) is not None
+        ]
+
     def list_round_qa(
         self,
         interview_id: int,
@@ -1252,6 +1391,7 @@ def _to_interview(row: dict[str, Any] | None) -> InterviewRecord | None:
         selected_rounds=_json_string_list(selected_rounds) if selected_rounds is not None else None,
         interview_goal=str(row.get("interview_goal") or "campus"),
         difficulty=str(row.get("difficulty") or "normal"),
+        experience_mode=str(row.get("experience_mode") or "training"),
         time_limit_minutes=int(row.get("time_limit_minutes") or 45),
         current_round=row.get("current_round"),
         overall_status=str(row.get("overall_status") or row["status"]),
@@ -1314,6 +1454,26 @@ def _to_answer_draft(row: dict[str, Any] | None) -> AnswerDraftRecord | None:
         question_id=int(row["question_id"]),
         answer=str(row.get("answer") or ""),
         updated_at=updated_at,
+    )
+
+
+def _to_reanswer_attempt(
+    row: dict[str, Any] | None,
+) -> AnswerReanswerAttemptRecord | None:
+    if row is None:
+        return None
+    created_at = row.get("created_at")
+    if not isinstance(created_at, datetime):
+        created_at = datetime.utcnow()
+    evaluation = row.get("evaluation")
+    return AnswerReanswerAttemptRecord(
+        id=int(row["id"]),
+        interview_id=int(row["interview_id"]),
+        question_id=int(row["question_id"]),
+        attempt_number=int(row["attempt_number"]),
+        answer=str(row["answer"]),
+        evaluation=_json_dict(evaluation) if evaluation is not None else None,
+        created_at=created_at,
     )
 
 

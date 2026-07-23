@@ -7,6 +7,9 @@
     <header class="room-header">
       <div class="room-title">
         <h1>{{ state?.target_position || "模拟面试" }} · 模拟面试</h1>
+        <span class="experience-mode-badge" :class="experienceMode" data-testid="experience-mode">
+          {{ experienceModeLabel }}
+        </span>
       </div>
 
       <div class="room-actions">
@@ -111,7 +114,7 @@
             </article>
 
             <section
-              v-if="item.answerEvaluation"
+              v-if="item.answerEvaluation && canShowAnswerEvaluation(activeRound.type)"
               class="answer-quality-panel answer-quality-inline"
               :class="answerQualityTone(item.answerEvaluation)"
               :data-question-id="item.answerEvaluation.question_id"
@@ -239,7 +242,10 @@
           <button type="button" :disabled="isBusy" @click.stop="retryLastAction">重试</button>
         </div>
 
-        <section v-if="activeRoundSummary" class="summary-panel">
+        <section
+          v-if="activeRoundSummary && canShowRoundSummary(activeRound)"
+          class="summary-panel"
+        >
           <div class="summary-score">
             <span>本轮评估</span>
             <strong>{{ activeRoundSummary.score ?? "-" }} 分</strong>
@@ -378,6 +384,10 @@
           <div>
             <dt>面试策略</dt>
             <dd>{{ strategyLabel }}</dd>
+          </div>
+          <div>
+            <dt>体验模式</dt>
+            <dd>{{ experienceModeDescription }}</dd>
           </div>
           <div>
             <dt>剩余时间</dt>
@@ -723,6 +733,14 @@ const currentActionRound = computed(() => {
   return type ? displayRounds.value.find((round) => round.type === type) || null : null;
 });
 const isBusy = computed(() => busyRoundType.value !== null || streamingRoundType.value !== null);
+const experienceMode = computed(() => state.value?.experience_mode || "training");
+const isSimulationMode = computed(() => experienceMode.value === "simulation");
+const experienceModeLabel = computed(() =>
+  isSimulationMode.value ? "真实模拟 · 轮后反馈" : "训练模式 · 逐题反馈"
+);
+const experienceModeDescription = computed(() =>
+  isSimulationMode.value ? "真实模拟，结束本轮后查看评分" : "训练模式，逐题查看反馈"
+);
 const roundFailureMessage = computed(
   () => message.value || "问题生成失败，可以重试或先结束当前轮。"
 );
@@ -1340,7 +1358,7 @@ async function applyActionPayload(
     shortTermMemoryStatus.value = payload.short_term_memory;
   }
   latestRoundSummaryRoundType.value = fallbackType;
-  if (payload.answer_evaluation) {
+  if (payload.answer_evaluation && !isSimulationMode.value) {
     attachAnswerEvaluation(fallbackType, payload.answer_evaluation);
     answerBookmarkMessage.value = "";
     answerBookmarkError.value = false;
@@ -1446,7 +1464,9 @@ function hydrateMessages(source: MultiRoundState) {
         id: `a-${entry.id || `${roundType}-${entry.sequence || answerMessageIndex}`}`,
         role: "user",
         text: answer,
-        answerEvaluation: entry.question_evaluation || undefined
+        answerEvaluation: canShowAnswerEvaluation(roundType)
+          ? entry.question_evaluation || undefined
+          : undefined
       });
     }
   }
@@ -1556,6 +1576,18 @@ function canSelectRoundCard(round: RoundCard) {
     return true;
   }
   return roundOrderIndex(round.type) < roundOrderIndex(currentRoundType.value);
+}
+
+function canShowAnswerEvaluation(roundType: RoundType): boolean {
+  if (!isSimulationMode.value) {
+    return true;
+  }
+  const round = displayRounds.value.find((item) => item.type === roundType);
+  return Boolean(round && isReviewableRound(round));
+}
+
+function canShowRoundSummary(round: RoundCard): boolean {
+  return !isSimulationMode.value || isReviewableRound(round);
 }
 
 function playRoundSwitchAnimation(type: RoundType) {
@@ -2334,6 +2366,10 @@ function clearMessage() {
 }
 
 .room-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
   min-width: 0;
 }
 
@@ -2344,6 +2380,26 @@ function clearMessage() {
   font-weight: 800;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.experience-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--brand-500) 26%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-500) 9%, var(--panel));
+  color: var(--brand-500);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.experience-mode-badge.simulation {
+  border-color: color-mix(in srgb, #df7c34 38%, var(--line));
+  background: color-mix(in srgb, #df7c34 10%, var(--panel));
+  color: color-mix(in srgb, #df7c34 86%, var(--ink));
 }
 
 .room-actions {

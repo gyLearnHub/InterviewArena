@@ -173,6 +173,34 @@
                 </button>
               </div>
             </div>
+            <fieldset class="strategy-group experience-group">
+              <legend>面试体验</legend>
+              <div
+                class="strategy-options experience-options"
+                role="radiogroup"
+                aria-label="面试体验"
+              >
+                <button
+                  v-for="option in experienceModeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="strategy-option experience-option"
+                  :class="{ active: experienceMode === option.value }"
+                  role="radio"
+                  :aria-checked="experienceMode === option.value"
+                  @click="experienceMode = option.value"
+                >
+                  <span class="mode-title">
+                    <strong>{{ option.label }}</strong>
+                    <i>{{ option.badge }}</i>
+                  </span>
+                  <small>{{ option.note }}</small>
+                </button>
+              </div>
+              <p class="experience-note">
+                模式创建后固定，真实模拟的逐题评分会在结束本轮后统一公开。
+              </p>
+            </fieldset>
           </div>
 
           <label v-show="currentStep === 4" for="job-description">岗位 JD</label>
@@ -182,6 +210,16 @@
             v-model.trim="jobDescription"
             placeholder="可选：粘贴岗位 JD，系统会保存为本次面试快照。"
             rows="4"
+          />
+
+          <JobMatchAnalysisPanel
+            v-show="currentStep === 4"
+            :analysis="jobMatchAnalysis"
+            :loading="isGeneratingJobMatch"
+            :error="jobMatchError"
+            :can-generate="canGenerateJobMatch"
+            :unavailable-reason="jobMatchUnavailableReason"
+            @generate="generateJobMatchAnalysis"
           />
 
           <div v-show="currentStep === 2" class="resume-upload-row">
@@ -246,6 +284,7 @@
           <p>{{ selectionHint }}</p>
           <div class="confirm-strategy">
             <span>{{ interviewGoalLabel }}</span>
+            <span>{{ experienceModeLabel }}</span>
           </div>
           <div class="confirm-rounds">
             <span v-for="label in selectedRoundLabels" :key="label">{{ label }}</span>
@@ -442,6 +481,7 @@ import { useRouter } from "vue-router";
 
 import { getUser } from "../auth";
 import { createInterviewDraftKey } from "../draftStorage";
+import JobMatchAnalysisPanel from "../components/JobMatchAnalysisPanel.vue";
 import agentIcon from "../assets/position-icons/agent.png";
 import backendIcon from "../assets/position-icons/backend.png";
 import customInputIcon from "../assets/position-icons/custom-input.png";
@@ -456,11 +496,13 @@ import {
   renameResume,
   setDefaultResume,
   uploadResume,
+  type ExperienceMode,
   type InterviewGoal,
   type ResumeDetail,
   type ResumeListItem,
   type RoundType
 } from "../api";
+import { analyzeResumeJobMatch, type JobMatchAnalysis } from "../jobMatchApi";
 
 const router = useRouter();
 const currentUserId = getUser()?.id ?? null;
@@ -489,15 +531,36 @@ const interviewGoalOptions: { value: InterviewGoal; label: string; note: string 
   { value: "campus", label: "校招", note: "能力覆盖与项目深度" },
   { value: "big_tech", label: "冲刺大厂", note: "深度追问和抗压表达" }
 ];
+const experienceModeOptions: {
+  value: ExperienceMode;
+  label: string;
+  badge: string;
+  note: string;
+}[] = [
+  {
+    value: "training",
+    label: "训练模式",
+    badge: "逐题反馈",
+    note: "每次回答后立即查看评分、优缺点和下一步建议，适合边练边改。"
+  },
+  {
+    value: "simulation",
+    label: "真实模拟模式",
+    badge: "轮后复盘",
+    note: "回答过程中隐藏评分与提示，结束本轮后再统一复盘，更接近真实面试。"
+  }
+];
 const targetPosition = ref("");
 const customPosition = ref("");
 const isCustomInputMode = ref(false);
 const isPositionMenuOpen = ref(false);
 const selectedRounds = ref<RoundType[]>(roundOptions.map((round) => round.value));
 const interviewGoal = ref<InterviewGoal>("campus");
+const experienceMode = ref<ExperienceMode>("training");
 const jobDescription = ref("");
 const resumeId = ref<number | null>(null);
 const resumeName = ref("");
+const resumeParseStatus = ref<string | null>(null);
 const message = ref("");
 const customPositionInput = ref<HTMLInputElement | null>(null);
 const resumeInput = ref<HTMLInputElement | null>(null);
@@ -517,6 +580,10 @@ const editingResumeName = ref("");
 const savingRenameId = ref<number | null>(null);
 const settingDefaultResumeId = ref<number | null>(null);
 const deletingResumeId = ref<number | null>(null);
+const jobMatchAnalysis = ref<JobMatchAnalysis | null>(null);
+const isGeneratingJobMatch = ref(false);
+const jobMatchError = ref("");
+let jobMatchRequestVersion = 0;
 
 const selectedPosition = computed(() => {
   return isCustomInputMode.value ? customPosition.value.trim() : targetPosition.value;
@@ -531,12 +598,17 @@ const currentPositionIcon = computed(() => {
   );
 });
 const selectionHint = computed(() => {
-  return `${selectedRounds.value.length} 个轮次，${interviewGoalLabel.value}${
+  return `${selectedRounds.value.length} 个轮次，${interviewGoalLabel.value}，${experienceModeLabel.value}${
     resumeId.value ? "，简历已就绪" : "，待上传简历"
   }`;
 });
 const interviewGoalLabel = computed(
   () => interviewGoalOptions.find((option) => option.value === interviewGoal.value)?.label || "校招"
+);
+const experienceModeLabel = computed(
+  () =>
+    experienceModeOptions.find((option) => option.value === experienceMode.value)?.label ||
+    "训练模式"
 );
 const selectedRoundLabels = computed(() =>
   roundOptions
@@ -566,6 +638,34 @@ const resumeStatusHint = computed(() => {
     return "已选择，可重新上传或复用其他简历";
   }
   return "上传新简历或复用已有简历";
+});
+const canGenerateJobMatch = computed(
+  () =>
+    resumeId.value !== null &&
+    resumeParseStatus.value === "parsed" &&
+    Boolean(selectedPosition.value) &&
+    Boolean(jobDescription.value.trim())
+);
+const jobMatchUnavailableReason = computed(() => {
+  if (isUploadingResume.value) {
+    return "简历正在解析，完成后即可生成匹配分析。";
+  }
+  if (!resumeId.value) {
+    return "请先选择一份解析成功的简历。";
+  }
+  if (resumeParseStatus.value === "failed") {
+    return "所选简历解析失败，请重新上传或选择其他简历。";
+  }
+  if (resumeParseStatus.value !== "parsed") {
+    return "无法确认所选简历的解析状态，请重新选择简历。";
+  }
+  if (!selectedPosition.value) {
+    return "请先选择或输入目标岗位。";
+  }
+  if (!jobDescription.value.trim()) {
+    return "粘贴非空岗位 JD 后即可生成匹配分析。";
+  }
+  return "条件已就绪，可生成匹配分析。";
 });
 
 function selectPreset(position: string) {
@@ -648,6 +748,7 @@ async function loadResumeOptions() {
 function selectExistingResume(resume: ResumeListItem) {
   resumeId.value = resume.id;
   resumeName.value = resume.name;
+  resumeParseStatus.value = resume.parse_status;
   message.value = "";
   resumeHistoryMessage.value = "";
   isResumeHistoryOpen.value = false;
@@ -767,7 +868,48 @@ function updateResumeOption(updated: ResumeDetail) {
 function removeResume() {
   resumeId.value = null;
   resumeName.value = "";
+  resumeParseStatus.value = null;
   message.value = "";
+}
+
+async function generateJobMatchAnalysis() {
+  if (!canGenerateJobMatch.value || resumeId.value === null) {
+    return;
+  }
+
+  const requestVersion = ++jobMatchRequestVersion;
+  const selectedResumeId = resumeId.value;
+  const targetPositionSnapshot = selectedPosition.value;
+  const jobDescriptionSnapshot = jobDescription.value.trim();
+  isGeneratingJobMatch.value = true;
+  jobMatchError.value = "";
+
+  try {
+    const result = await analyzeResumeJobMatch(selectedResumeId, {
+      target_position: targetPositionSnapshot,
+      job_description: jobDescriptionSnapshot
+    });
+    if (requestVersion === jobMatchRequestVersion) {
+      jobMatchAnalysis.value = result;
+    }
+  } catch (error) {
+    if (requestVersion === jobMatchRequestVersion) {
+      jobMatchAnalysis.value = null;
+      jobMatchError.value =
+        error instanceof ApiError ? error.message : "匹配分析失败，请稍后重试。";
+    }
+  } finally {
+    if (requestVersion === jobMatchRequestVersion) {
+      isGeneratingJobMatch.value = false;
+    }
+  }
+}
+
+function invalidateJobMatchAnalysis() {
+  jobMatchRequestVersion += 1;
+  jobMatchAnalysis.value = null;
+  jobMatchError.value = "";
+  isGeneratingJobMatch.value = false;
 }
 
 async function submitEntry() {
@@ -827,12 +969,15 @@ async function handleResumeUpload(event: Event) {
   isResumeMenuOpen.value = false;
   message.value = "";
   resumeName.value = file.name;
+  resumeParseStatus.value = null;
   try {
     const result = await uploadResume(file);
     resumeId.value = result.id;
+    resumeParseStatus.value = "parsed";
   } catch (error) {
     resumeName.value = "";
     resumeId.value = null;
+    resumeParseStatus.value = null;
     message.value = error instanceof ApiError ? error.message : "简历解析失败，请重新上传。";
   } finally {
     isUploadingResume.value = false;
@@ -857,7 +1002,8 @@ async function createMultiRoundInterview() {
     const interview = await createInterview(resumeId.value, selectedPosition.value, {
       jobDescription: jobDescription.value,
       selectedRounds: selectedRounds.value,
-      interviewGoal: interviewGoal.value
+      interviewGoal: interviewGoal.value,
+      experienceMode: experienceMode.value
     });
     if (draftKey) {
       localStorage.removeItem(draftKey);
@@ -956,9 +1102,11 @@ function saveDraft(showMessage = false) {
       isCustomInputMode: isCustomInputMode.value,
       selectedRounds: selectedRounds.value,
       interviewGoal: interviewGoal.value,
+      experienceMode: experienceMode.value,
       jobDescription: jobDescription.value,
       resumeId: resumeId.value,
-      resumeName: resumeName.value
+      resumeName: resumeName.value,
+      resumeParseStatus: resumeParseStatus.value
     })
   );
   if (showMessage) {
@@ -981,9 +1129,11 @@ function loadDraft() {
       isCustomInputMode?: boolean;
       selectedRounds?: RoundType[];
       interviewGoal?: InterviewGoal;
+      experienceMode?: ExperienceMode;
       jobDescription?: string;
       resumeId?: number | null;
       resumeName?: string;
+      resumeParseStatus?: string | null;
     };
     targetPosition.value = draft.targetPosition || "";
     customPosition.value = draft.customPosition || "";
@@ -995,9 +1145,14 @@ function loadDraft() {
     if (isInterviewGoal(draft.interviewGoal)) {
       interviewGoal.value = draft.interviewGoal;
     }
+    if (isExperienceMode(draft.experienceMode)) {
+      experienceMode.value = draft.experienceMode;
+    }
     jobDescription.value = draft.jobDescription || "";
     resumeId.value = typeof draft.resumeId === "number" ? draft.resumeId : null;
     resumeName.value = draft.resumeName || "";
+    resumeParseStatus.value =
+      typeof draft.resumeParseStatus === "string" ? draft.resumeParseStatus : null;
   } catch {
     localStorage.removeItem(draftKey);
   }
@@ -1007,7 +1162,13 @@ function isInterviewGoal(value: unknown): value is InterviewGoal {
   return interviewGoalOptions.some((option) => option.value === value);
 }
 
+function isExperienceMode(value: unknown): value is ExperienceMode {
+  return experienceModeOptions.some((option) => option.value === value);
+}
+
 onMounted(loadDraft);
+
+watch([resumeId, resumeParseStatus, selectedPosition, jobDescription], invalidateJobMatchAnalysis);
 
 watch(
   [
@@ -1016,9 +1177,11 @@ watch(
     isCustomInputMode,
     selectedRounds,
     interviewGoal,
+    experienceMode,
     jobDescription,
     resumeId,
-    resumeName
+    resumeName,
+    resumeParseStatus
   ],
   () => saveDraft(false),
   { deep: true }
@@ -1391,10 +1554,27 @@ watch(
   font-weight: 800;
 }
 
+.experience-group {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.experience-group legend {
+  padding: 0;
+  color: #17212f;
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .strategy-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.strategy-options.experience-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .strategy-option {
@@ -1424,6 +1604,39 @@ watch(
 .strategy-option small {
   color: #5d6673;
   line-height: 1.35;
+}
+
+.experience-option {
+  min-height: 94px;
+}
+
+.mode-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mode-title i {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #edf3ff;
+  color: #4479d8;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.experience-option.active .mode-title i {
+  background: #ddeaff;
+  color: #2269c5;
+}
+
+.experience-note {
+  margin: 0;
+  color: #69758a;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 #job-description {
@@ -2026,6 +2239,10 @@ watch(
   }
 
   .strategy-options {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-options.experience-options {
     grid-template-columns: 1fr;
   }
 

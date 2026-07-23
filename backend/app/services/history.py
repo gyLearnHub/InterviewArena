@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
@@ -206,6 +207,10 @@ def _page_size(limit: int) -> int:
     return max(1, min(limit, 100))
 
 
+def _experience_mode(value: str) -> Literal["training", "simulation"]:
+    return "simulation" if value == "simulation" else "training"
+
+
 def _to_report_item(record: ReportListRecord) -> ReportListItem:
     return ReportListItem(
         interview_id=record.interview_id,
@@ -227,22 +232,24 @@ def _history_updated_at(record: HistoryInterviewRecord) -> datetime | None:
 
 
 def _to_detail(record: HistoryInterviewRecord) -> HistoryDetail:
+    visible_record = replace(record, qa_history=_history_qa_for_detail(record))
     return HistoryDetail(
         interview_id=record.id,
         target_position=record.target_position,
         status=record.status,
         mode=record.mode,
+        experience_mode=_experience_mode(record.experience_mode),
         job_description=record.job_description,
         overall_status=record.overall_status,
-        rounds=[_to_round(item) for item in record.rounds or []],
-        qa_history=[_to_qa_item(item) for item in record.qa_history or []],
-        report_quality=_report_quality(record),
+        rounds=[_to_round(item) for item in visible_record.rounds or []],
+        qa_history=[_to_qa_item(item) for item in visible_record.qa_history or []],
+        report_quality=_report_quality(visible_record),
         resume=ResumeSummary(
             id=record.resume.id,
             created_at=record.resume.created_at,
             structured_data=record.resume.structured_data,
         ),
-        feedback_report=_to_feedback_summary(record),
+        feedback_report=_to_feedback_summary(visible_record),
         started_at=record.started_at,
         ended_at=record.ended_at,
         harness_status=record.harness_status,
@@ -250,6 +257,26 @@ def _to_detail(record: HistoryInterviewRecord) -> HistoryDetail:
         had_degradation=record.had_degradation,
         last_harness_error=record.last_harness_error,
     )
+
+
+def _history_qa_for_detail(record: HistoryInterviewRecord) -> list[HistoryQARecord]:
+    qa_history = list(record.qa_history or [])
+    if record.experience_mode != "simulation":
+        return qa_history
+    finished_round_ids = {
+        item.id
+        for item in record.rounds or []
+        if item.status in {"completed", "finished_early"}
+    }
+    interview_finished = record.overall_status in {"finished", "completed"}
+    return [
+        item
+        if item.question_evaluation is None
+        or item.round_id in finished_round_ids
+        or (item.round_id is None and interview_finished)
+        else replace(item, question_evaluation=None)
+        for item in qa_history
+    ]
 
 
 def _to_feedback_summary(record: HistoryInterviewRecord) -> FeedbackReportSummary | None:

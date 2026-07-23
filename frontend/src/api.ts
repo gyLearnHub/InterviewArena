@@ -65,6 +65,7 @@ export type InterviewCreateResponse = {
   id: number;
   status: string;
   mode?: "multi_round";
+  experience_mode?: ExperienceMode;
   interview_goal?: InterviewGoal;
   difficulty?: InterviewDifficulty;
   time_limit_minutes?: TimeLimitMinutes;
@@ -352,6 +353,7 @@ export type HistoryDetail = {
   target_position: string;
   status: string;
   mode?: "multi_round";
+  experience_mode?: ExperienceMode;
   job_description?: string | null;
   overall_status?: string;
   rounds?: InterviewRound[];
@@ -455,6 +457,7 @@ export type HarnessStatus =
 export type ReportReliabilityStatus = "normal" | "reference_only" | "unavailable";
 
 export type RoundType = "resume" | "technical" | "manager" | "hr";
+export type ExperienceMode = "training" | "simulation";
 export type InterviewGoal = "internship" | "campus" | "big_tech";
 export type InterviewDifficulty = "easy" | "normal" | "pressure";
 export type TimeLimitMinutes = 30 | 45 | 60;
@@ -564,6 +567,7 @@ export type MultiRoundQaEntry = {
 export type MultiRoundState = {
   interview_id: number;
   mode: "multi_round";
+  experience_mode: ExperienceMode;
   overall_status: string;
   target_position: string;
   job_description: string | null;
@@ -686,6 +690,42 @@ export type RoundAnswerResponse = {
   answer_evaluation?: QuestionEvaluation | null;
   round?: InterviewRound;
   short_term_memory?: ShortTermMemoryStatus | null;
+};
+
+export type ReanswerAttempt = {
+  id: number;
+  attempt_number: number;
+  answer: string;
+  evaluation: QuestionEvaluation | null;
+  score_delta: number | null;
+  created_at: string;
+};
+
+export type QuestionReanswerBase = {
+  interview_id: number;
+  question_id: number;
+  question: string;
+  original_answer: string;
+  original_evaluation: QuestionEvaluation | null;
+};
+
+export type QuestionReanswerResponse = QuestionReanswerBase & {
+  attempts: ReanswerAttempt[];
+};
+
+export type QuestionReanswerCreateResponse = QuestionReanswerBase & {
+  attempt: ReanswerAttempt;
+};
+
+export type InterviewCreateRequest = {
+  resume_id: number;
+  target_position: string;
+  experience_mode: ExperienceMode;
+  job_description?: string;
+  selected_rounds?: RoundType[];
+  interview_goal?: InterviewGoal;
+  difficulty?: InterviewDifficulty;
+  time_limit_minutes?: TimeLimitMinutes;
 };
 
 export type AnswerDraftResponse = {
@@ -833,19 +873,22 @@ export function createInterview(
     interviewGoal?: InterviewGoal;
     difficulty?: InterviewDifficulty;
     timeLimitMinutes?: TimeLimitMinutes;
+    experienceMode?: ExperienceMode;
   } = {}
 ): Promise<InterviewCreateResponse> {
+  const body: InterviewCreateRequest = {
+    resume_id: resumeId,
+    target_position: targetPosition,
+    experience_mode: options.experienceMode || "training",
+    ...(options.jobDescription ? { job_description: options.jobDescription } : {}),
+    ...(options.selectedRounds ? { selected_rounds: options.selectedRounds } : {}),
+    ...(options.interviewGoal ? { interview_goal: options.interviewGoal } : {}),
+    ...(options.difficulty ? { difficulty: options.difficulty } : {}),
+    ...(options.timeLimitMinutes ? { time_limit_minutes: options.timeLimitMinutes } : {})
+  };
   return request("/interviews", {
     method: "POST",
-    body: {
-      resume_id: resumeId,
-      target_position: targetPosition,
-      ...(options.jobDescription ? { job_description: options.jobDescription } : {}),
-      ...(options.selectedRounds ? { selected_rounds: options.selectedRounds } : {}),
-      ...(options.interviewGoal ? { interview_goal: options.interviewGoal } : {}),
-      ...(options.difficulty ? { difficulty: options.difficulty } : {}),
-      ...(options.timeLimitMinutes ? { time_limit_minutes: options.timeLimitMinutes } : {})
-    }
+    body
   });
 }
 
@@ -907,6 +950,24 @@ export function clearHistory(): Promise<void> {
 
 export function getHistoryDetail(interviewId: number): Promise<HistoryDetail> {
   return request(`/interviews/${interviewId}`);
+}
+
+export function listQuestionReanswers(
+  interviewId: number,
+  questionId: number
+): Promise<QuestionReanswerResponse> {
+  return request(`/interviews/${interviewId}/questions/${questionId}/reanswers`);
+}
+
+export function submitQuestionReanswer(
+  interviewId: number,
+  questionId: number,
+  answer: string
+): Promise<QuestionReanswerCreateResponse> {
+  return request(`/interviews/${interviewId}/questions/${questionId}/reanswers`, {
+    method: "POST",
+    body: { answer }
+  });
 }
 
 export function getDashboardSummary(): Promise<DashboardSummary> {

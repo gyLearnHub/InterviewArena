@@ -17,6 +17,7 @@ from app.repositories.interviews import (
 from app.services.evaluations import (
     FINAL_EVALUATION_TYPE,
     QUESTION_EVALUATION_TYPE,
+    REANSWER_EVALUATION_TYPE,
     EvaluationSchedulerService,
 )
 
@@ -184,6 +185,41 @@ def test_question_score_failure_is_recorded_and_non_blocking() -> None:
     assert records[0].status == "failed"
     assert records[0].evaluation_key == "1:10:100"
     assert records[0].model_name == "fake-model"
+
+
+def test_reanswer_scores_use_attempt_scoped_keys_without_overwriting_original() -> None:
+    repository = FakeEvaluationRepository()
+    service = EvaluationSchedulerService(repository, FakeLLMClient())
+    original_qa = _qa(answer="不知道")
+
+    original = service.score_question(
+        interview=_interview(),
+        round_record=_round(),
+        qa=original_qa,
+        resume=_resume(),
+    )
+    first = service.score_reanswer_attempt(
+        interview=_interview(),
+        round_record=_round(),
+        qa=replace(original_qa, answer="我平时喜欢打篮球。"),
+        resume=_resume(),
+        attempt_id=501,
+    )
+    second = service.score_reanswer_attempt(
+        interview=_interview(),
+        round_record=_round(),
+        qa=replace(original_qa, answer="暂时不知道。"),
+        resume=_resume(),
+        attempt_id=502,
+    )
+
+    assert original is not None and original.total_score == 10
+    assert first is not None and first.total_score == 20
+    assert second is not None and second.total_score == 10
+    assert (QUESTION_EVALUATION_TYPE, "1:10:100") in repository.records
+    assert (REANSWER_EVALUATION_TYPE, "1:10:100:reanswer:501") in repository.records
+    assert (REANSWER_EVALUATION_TYPE, "1:10:100:reanswer:502") in repository.records
+    assert service.question_scores_by_id(1)[100]["total_score"] == 10
 
 
 def test_question_score_caps_unknown_answer_and_removes_strengths() -> None:

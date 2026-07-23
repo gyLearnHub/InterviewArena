@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -110,6 +110,7 @@ class HistoryDetail(BaseModel):
     target_position: str
     status: str
     mode: str = "multi_round"
+    experience_mode: Literal["training", "simulation"] = "training"
     job_description: str | None = None
     overall_status: str | None = None
     rounds: list[HistoryRound] = Field(default_factory=list)

@@ -41,10 +41,14 @@ from app.schemas.history import (
 from app.schemas.interview import (
     AnswerDraftRequest,
     AnswerDraftResponse,
+    AnswerReanswerListResponse,
+    AnswerReanswerRequest,
+    AnswerReanswerResponse,
     FeedbackReportResponse,
     InterviewCreateRequest,
     InterviewCreateResponse,
     InterviewDifficulty,
+    InterviewExperienceMode,
     InterviewFinishRequest,
     InterviewGoal,
     InterviewOperationTaskResponse,
@@ -163,6 +167,7 @@ def create_interview(
         selected_rounds=request.selected_rounds,
         interview_goal=request.interview_goal,
         difficulty=request.difficulty,
+        experience_mode=request.experience_mode,
         time_limit_minutes=request.time_limit_minutes,
     )
     background_tasks.add_task(
@@ -179,6 +184,7 @@ def create_interview(
         mode=interview.mode,
         interview_goal=cast(InterviewGoal, interview.interview_goal),
         difficulty=cast(InterviewDifficulty, interview.difficulty),
+        experience_mode=cast(InterviewExperienceMode, interview.experience_mode),
         time_limit_minutes=cast(TimeLimitMinutes, interview.time_limit_minutes),
         rounds=[
             InterviewRoundResponse(
@@ -214,6 +220,7 @@ def create_weakness_practice(
         mode=interview.mode,
         interview_goal=cast(InterviewGoal, interview.interview_goal),
         difficulty=cast(InterviewDifficulty, interview.difficulty),
+        experience_mode=cast(InterviewExperienceMode, interview.experience_mode),
         time_limit_minutes=cast(TimeLimitMinutes, interview.time_limit_minutes),
         rounds=[
             InterviewRoundResponse(
@@ -316,6 +323,40 @@ def get_interview_state(
     service: InterviewService = InterviewServiceDep,
 ) -> InterviewStateResponse:
     return service.get_state(current_user.id, interview_id)
+
+
+@router.post(
+    "/{interview_id}/questions/{question_id}/reanswers",
+    response_model=AnswerReanswerResponse,
+)
+def create_question_reanswer(
+    interview_id: int,
+    question_id: int,
+    request: AnswerReanswerRequest,
+    current_user: UserRecord = CurrentUserDep,
+    service: InterviewService = InterviewServiceDep,
+) -> AnswerReanswerResponse:
+    with usage_limiter.guard(current_user.id, "interview_answer"):
+        with _interview_service_mutation_lock(service, interview_id):
+            return service.create_reanswer(
+                current_user.id,
+                interview_id,
+                question_id,
+                request.answer,
+            )
+
+
+@router.get(
+    "/{interview_id}/questions/{question_id}/reanswers",
+    response_model=AnswerReanswerListResponse,
+)
+def list_question_reanswers(
+    interview_id: int,
+    question_id: int,
+    current_user: UserRecord = CurrentUserDep,
+    service: InterviewService = InterviewServiceDep,
+) -> AnswerReanswerListResponse:
+    return service.list_reanswers(current_user.id, interview_id, question_id)
 
 
 @router.get("/{interview_id}/harness", response_model=InterviewHarnessStatusResponse)

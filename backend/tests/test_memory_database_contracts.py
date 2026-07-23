@@ -9,6 +9,7 @@ from scripts.migrate_v1 import (
     HARNESS_EVOLUTION_MIGRATION_VERSION,
     HARNESS_EVOLUTION_USER_SCOPE_MIGRATION_VERSION,
     INIT_SQL_TABLES_TO_CREATE,
+    INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION,
     INTERVIEW_TASK_LEASE_MIGRATION_VERSION,
     MEMORY_TASK_LEASE_MIGRATION_VERSION,
     MIGRATION_VERSION,
@@ -160,6 +161,20 @@ def test_memory_tasks_define_recoverable_processing_lease() -> None:
 def test_published_baseline_version_remains_stable() -> None:
     assert MIGRATION_VERSION == "2026_07_06_v1"
     assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION == "2026_07_07_async_task_schema"
+
+
+def test_interview_experience_and_reanswer_schema_contract() -> None:
+    ddl = _ddl()
+
+    assert "experience_mode varchar(32) not null default 'training'" in ddl
+    assert "create table if not exists answer_reanswer_attempts" in ddl
+    assert "unique key uk_answer_reanswer_question_attempt (question_id, attempt_number)" in ddl
+    assert "evaluation json null" in ddl
+    assert "answer_reanswer_attempts" in INIT_SQL_TABLES_TO_CREATE
+    assert (
+        INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION
+        == "2026_07_20_interview_experience_reanswer"
+    )
 
 
 def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:

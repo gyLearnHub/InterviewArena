@@ -1,7 +1,30 @@
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+from app.schemas.interview import JOB_DESCRIPTION_MAX_LENGTH
+
+JobMatchPosition = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+]
+JobMatchDescription = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=JOB_DESCRIPTION_MAX_LENGTH,
+    ),
+]
+JobMatchItemText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=1_000),
+]
+JobMatchSummaryText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+]
 
 
 class StructuredResumeData(BaseModel):
@@ -43,3 +66,54 @@ class ResumeDetailResponse(ResumeListItem):
 
 class ResumeUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
+
+
+class JobMatchAnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_position: JobMatchPosition
+    job_description: JobMatchDescription
+
+
+class MatchedRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement: JobMatchItemText
+    evidence: JobMatchItemText
+
+
+class MissingRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement: JobMatchItemText
+    evidence_gap: JobMatchItemText
+
+
+class RiskQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: JobMatchItemText
+    related_requirement: JobMatchItemText
+
+
+class PreparationSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggestion: JobMatchItemText
+    related_requirement: JobMatchItemText
+
+
+class JobMatchAnalysisResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: JobMatchSummaryText
+    matched_requirements: list[MatchedRequirement] = Field(max_length=20)
+    missing_requirements: list[MissingRequirement] = Field(max_length=20)
+    risk_questions: list[RiskQuestion] = Field(max_length=20)
+    preparation_suggestions: list[PreparationSuggestion] = Field(max_length=20)
+
+
+class JobMatchAnalysisResponse(JobMatchAnalysisResult):
+    resume_id: int
+    target_position: JobMatchPosition
+    analysis_basis: str

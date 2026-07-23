@@ -41,6 +41,7 @@ from app.harness.events import (
     snapshot_harness_value as _snapshot_value,
 )
 from app.repositories.interviews import (
+    AnswerReanswerAttemptRecord,
     FeedbackReportRecord,
     InterviewRecord,
     InterviewRepository,
@@ -50,13 +51,18 @@ from app.repositories.interviews import (
 from app.repositories.preferences import PreferencesRepository
 from app.schemas.interview import (
     DEFAULT_INTERVIEW_DIFFICULTY,
+    DEFAULT_INTERVIEW_EXPERIENCE_MODE,
     DEFAULT_INTERVIEW_GOAL,
     DEFAULT_TIME_LIMIT_MINUTES,
     JOB_DESCRIPTION_MAX_LENGTH,
     ROUND_ANSWER_MAX_LENGTH,
     AnswerDraftResponse,
+    AnswerReanswerAttemptResponse,
+    AnswerReanswerListResponse,
+    AnswerReanswerResponse,
     FeedbackReportResponse,
     InterviewDifficulty,
+    InterviewExperienceMode,
     InterviewGoal,
     InterviewRoundResponse,
     InterviewStateResponse,
@@ -128,6 +134,7 @@ class InterviewService:
         selected_rounds: list[str] | None = None,
         interview_goal: str = DEFAULT_INTERVIEW_GOAL,
         difficulty: str = DEFAULT_INTERVIEW_DIFFICULTY,
+        experience_mode: str = DEFAULT_INTERVIEW_EXPERIENCE_MODE,
         time_limit_minutes: int = DEFAULT_TIME_LIMIT_MINUTES,
     ) -> InterviewRecord:
         target = target_position.strip()
@@ -143,6 +150,7 @@ class InterviewService:
         rounds = _normalize_selected_rounds(selected_rounds)
         goal = _normalize_interview_goal(interview_goal)
         difficulty_value = _normalize_interview_difficulty(difficulty)
+        experience_mode_value = _normalize_experience_mode(experience_mode)
         time_limit = _normalize_time_limit_minutes(time_limit_minutes)
         try:
             interview = self.repository.create_interview(
@@ -154,6 +162,7 @@ class InterviewService:
                 selected_rounds=rounds,
                 interview_goal=goal,
                 difficulty=difficulty_value,
+                experience_mode=experience_mode_value,
                 time_limit_minutes=time_limit,
             )
         except TypeError:
@@ -165,6 +174,9 @@ class InterviewService:
                     mode="multi_round",
                     job_description=clean_job_description,
                     selected_rounds=rounds,
+                    interview_goal=goal,
+                    difficulty=difficulty_value,
+                    time_limit_minutes=time_limit,
                 )
             except TypeError:
                 interview = self.repository.create_interview(
@@ -180,6 +192,7 @@ class InterviewService:
                     **interview.__dict__,
                     "interview_goal": goal,
                     "difficulty": difficulty_value,
+                    "experience_mode": experience_mode_value,
                     "time_limit_minutes": time_limit,
                 }
             )
@@ -352,6 +365,7 @@ class InterviewService:
             job_description=interview.job_description,
             interview_goal=cast(InterviewGoal, interview.interview_goal),
             difficulty=cast(InterviewDifficulty, interview.difficulty),
+            experience_mode=cast(InterviewExperienceMode, interview.experience_mode),
             time_limit_minutes=cast(TimeLimitMinutes, interview.time_limit_minutes),
             current_round=interview.current_round,
             elapsed_seconds=_elapsed_seconds_uncapped(interview, datetime.utcnow()),
@@ -374,6 +388,144 @@ class InterviewService:
             ],
             short_term_memory=short_term_memory,
         )
+
+    def create_reanswer(
+        self,
+        user_id: int,
+        interview_id: int,
+        question_id: int,
+        answer: str,
+    ) -> AnswerReanswerResponse:
+        clean_answer = answer.strip()
+        if not clean_answer or len(clean_answer) > ROUND_ANSWER_MAX_LENGTH:
+            raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+        interview, round_record, original_qa = self._require_reanswer_source(
+            user_id,
+            interview_id,
+            question_id,
+        )
+        attempt = self.repository.create_reanswer_attempt(
+            interview_id=interview.id,
+            question_id=original_qa.id,
+            answer=clean_answer,
+        )
+        reanswer_qa = QARecord(
+            **{
+                **original_qa.__dict__,
+                "answer": clean_answer,
+            }
+        )
+        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        score_reanswer = getattr(self.evaluation_service, "score_reanswer_attempt", None)
+        question_score = (
+            score_reanswer(
+                interview=interview,
+                round_record=round_record,
+                qa=reanswer_qa,
+                resume=resume,
+                attempt_id=attempt.id,
+            )
+            if callable(score_reanswer)
+            else None
+        )
+        evaluation = _answer_evaluation_response(
+            reanswer_qa,
+            round_record,
+            question_score,
+        )
+        evaluation["reanswer_attempt_id"] = attempt.id
+        attempt = self.repository.update_reanswer_evaluation(
+            interview.id,
+            original_qa.id,
+            attempt.id,
+            evaluation,
+        )
+        original_evaluation = self._original_question_evaluation(
+            interview,
+            round_record,
+            original_qa,
+        )
+        return AnswerReanswerResponse(
+            interview_id=interview.id,
+            question_id=original_qa.id,
+            question=original_qa.question,
+            original_answer=original_qa.answer or "",
+            original_evaluation=original_evaluation,
+            attempt=_reanswer_attempt_response(attempt, original_evaluation),
+        )
+
+    def list_reanswers(
+        self,
+        user_id: int,
+        interview_id: int,
+        question_id: int,
+    ) -> AnswerReanswerListResponse:
+        interview, round_record, original_qa = self._require_reanswer_source(
+            user_id,
+            interview_id,
+            question_id,
+        )
+        original_evaluation = self._original_question_evaluation(
+            interview,
+            round_record,
+            original_qa,
+        )
+        attempts = self.repository.list_reanswer_attempts(interview.id, original_qa.id)
+        return AnswerReanswerListResponse(
+            interview_id=interview.id,
+            question_id=original_qa.id,
+            question=original_qa.question,
+            original_answer=original_qa.answer or "",
+            original_evaluation=original_evaluation,
+            attempts=[
+                _reanswer_attempt_response(
+                    item,
+                    original_evaluation,
+                    fallback_qa=original_qa,
+                    round_record=round_record,
+                )
+                for item in attempts
+            ],
+        )
+
+    def _require_reanswer_source(
+        self,
+        user_id: int,
+        interview_id: int,
+        question_id: int,
+    ) -> tuple[InterviewRecord, InterviewRoundRecord, QARecord]:
+        interview = self._require_interview(user_id, interview_id)
+        _require_multi_round(interview)
+        if interview.overall_status not in {"finished", "completed"}:
+            raise AppError(
+                ErrorCode.CONFLICT,
+                status.HTTP_409_CONFLICT,
+                message="面试完成后才能重新作答。",
+            )
+        original_qa = self.repository.get_qa_by_id(interview.id, question_id)
+        if original_qa is None or original_qa.round_id is None:
+            raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        if original_qa.answer is None or not original_qa.answer.strip():
+            raise AppError(
+                ErrorCode.CONFLICT,
+                status.HTTP_409_CONFLICT,
+                message="该题没有原回答，不能重新作答。",
+            )
+        round_record = self._require_round(interview.id, original_qa.round_id)
+        return interview, round_record, original_qa
+
+    def _original_question_evaluation(
+        self,
+        interview: InterviewRecord,
+        round_record: InterviewRoundRecord,
+        qa: QARecord,
+    ) -> dict[str, Any]:
+        scores_by_id = getattr(self.evaluation_service, "question_scores_by_id", None)
+        if callable(scores_by_id):
+            evaluation = scores_by_id(interview.id).get(qa.id)
+            if isinstance(evaluation, dict):
+                return evaluation
+        return _fallback_answer_evaluation(qa, round_record)
 
     def list_rounds(self, interview: InterviewRecord) -> list[InterviewRoundRecord]:
         return _ordered_rounds(interview, self.repository.list_rounds(interview.id))
@@ -1032,7 +1184,10 @@ class InterviewService:
             return RoundAnswerResponse(
                 action="next_question",
                 question=_round_question_response(final_qa),
-                answer_evaluation=answer_evaluation,
+                answer_evaluation=_active_round_answer_evaluation(
+                    interview,
+                    answer_evaluation,
+                ),
             )
 
         next_kind = _next_question_kind(
@@ -1126,7 +1281,7 @@ class InterviewService:
         return RoundAnswerResponse(
             action="follow_up" if next_kind == "follow_up" else "next_question",
             question=_round_question_response(next_qa),
-            answer_evaluation=answer_evaluation,
+            answer_evaluation=_active_round_answer_evaluation(interview, answer_evaluation),
         )
 
     def finish_round(
@@ -2009,6 +2164,13 @@ def _normalize_interview_difficulty(value: str) -> str:
     return difficulty
 
 
+def _normalize_experience_mode(value: str) -> str:
+    experience_mode = (value or DEFAULT_INTERVIEW_EXPERIENCE_MODE).strip()
+    if experience_mode not in {"training", "simulation"}:
+        raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+    return experience_mode
+
+
 def _normalize_time_limit_minutes(value: int) -> int:
     if value not in TIME_LIMIT_MINUTES:
         raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
@@ -2183,6 +2345,64 @@ def _answer_evaluation_response(
         )
         return payload
     return _fallback_answer_evaluation(qa, round_record)
+
+
+def _active_round_answer_evaluation(
+    interview: InterviewRecord,
+    answer_evaluation: dict[str, Any],
+) -> dict[str, Any] | None:
+    if interview.experience_mode == "simulation":
+        return None
+    return answer_evaluation
+
+
+def _reanswer_attempt_response(
+    attempt: AnswerReanswerAttemptRecord,
+    original_evaluation: dict[str, Any] | None,
+    *,
+    fallback_qa: QARecord | None = None,
+    round_record: InterviewRoundRecord | None = None,
+) -> AnswerReanswerAttemptResponse:
+    evaluation = attempt.evaluation
+    if evaluation is None and fallback_qa is not None and round_record is not None:
+        evaluation = _fallback_answer_evaluation(
+            QARecord(**{**fallback_qa.__dict__, "answer": attempt.answer}),
+            round_record,
+        )
+        evaluation["reanswer_attempt_id"] = attempt.id
+    evaluation = evaluation or {
+        "question_id": attempt.question_id,
+        "reanswer_attempt_id": attempt.id,
+        "status": "fallback",
+        "total_score": None,
+        "dimension_scores": [],
+        "strengths": [],
+        "issues": [],
+        "evidence": [],
+        "should_follow_up": False,
+        "follow_up_direction": None,
+    }
+    return AnswerReanswerAttemptResponse(
+        id=attempt.id,
+        attempt_number=attempt.attempt_number,
+        answer=attempt.answer,
+        evaluation=evaluation,
+        score_delta=_score_delta(original_evaluation, evaluation),
+        created_at=attempt.created_at,
+    )
+
+
+def _score_delta(
+    original_evaluation: dict[str, Any] | None,
+    new_evaluation: dict[str, Any] | None,
+) -> int | None:
+    original_score = (original_evaluation or {}).get("total_score")
+    new_score = (new_evaluation or {}).get("total_score")
+    if isinstance(original_score, bool) or isinstance(new_score, bool):
+        return None
+    if not isinstance(original_score, (int, float)) or not isinstance(new_score, (int, float)):
+        return None
+    return int(round(new_score - original_score))
 
 
 def _fallback_answer_evaluation(

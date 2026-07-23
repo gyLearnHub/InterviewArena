@@ -67,6 +67,7 @@ from app.services.interview_strategy import (
 from app.services.llm import LLMClient
 
 QUESTION_EVALUATION_TYPE = "question"
+REANSWER_EVALUATION_TYPE = "question_reanswer"
 ROUND_EVALUATION_TYPE = "round"
 FINAL_EVALUATION_TYPE = "final"
 
@@ -203,10 +204,56 @@ class EvaluationSchedulerService:
         qa: QARecord,
         resume: ResumeRecord,
     ) -> QuestionEvaluationOutput | None:
+        key = question_evaluation_key(interview.id, round_record.id, qa.id)
+        return self._score_question_with_key(
+            interview=interview,
+            round_record=round_record,
+            qa=qa,
+            resume=resume,
+            evaluation_type=QUESTION_EVALUATION_TYPE,
+            evaluation_key=key,
+            attempt_id=None,
+        )
+
+    def score_reanswer_attempt(
+        self,
+        *,
+        interview: InterviewRecord,
+        round_record: InterviewRoundRecord,
+        qa: QARecord,
+        resume: ResumeRecord,
+        attempt_id: int,
+    ) -> QuestionEvaluationOutput | None:
+        key = reanswer_evaluation_key(
+            interview.id,
+            round_record.id,
+            qa.id,
+            attempt_id,
+        )
+        return self._score_question_with_key(
+            interview=interview,
+            round_record=round_record,
+            qa=qa,
+            resume=resume,
+            evaluation_type=REANSWER_EVALUATION_TYPE,
+            evaluation_key=key,
+            attempt_id=attempt_id,
+        )
+
+    def _score_question_with_key(
+        self,
+        *,
+        interview: InterviewRecord,
+        round_record: InterviewRoundRecord,
+        qa: QARecord,
+        resume: ResumeRecord,
+        evaluation_type: str,
+        evaluation_key: str,
+        attempt_id: int | None,
+    ) -> QuestionEvaluationOutput | None:
         if qa.round_id is None:
             return None
-        key = question_evaluation_key(interview.id, round_record.id, qa.id)
-        existing = self.repository.get_by_key(QUESTION_EVALUATION_TYPE, key)
+        existing = self.repository.get_by_key(evaluation_type, evaluation_key)
         if existing is not None and existing.status == "succeeded" and existing.result:
             existing_result = _validate_existing(existing.result, QuestionEvaluationOutput)
             if existing_result is not None:
@@ -231,7 +278,11 @@ class EvaluationSchedulerService:
                     node_type="question_evaluator",
                     agent_type=round_record.agent_type,
                     purpose="score_question",
-                    payload={"question_id": qa.id, "prompt_version": prompt_version},
+                    payload={
+                        "question_id": qa.id,
+                        "reanswer_attempt_id": attempt_id,
+                        "prompt_version": prompt_version,
+                    },
                     operation=lambda: self._generate_question_score(
                         interview,
                         round_record,
@@ -245,8 +296,8 @@ class EvaluationSchedulerService:
             )
         except Exception as exc:
             self.repository.save_failure(
-                evaluation_type=QUESTION_EVALUATION_TYPE,
-                evaluation_key=key,
+                evaluation_type=evaluation_type,
+                evaluation_key=evaluation_key,
                 interview_id=interview.id,
                 round_id=round_record.id,
                 question_id=qa.id,
@@ -257,8 +308,8 @@ class EvaluationSchedulerService:
             return None
 
         self.repository.save_success(
-            evaluation_type=QUESTION_EVALUATION_TYPE,
-            evaluation_key=key,
+            evaluation_type=evaluation_type,
+            evaluation_key=evaluation_key,
             interview_id=interview.id,
             round_id=round_record.id,
             question_id=qa.id,
@@ -749,6 +800,15 @@ class EvaluationSchedulerService:
 
 def question_evaluation_key(interview_id: int, round_id: int, question_id: int) -> str:
     return f"{interview_id}:{round_id}:{question_id}"
+
+
+def reanswer_evaluation_key(
+    interview_id: int,
+    round_id: int,
+    question_id: int,
+    attempt_id: int,
+) -> str:
+    return f"{interview_id}:{round_id}:{question_id}:reanswer:{attempt_id}"
 
 
 def round_evaluation_key(interview_id: int, round_id: int) -> str:

@@ -63,6 +63,9 @@ def test_memory_summary_payload_is_compact_and_schema_oriented() -> None:
     assert len(payload["qa_history"][0]["answer"]) == MAX_TEXT_LENGTH
     assert payload["rounds"][0]["summary"] == {"score": 0, "result": "failed"}
     assert payload["evaluations"][0]["evidence"] == ["证据"]
+    assert all(
+        item["evaluation_type"] != "question_reanswer" for item in payload["evaluations"]
+    )
     assert "unused_large_blob" not in payload["resume_summary"]
 
 
@@ -205,7 +208,20 @@ class _EvaluationRepo:
                 dimension_scores=[{"name": "技术", "score": 0}],
                 result={"summary": "表现不足"},
                 created_at=datetime(2026, 1, 1),
-            )
+            ),
+            SimpleNamespace(
+                id=102,
+                evaluation_type="question_reanswer",
+                evaluation_key="22:61:76:reanswer:1",
+                round_id=61,
+                question_id=76,
+                status="succeeded",
+                total_score=95,
+                evidence=["重答证据不属于原面试表现"],
+                dimension_scores=[{"name": "技术", "score": 95}],
+                result={"summary": "重答表现"},
+                created_at=datetime(2026, 1, 2),
+            ),
         ]
 
 

@@ -9,9 +9,11 @@ JOB_DESCRIPTION_MAX_LENGTH = 8_000
 ROUND_ANSWER_MAX_LENGTH = 8_000
 InterviewGoal = Literal["internship", "campus", "big_tech"]
 InterviewDifficulty = Literal["easy", "normal", "pressure"]
+InterviewExperienceMode = Literal["training", "simulation"]
 TimeLimitMinutes = Literal[30, 45, 60]
 DEFAULT_INTERVIEW_GOAL: InterviewGoal = "campus"
 DEFAULT_INTERVIEW_DIFFICULTY: InterviewDifficulty = "normal"
+DEFAULT_INTERVIEW_EXPERIENCE_MODE: InterviewExperienceMode = "training"
 DEFAULT_TIME_LIMIT_MINUTES: TimeLimitMinutes = 45
 
 
@@ -22,6 +24,7 @@ class InterviewCreateRequest(BaseModel):
     selected_rounds: list[str] | None = None
     interview_goal: InterviewGoal = DEFAULT_INTERVIEW_GOAL
     difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    experience_mode: InterviewExperienceMode = DEFAULT_INTERVIEW_EXPERIENCE_MODE
     time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
 
 
@@ -47,6 +50,7 @@ class InterviewCreateResponse(BaseModel):
     mode: str = "multi_round"
     interview_goal: InterviewGoal = DEFAULT_INTERVIEW_GOAL
     difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    experience_mode: InterviewExperienceMode = DEFAULT_INTERVIEW_EXPERIENCE_MODE
     time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
     rounds: list[InterviewRoundResponse] = Field(default_factory=list)
 
@@ -144,6 +148,37 @@ class RoundAnswerResponse(BaseModel):
     short_term_memory: ShortTermMemoryStatus | None = None
 
 
+class AnswerReanswerRequest(BaseModel):
+    answer: str = Field(min_length=1, max_length=ROUND_ANSWER_MAX_LENGTH)
+
+
+class AnswerReanswerAttemptResponse(BaseModel):
+    id: int
+    attempt_number: int
+    answer: str
+    evaluation: dict[str, Any]
+    score_delta: int | None = None
+    created_at: datetime
+
+
+class AnswerReanswerResponse(BaseModel):
+    interview_id: int
+    question_id: int
+    question: str
+    original_answer: str
+    original_evaluation: dict[str, Any] | None = None
+    attempt: AnswerReanswerAttemptResponse
+
+
+class AnswerReanswerListResponse(BaseModel):
+    interview_id: int
+    question_id: int
+    question: str
+    original_answer: str
+    original_evaluation: dict[str, Any] | None = None
+    attempts: list[AnswerReanswerAttemptResponse] = Field(default_factory=list)
+
+
 class InterviewStateResponse(BaseModel):
     interview_id: int
     mode: str
@@ -152,6 +187,7 @@ class InterviewStateResponse(BaseModel):
     job_description: str | None = None
     interview_goal: InterviewGoal = DEFAULT_INTERVIEW_GOAL
     difficulty: InterviewDifficulty = DEFAULT_INTERVIEW_DIFFICULTY
+    experience_mode: InterviewExperienceMode = DEFAULT_INTERVIEW_EXPERIENCE_MODE
     time_limit_minutes: TimeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES
     current_round: str | None = None
     elapsed_seconds: int = 0

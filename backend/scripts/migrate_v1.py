@@ -16,6 +16,7 @@ INIT_SQL_TABLES_TO_CREATE = [
     "resume_parse_tasks",
     "interview_operation_tasks",
     "interview_answer_drafts",
+    "answer_reanswer_attempts",
     "candidate_memories",
     "interviewer_memories",
     "agent_memories",
@@ -84,6 +85,10 @@ HARNESS_EVOLUTION_HARDENING_MIGRATION_DESCRIPTION = (
 HARNESS_EVOLUTION_USER_SCOPE_MIGRATION_VERSION = "2026_07_14_harness_evolution_user_scope"
 HARNESS_EVOLUTION_USER_SCOPE_MIGRATION_DESCRIPTION = (
     "Scope autonomous Harness evolution bundles and runs by user"
+)
+INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION = "2026_07_20_interview_experience_reanswer"
+INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_DESCRIPTION = (
+    "Add interview experience mode and answer reattempts"
 )
 
 
@@ -304,6 +309,21 @@ def migrate(connection: Any) -> None:
             connection,
             HARNESS_EVOLUTION_HARDENING_MIGRATION_VERSION,
             HARNESS_EVOLUTION_HARDENING_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION):
+        _add_column(
+            connection,
+            database,
+            "interviews",
+            "experience_mode",
+            "VARCHAR(32) NOT NULL DEFAULT 'training'",
+        )
+        _create_tables_from_init_sql(connection, ["answer_reanswer_attempts"])
+        _record_migration(
+            connection,
+            INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION,
+            INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_DESCRIPTION,
         )
 
 

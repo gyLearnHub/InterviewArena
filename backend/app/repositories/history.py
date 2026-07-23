@@ -85,6 +85,7 @@ class HistoryInterviewRecord:
     feedback_report: FeedbackReportRecord | None = None
     rounds: list[HistoryRoundRecord] | None = None
     qa_history: list[HistoryQARecord] | None = None
+    experience_mode: str = "training"
     harness_status: str | None = None
     recovery_count: int = 0
     had_degradation: bool = False
@@ -129,6 +130,7 @@ class HistoryRepository:
                     i.target_position,
                     i.status,
                     {mode_select}
+                    {experience_mode_select}
                     {job_description_select}
                     {overall_status_select}
                     {elapsed_seconds_select}
@@ -241,6 +243,7 @@ class HistoryRepository:
                     i.target_position,
                     i.status,
                     {mode_select}
+                    {experience_mode_select}
                     {job_description_select}
                     {overall_status_select}
                     {elapsed_seconds_select}
@@ -330,6 +333,7 @@ class HistoryRepository:
                     i.target_position,
                     i.status,
                     {mode_select}
+                    {experience_mode_select}
                     {job_description_select}
                     {overall_status_select}
                     {elapsed_seconds_select}
@@ -490,6 +494,7 @@ class HistoryRepository:
                     i.target_position,
                     i.status,
                     {mode_select}
+                    {experience_mode_select}
                     {job_description_select}
                     {overall_status_select}
                     {elapsed_seconds_select}
@@ -1047,6 +1052,12 @@ class HistoryRepository:
     def _interview_optional_selects(self) -> dict[str, str]:
         return {
             "mode_select": self._column_select("interviews", "mode", "mode", "'multi_round'"),
+            "experience_mode_select": self._column_select(
+                "interviews",
+                "experience_mode",
+                "experience_mode",
+                "'training'",
+            ),
             "job_description_select": self._column_select(
                 "interviews",
                 "job_description",
@@ -1149,6 +1160,7 @@ def _to_history_record(row: dict[str, Any]) -> HistoryInterviewRecord:
         status=str(row["status"]),
         mode=str(row.get("mode") or "multi_round"),
         job_description=row.get("job_description"),
+        experience_mode=str(row.get("experience_mode") or "training"),
         overall_status=str(row.get("overall_status") or row["status"]),
         elapsed_seconds=int(row.get("elapsed_seconds") or 0),
         started_at=row["started_at"],

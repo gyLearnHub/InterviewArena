@@ -48,6 +48,8 @@ class MemorySummaryService:
                 _evaluation_payload(item)
                 for item in self.evaluations.list_by_interview(interview.id)
                 if item.status == "succeeded"
+                and getattr(item, "evaluation_type", "question")
+                in {"question", "round", "final"}
             ],
         }
         output = self._generate_summary(_json_safe(payload))

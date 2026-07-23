@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS interviews (
     selected_rounds JSON NULL,
     interview_goal VARCHAR(32) NOT NULL DEFAULT 'campus',
     difficulty VARCHAR(32) NOT NULL DEFAULT 'normal',
+    experience_mode VARCHAR(32) NOT NULL DEFAULT 'training',
     time_limit_minutes INT NOT NULL DEFAULT 45,
     job_family_key VARCHAR(128) NULL,
     harness_bundle_id BIGINT UNSIGNED NULL,
@@ -239,6 +240,25 @@ CREATE TABLE IF NOT EXISTS interview_answer_drafts (
         FOREIGN KEY (round_id) REFERENCES interview_rounds (id)
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_interview_answer_drafts_question_id
+        FOREIGN KEY (question_id) REFERENCES interview_qa (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS answer_reanswer_attempts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    interview_id BIGINT UNSIGNED NOT NULL,
+    question_id BIGINT UNSIGNED NOT NULL,
+    attempt_number INT UNSIGNED NOT NULL,
+    answer TEXT NOT NULL,
+    evaluation JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_answer_reanswer_question_attempt (question_id, attempt_number),
+    KEY idx_answer_reanswer_interview_question (interview_id, question_id),
+    CONSTRAINT fk_answer_reanswer_interview_id
+        FOREIGN KEY (interview_id) REFERENCES interviews (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_answer_reanswer_question_id
         FOREIGN KEY (question_id) REFERENCES interview_qa (id)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

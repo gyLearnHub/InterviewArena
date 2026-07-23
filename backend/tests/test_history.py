@@ -252,6 +252,7 @@ def test_history_detail_returns_multi_round_fields_without_qa_history() -> None:
         "target_position": "后端开发",
         "status": "finished",
         "mode": "multi_round",
+        "experience_mode": "training",
         "job_description": None,
         "overall_status": "finished",
         "rounds": [],
@@ -401,6 +402,140 @@ def test_history_detail_returns_multi_round_rounds_summary_and_qa_history() -> N
             "created_at": datetime(2026, 6, 11, 10, 1, 0),
         }
     ]
+
+
+def test_simulation_history_hides_active_round_evaluation_from_detail_and_feedback() -> None:
+    record = HistoryInterviewRecord(
+        id=11,
+        user_id=1,
+        resume_id=101,
+        target_position="后端开发",
+        status="in_progress",
+        mode="multi_round",
+        job_description=None,
+        overall_status="in_progress",
+        elapsed_seconds=300,
+        started_at=datetime(2026, 6, 11, 10, 0, 0),
+        ended_at=None,
+        last_active_at=datetime(2026, 6, 11, 10, 5, 0),
+        created_at=datetime(2026, 6, 11, 9, 0, 0),
+        resume=ResumeSummaryRecord(
+            id=101,
+            structured_data={"skills": ["Python"]},
+            created_at=datetime(2026, 6, 11, 9, 30, 0),
+        ),
+        feedback_report=FeedbackReportRecord(score=70, weaknesses=[], suggestions=[]),
+        rounds=[
+            HistoryRoundRecord(
+                id=201,
+                round_type="resume",
+                status="completed",
+                score=80,
+                result="passed",
+                summary={"score": 80, "result": "passed"},
+                is_reference_only=False,
+                started_at=datetime(2026, 6, 11, 10, 0, 0),
+                ended_at=datetime(2026, 6, 11, 10, 3, 0),
+            ),
+            HistoryRoundRecord(
+                id=202,
+                round_type="technical",
+                status="in_progress",
+                score=None,
+                result=None,
+                summary=None,
+                is_reference_only=False,
+                started_at=datetime(2026, 6, 11, 10, 3, 0),
+                ended_at=None,
+            ),
+        ],
+        qa_history=[
+            HistoryQARecord(
+                id=301,
+                round_id=201,
+                round_type="resume",
+                sequence=1,
+                question_type="resume_question",
+                question="介绍项目",
+                answer="我负责项目",
+                question_kind="main",
+                parent_question_id=None,
+                created_at=datetime(2026, 6, 11, 10, 1, 0),
+                question_evaluation={"total_score": 80, "issues": ["已结束轮次问题"]},
+            ),
+            HistoryQARecord(
+                id=302,
+                round_id=202,
+                round_type="technical",
+                sequence=1,
+                question_type="technical_question",
+                question="解释索引",
+                answer="索引可以减少扫描",
+                question_kind="main",
+                parent_question_id=None,
+                created_at=datetime(2026, 6, 11, 10, 4, 0),
+                question_evaluation={
+                    "total_score": 42,
+                    "issues": ["ACTIVE_EVALUATION_SECRET"],
+                    "evidence": ["ACTIVE_EVIDENCE_SECRET"],
+                },
+            ),
+        ],
+        experience_mode="simulation",
+    )
+    service = HistoryService(_fake_repository([record]))
+
+    payload = service.get_detail(record.id, _user(1)).model_dump()
+
+    assert payload["qa_history"][0]["question_evaluation"]["total_score"] == 80
+    assert "question_evaluation" not in payload["qa_history"][1]
+    assert payload["report_quality"]["evaluated_question_count"] == 1
+    assert "ACTIVE_EVALUATION_SECRET" not in str(payload)
+    assert "ACTIVE_EVIDENCE_SECRET" not in str(payload)
+
+
+def test_training_history_keeps_active_round_evaluation() -> None:
+    record = _multi_round_record()
+    active_round = HistoryRoundRecord(
+        id=202,
+        round_type="technical",
+        status="in_progress",
+        score=None,
+        result=None,
+        summary=None,
+        is_reference_only=False,
+        started_at=datetime(2026, 6, 11, 10, 8, 0),
+        ended_at=None,
+    )
+    active_qa = HistoryQARecord(
+        id=302,
+        round_id=202,
+        round_type="technical",
+        sequence=1,
+        question_type="technical_question",
+        question="解释索引",
+        answer="索引可以减少扫描",
+        question_kind="main",
+        parent_question_id=None,
+        created_at=datetime(2026, 6, 11, 10, 9, 0),
+        question_evaluation={"total_score": 72},
+    )
+    training_record = HistoryInterviewRecord(
+        **{
+            **record.__dict__,
+            "status": "in_progress",
+            "overall_status": "in_progress",
+            "ended_at": None,
+            "rounds": [*(record.rounds or []), active_round],
+            "qa_history": [*(record.qa_history or []), active_qa],
+            "experience_mode": "training",
+        }
+    )
+    service = HistoryService(_fake_repository([training_record]))
+
+    payload = service.get_detail(training_record.id, _user(1)).model_dump()
+
+    assert payload["qa_history"][-1]["question_evaluation"]["total_score"] == 72
 
 
 def test_history_detail_returns_not_found_for_other_users_record() -> None:
