@@ -1,6 +1,99 @@
-# InterviewArena 配置与部署指南
+# InterviewArena 使用、配置与部署指南
 
-本文档集中说明 InterviewArena 的环境变量、登录安全、跨域访问、数据库升级、健康检查和生产部署要求。所有命令默认在项目根目录执行。
+本文档集中说明 InterviewArena 的技术栈、快速开始、环境变量、登录安全、跨域访问、数据库升级、健康检查、质量保障和生产部署要求。除非特别说明，所有命令均在项目根目录执行。
+
+## 技术栈
+
+| 层级 | 主要技术                                                             |
+| ---- | -------------------------------------------------------------------- |
+| 前端 | Vue 3.5、Vue Router 4、TypeScript 6、Vite 6                          |
+| 后端 | Python 3.11、FastAPI、Pydantic 2、Uvicorn、PyMySQL、HTTPX            |
+| 数据 | MySQL 8+、Redis、本地文件存储、可选 Chroma 与本地 Embedding/Reranker |
+| 测试 | pytest、Playwright                                                   |
+| 质量 | Ruff、mypy strict、ESLint、Prettier、vue-tsc、Vite build             |
+| CI   | GitHub Actions、OpenAPI contract 同步检查                            |
+
+## 快速开始
+
+### 1. 环境要求
+
+- Python 3.11+
+- Node.js 20+
+- MySQL 8+ 或兼容版本
+- 可选：Redis。用于短期记忆缓存；不可用时系统会从 MySQL 重建上下文
+- 可访问的 DeepSeek 兼容模型 API
+- 可选：处理旧版 `.doc` 文件时需要本机安装 LibreOffice；`.docx` 不需要转换
+
+### 2. 获取代码
+
+```powershell
+git clone https://github.com/gyLearnHub/InterviewArena.git
+cd InterviewArena
+```
+
+### 3. 准备 MySQL
+
+先在 MySQL 中创建数据库：
+
+```sql
+CREATE DATABASE interview_arena
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+确保 `DATABASE_URL` 使用的账户对该数据库拥有建表、读写和变更权限。
+
+### 4. 启动后端
+
+以下命令以 PowerShell 为例：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r backend\requirements-dev.txt
+Copy-Item backend\.env.example backend\.env
+```
+
+编辑 `backend/.env`，至少完成以下配置：
+
+```dotenv
+APP_ENV=development
+DATABASE_URL=mysql+pymysql://USER:PASSWORD@127.0.0.1:3306/interview_arena?charset=utf8mb4
+JWT_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters
+DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=your_available_model
+AUTH_COOKIE_SECURE=false
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+```
+
+初始化表结构并启动 API：
+
+```powershell
+python backend\scripts\init_db.py
+python backend\main.py
+```
+
+后端默认地址：
+
+- API：<http://127.0.0.1:8000/api>
+- Swagger UI：<http://127.0.0.1:8000/docs>
+- OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
+
+### 5. 启动前端
+
+另开一个终端：
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+访问 <http://127.0.0.1:5173>，注册账户、上传简历并创建第一场面试。Vite 开发代理会把 `/api` 请求转发到 `http://127.0.0.1:8000`。
+
+> macOS/Linux 用户可将虚拟环境激活命令替换为 `source .venv/bin/activate`，并使用 `cp backend/.env.example backend/.env`。
 
 ## 环境配置
 
@@ -32,22 +125,9 @@ Copy-Item backend\.env.example backend\.env
 
 模型、记忆任务、超时、自主进化和文件目录等其他配置以 [`.env.example`](../backend/.env.example) 为准。不要提交真实 `.env`、模型密钥或数据库凭据。
 
-## 本地开发配置
+### 前端 API 地址
 
-本地使用 HTTP 启动前后端时，至少确认以下设置：
-
-```dotenv
-APP_ENV=development
-DATABASE_URL=mysql+pymysql://USER:PASSWORD@127.0.0.1:3306/interview_arena?charset=utf8mb4
-JWT_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters
-DEEPSEEK_API_KEY=your_api_key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=your_available_model
-AUTH_COOKIE_SECURE=false
-CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
-```
-
-如果前端不通过 Vite 开发代理访问后端，可设置：
+Vite 开发代理默认把 `/api` 请求转发到 `http://127.0.0.1:8000`。如果前端不通过该代理访问后端，可设置：
 
 ```dotenv
 VITE_API_BASE_URL=http://127.0.0.1:8000/api
@@ -120,6 +200,28 @@ PowerShell 中可以这样检查：
 Invoke-RestMethod http://127.0.0.1:8000/api/health
 Invoke-RestMethod http://127.0.0.1:8000/api/health/ready
 ```
+
+## 质量保障
+
+从项目根目录选择对应的检查方式：
+
+| 检查范围 | 命令                                                                            |
+| -------- | ------------------------------------------------------------------------------- |
+| 快速检查 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\quality.ps1`       |
+| 全量检查 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\quality.ps1 -Full` |
+| 包含 E2E | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\quality.ps1 -E2E`  |
+
+首次运行 E2E 前，需要在 `frontend` 目录执行：
+
+```powershell
+npx playwright install chromium --only-shell
+```
+
+## 运行注意事项
+
+- 不要提交真实 `.env`、模型密钥、数据库凭据、上传文件、缓存或本地测试报告。
+- 面试、评估、记忆总结和自主进化可能产生模型调用费用，请根据实际模型配置控制使用。
+- 生产环境应使用独立的强随机 `JWT_SECRET_KEY`、受限数据库账户和 HTTPS，并保持 `AUTH_COOKIE_SECURE=true`、CSRF 防护开启以及精确的 CORS 来源白名单。
 
 ## 生产部署检查清单
 
