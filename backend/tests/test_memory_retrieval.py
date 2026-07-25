@@ -235,6 +235,50 @@ def test_missing_reranker_is_initialized_once_and_audited(monkeypatch) -> None:
     assert audit.calls[-1]["timings"]["degradation_count"] == 1
 
 
+def test_audit_and_scores_use_collection_qualified_memory_ids() -> None:
+    candidate = _memory(1, "Python concurrency", memory_type="technical_weakness")
+    interviewer = _memory(
+        1,
+        "Python question strategy",
+        collection="interviewer_memories",
+        memory_type="question_strategy",
+        agent_type="technical",
+    )
+    audit = _RecordingAuditRepository()
+    service = MemoryRetrievalService(
+        memory_repository=_MemoryRepository([candidate], extra_memories=[interviewer]),
+        audit_repository=audit,  # type: ignore[arg-type]
+        vector_index=_VectorIndex([candidate, interviewer]),  # type: ignore[arg-type]
+        reranker=_RuleReranker(),
+    )
+
+    result = service.retrieve(
+        MemoryRetrievalRequest(
+            user_id=42,
+            usage_scene="new_question",
+            intent="ask Python question",
+            query_text="Python",
+            agent_type="technical",
+            collections=["candidate_memories", "interviewer_memories"],
+            memory_types=["technical_weakness", "question_strategy"],
+            top_k=10,
+        )
+    )
+
+    assert {(item.collection, item.memory_id) for item in result.memories} == {
+        ("candidate_memories", 1),
+        ("interviewer_memories", 1),
+    }
+    assert set(audit.calls[-1]["candidate_memory_ids"]) == {
+        "candidate_memories:1",
+        "interviewer_memories:1",
+    }
+    assert set(audit.calls[-1]["scores"]) == {
+        "candidate_memories:1",
+        "interviewer_memories:1",
+    }
+
+
 def test_chroma_index_upserts_required_metadata_and_deletes_user_vectors(monkeypatch) -> None:
     fake_module = SimpleNamespace(PersistentClient=_FakeChromaClient)
     monkeypatch.setitem(sys.modules, "chromadb", fake_module)
@@ -379,11 +423,21 @@ class _MemoryRepository:
         self,
         *,
         collection: str,
+        user_id: int,
         agent_type: str | None = None,
+        position_key: str | None = None,
+        scenario: str | None = None,
         memory_types: list[str] | None = None,
     ) -> list[MemoryRecord]:
-        _ = collection, agent_type, memory_types
-        return []
+        _ = position_key, scenario
+        return [
+            memory
+            for memory in self.all_memories
+            if memory.collection == collection
+            and memory.user_id == user_id
+            and (agent_type is None or memory.agent_type == agent_type)
+            and (not memory_types or memory.memory_type in memory_types)
+        ]
 
     def get(self, collection: str, memory_id: int) -> MemoryRecord | None:
         return next(

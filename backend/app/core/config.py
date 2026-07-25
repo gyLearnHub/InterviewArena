@@ -61,7 +61,7 @@ class Settings:
     csrf_cookie_name: str = "interview_arena_csrf"
     csrf_header_name: str = "X-CSRF-Token"
     cors_allowed_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
-    cors_allowed_origin_regex: str = r"^https?://(127\.0\.0\.1|localhost):\d+$"
+    cors_allowed_origin_regex: str = ""
 
 
 def _read_int(name: str, default: int) -> int:
@@ -333,3 +333,16 @@ def _validate_settings(settings: Settings) -> None:
         )
     if settings.evolution_observation_interviews < 1:
         raise RuntimeError("EVOLUTION_OBSERVATION_INTERVIEWS must be at least 1.")
+    if "*" in {
+        origin.strip()
+        for origin in settings.cors_allowed_origins.split(",")
+        if origin.strip()
+    }:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS must not contain '*' when cookies are enabled.")
+    if settings.cors_allowed_origin_regex:
+        import re
+
+        try:
+            re.compile(settings.cors_allowed_origin_regex)
+        except re.error as exc:
+            raise RuntimeError("CORS_ALLOWED_ORIGIN_REGEX is invalid.") from exc

@@ -115,6 +115,9 @@ class HistoryRepository:
         self.connection = connection
         self._column_cache: dict[str, set[str]] = {}
 
+    def commit(self) -> None:
+        self.connection.commit()
+
     def list_by_user(self, user_id: int) -> list[HistoryInterviewRecord]:
         with self.connection.cursor() as cursor:
             feedback_reliability_select = self._feedback_reliability_select()
@@ -142,7 +145,7 @@ class HistoryRepository:
                     {had_degradation_select}
                     {last_harness_error_select}
                     i.created_at,
-                    r.structured_data AS resume_structured_data,
+                    COALESCE(i.resume_snapshot, r.structured_data) AS resume_structured_data,
                     r.created_at AS resume_created_at,
                     fr.score AS feedback_score,
                     fr.weaknesses AS feedback_weaknesses,
@@ -506,7 +509,7 @@ class HistoryRepository:
                     {had_degradation_select}
                     {last_harness_error_select}
                     i.created_at,
-                    r.structured_data AS resume_structured_data,
+                    COALESCE(i.resume_snapshot, r.structured_data) AS resume_structured_data,
                     r.created_at AS resume_created_at,
                     fr.score AS feedback_score,
                     fr.weaknesses AS feedback_weaknesses,
@@ -641,6 +644,12 @@ class HistoryRepository:
             )
             cursor.execute("DELETE FROM interviews WHERE user_id = %s", (user_id,))
             return int(cursor.rowcount)
+
+    def delete_ids_by_user(self, interview_ids: list[int], user_id: int) -> int:
+        deleted_count = 0
+        for interview_id in sorted(set(interview_ids)):
+            deleted_count += int(self.delete_by_id_for_user(interview_id, user_id))
+        return deleted_count
 
     def _delete_memory_tasks_for_interview(
         self,

@@ -1,8 +1,15 @@
 from pathlib import Path
 
+import pytest
 from app.api.health import health_check
-from app.core.config import _parse_env_file
-from app.core.errors import ERROR_MESSAGES, AppError, ErrorCode, build_error_response
+from app.core.config import Settings, _parse_env_file, _validate_settings
+from app.core.errors import (
+    ERROR_MESSAGES,
+    AppError,
+    ErrorCode,
+    build_error_response,
+    safe_error_code,
+)
 from app.db.mysql import parse_mysql_url
 from main import create_app
 
@@ -29,6 +36,8 @@ def test_fixed_error_message_mapping() -> None:
     assert ERROR_MESSAGES[ErrorCode.LLM_API_KEY_MISSING] == "需要配置好API Key噢。"
     assert ERROR_MESSAGES[ErrorCode.NETWORK_TIMEOUT] == "当前网络环境不好，请稍后重试。"
     assert ERROR_MESSAGES[ErrorCode.TOO_MANY_REQUESTS] == "请求过于频繁，请稍后再试。"
+    assert safe_error_code(RuntimeError("database-password")) == "RuntimeError"
+    assert safe_error_code(AppError(ErrorCode.NETWORK_TIMEOUT)) == "NETWORK_TIMEOUT"
 
 
 def test_parse_mysql_url() -> None:
@@ -62,3 +71,13 @@ def test_parse_env_file(tmp_path: Path) -> None:
 
     assert values["DATABASE_URL"].startswith("mysql+pymysql://user:pass@")
     assert values["JWT_ALGORITHM"] == "HS256"
+
+
+def test_cookie_cors_configuration_rejects_wildcard_origin() -> None:
+    with pytest.raises(RuntimeError, match="CORS_ALLOWED_ORIGINS"):
+        _validate_settings(
+            Settings(
+                app_env="test",
+                cors_allowed_origins="*",
+            )
+        )

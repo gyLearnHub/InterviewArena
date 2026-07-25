@@ -87,7 +87,7 @@ test("history uses one compact surface and a structured record table", async ({ 
   const panel = page.getByRole("region", { name: "历史记录" });
   await expect(panel.getByLabel("历史筛选")).toBeVisible();
   await expect(panel.getByRole("table")).toBeVisible();
-  await expect(panel.getByText("共 2 场面试")).toBeVisible();
+  await expect(panel.getByText("已加载 2 场面试")).toBeVisible();
   await expect(page.getByRole("group", { name: "视图切换" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "继续" })).toBeVisible();
 });

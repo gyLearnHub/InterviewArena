@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, Protocol, TypeVar
 
 import httpx
@@ -171,6 +172,7 @@ class DeepSeekLLMClient:
                         status.HTTP_504_GATEWAY_TIMEOUT,
                         details={"provider": "deepseek", "error": "timeout"},
                     ) from exc
+                _wait_before_retry(attempt)
             except httpx.RequestError as exc:
                 last_error = exc
                 if attempt >= self.settings.deepseek_retry_count:
@@ -180,11 +182,17 @@ class DeepSeekLLMClient:
                         details={
                             "provider": "deepseek",
                             "error": exc.__class__.__name__,
-                            "message": _clip_text(str(exc), 300),
                         },
                     ) from exc
+                _wait_before_retry(attempt)
             except httpx.HTTPStatusError as exc:
                 last_error = exc
+                if (
+                    _is_retryable_status(exc.response.status_code)
+                    and attempt < self.settings.deepseek_retry_count
+                ):
+                    _wait_before_retry(attempt, exc.response)
+                    continue
                 raise AppError(
                     ErrorCode.BUSINESS_ERROR,
                     status.HTTP_502_BAD_GATEWAY,
@@ -264,23 +272,31 @@ def _response_error_details(response: httpx.Response) -> JSONDict:
     try:
         data = response.json()
     except json.JSONDecodeError:
-        details["body"] = _clip_text(response.text, 500)
+        details["error"] = "provider_error"
         return details
     if isinstance(data, dict):
         error = data.get("error")
         if isinstance(error, dict):
             details["error"] = {
                 "code": error.get("code"),
-                "message": _clip_text(str(error.get("message") or ""), 500),
                 "type": error.get("type"),
             }
         else:
-            details["body"] = _clip_text(json.dumps(data, ensure_ascii=False), 500)
+            details["error"] = "provider_error"
     return details
 
 
-def _clip_text(value: str, limit: int) -> str:
-    cleaned = " ".join(value.split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3] + "..."
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code == status.HTTP_429_TOO_MANY_REQUESTS or status_code >= 500
+
+
+def _wait_before_retry(attempt: int, response: httpx.Response | None = None) -> None:
+    retry_after = response.headers.get("Retry-After") if response is not None else None
+    delay_seconds: float
+    try:
+        delay_seconds = float(retry_after) if retry_after is not None else 0.0
+    except ValueError:
+        delay_seconds = 0.0
+    if delay_seconds <= 0:
+        delay_seconds = min(2.0, 0.25 * (2**attempt))
+    time.sleep(min(delay_seconds, 5.0))

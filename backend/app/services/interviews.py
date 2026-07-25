@@ -23,7 +23,7 @@ from app.autonomous_evolution.runtime import (
     resolve_round_spec,
 )
 from app.core.config import get_settings
-from app.core.errors import AppError, ErrorCode
+from app.core.errors import AppError, ErrorCode, safe_error_code
 from app.core.http_status import HTTP_422_UNPROCESSABLE_CONTENT
 from app.harness.events import (
     build_harness_request as _harness_request,
@@ -47,6 +47,8 @@ from app.repositories.interviews import (
     InterviewRepository,
     InterviewRoundRecord,
     QARecord,
+    ReanswerAttemptLimitError,
+    ResumeRecord,
 )
 from app.repositories.preferences import PreferencesRepository
 from app.schemas.interview import (
@@ -136,6 +138,7 @@ class InterviewService:
         difficulty: str = DEFAULT_INTERVIEW_DIFFICULTY,
         experience_mode: str = DEFAULT_INTERVIEW_EXPERIENCE_MODE,
         time_limit_minutes: int = DEFAULT_TIME_LIMIT_MINUTES,
+        resume_snapshot: dict[str, Any] | None = None,
     ) -> InterviewRecord:
         target = target_position.strip()
         if not target:
@@ -146,7 +149,17 @@ class InterviewService:
             and len(clean_job_description) > JOB_DESCRIPTION_MAX_LENGTH
         ):
             raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
-        _require_resume(self.repository, resume_id, user_id)
+        source_resume = _require_resume(
+            self.repository,
+            resume_id,
+            user_id,
+            snapshot=resume_snapshot,
+        )
+        immutable_resume_snapshot = dict(
+            resume_snapshot
+            if resume_snapshot is not None
+            else source_resume.structured_data
+        )
         rounds = _normalize_selected_rounds(selected_rounds)
         goal = _normalize_interview_goal(interview_goal)
         difficulty_value = _normalize_interview_difficulty(difficulty)
@@ -164,6 +177,7 @@ class InterviewService:
                 difficulty=difficulty_value,
                 experience_mode=experience_mode_value,
                 time_limit_minutes=time_limit,
+                resume_snapshot=immutable_resume_snapshot,
             )
         except TypeError:
             try:
@@ -176,6 +190,7 @@ class InterviewService:
                     selected_rounds=rounds,
                     interview_goal=goal,
                     difficulty=difficulty_value,
+                    experience_mode=experience_mode_value,
                     time_limit_minutes=time_limit,
                 )
             except TypeError:
@@ -194,6 +209,7 @@ class InterviewService:
                     "difficulty": difficulty_value,
                     "experience_mode": experience_mode_value,
                     "time_limit_minutes": time_limit,
+                    "resume_snapshot": immutable_resume_snapshot,
                 }
             )
         specs = {
@@ -303,6 +319,7 @@ class InterviewService:
             interview_goal=_normalize_interview_goal(source.interview_goal),
             difficulty=_normalize_interview_difficulty(source.difficulty),
             time_limit_minutes=_normalize_time_limit_minutes(source.time_limit_minutes),
+            resume_snapshot=source.resume_snapshot,
         )
         create_progress = getattr(self.repository, "create_weakness_practice_progress", None)
         if callable(create_progress):
@@ -404,18 +421,30 @@ class InterviewService:
             interview_id,
             question_id,
         )
-        attempt = self.repository.create_reanswer_attempt(
-            interview_id=interview.id,
-            question_id=original_qa.id,
-            answer=clean_answer,
-        )
+        try:
+            attempt = self.repository.create_reanswer_attempt(
+                interview_id=interview.id,
+                question_id=original_qa.id,
+                answer=clean_answer,
+            )
+        except ReanswerAttemptLimitError as exc:
+            raise AppError(
+                ErrorCode.CONFLICT,
+                409,
+                message="该题最多可保留 20 次重新作答记录。",
+            ) from exc
         reanswer_qa = QARecord(
             **{
                 **original_qa.__dict__,
                 "answer": clean_answer,
             }
         )
-        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        resume = _require_resume(
+            self.repository,
+            interview.resume_id,
+            user_id,
+            snapshot=interview.resume_snapshot,
+        )
         score_reanswer = getattr(self.evaluation_service, "score_reanswer_attempt", None)
         question_score = (
             score_reanswer(
@@ -608,7 +637,12 @@ class InterviewService:
         else:
             self._ensure_round_time_remaining(interview, round_record)
 
-        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        resume = _require_resume(
+            self.repository,
+            interview.resume_id,
+            user_id,
+            snapshot=interview.resume_snapshot,
+        )
         history = self.repository.list_round_qa(interview.id, round_id)
         effective_memories = self._retrieve_effective_memories(
             user_id=user_id,
@@ -888,7 +922,12 @@ class InterviewService:
                 message="只能重新生成当前未回答的问题。",
             )
 
-        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        resume = _require_resume(
+            self.repository,
+            interview.resume_id,
+            user_id,
+            snapshot=interview.resume_snapshot,
+        )
         all_history = self.repository.list_round_qa(interview.id, round_id, include_inactive=True)
         previous_answer = _parent_answer(all_history, current_qa)
         effective_memories = self._retrieve_effective_memories(
@@ -995,7 +1034,12 @@ class InterviewService:
                 message="只能跳过当前未回答的问题。",
             )
 
-        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        resume = _require_resume(
+            self.repository,
+            interview.resume_id,
+            user_id,
+            snapshot=interview.resume_snapshot,
+        )
         all_history = self.repository.list_round_qa(interview.id, round_id, include_inactive=True)
         previous_answer = _parent_answer(all_history, current_qa)
         effective_memories = self._retrieve_effective_memories(
@@ -1087,7 +1131,12 @@ class InterviewService:
             round_record.id,
             include_inactive=True,
         )
-        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        resume = _require_resume(
+            self.repository,
+            interview.resume_id,
+            user_id,
+            snapshot=interview.resume_snapshot,
+        )
         question_score = (
             self.evaluation_service.score_question(
                 interview=interview,
@@ -1319,7 +1368,12 @@ class InterviewService:
                 status.HTTP_409_CONFLICT,
                 message="正常结束轮次需要至少一条有效回答。",
             )
-        resume = _require_resume(self.repository, interview.resume_id, user_id)
+        resume = _require_resume(
+            self.repository,
+            interview.resume_id,
+            user_id,
+            snapshot=interview.resume_snapshot,
+        )
         summary = self._generate_round_summary(
             interview=interview,
             round_record=round_record,
@@ -1378,7 +1432,12 @@ class InterviewService:
 
         self._assert_final_report_allowed(interview, rounds, finish_type)
         if self.evaluation_service is not None:
-            resume = _require_resume(self.repository, interview.resume_id, user_id)
+            resume = _require_resume(
+                self.repository,
+                interview.resume_id,
+                user_id,
+                snapshot=interview.resume_snapshot,
+            )
             report = self.evaluation_service.generate_final_report(
                 interview=interview,
                 resume=resume,
@@ -1564,6 +1623,8 @@ class InterviewService:
                     interview_id=interview.id,
                     round_id=round_record.id,
                     agent_type=round_record.round_type,
+                    position_key=interview.target_position,
+                    scenario=scene,
                     usage_scene=scene,  # type: ignore[arg-type]
                     intent=intent,
                     query_text=query_text,
@@ -1701,7 +1762,7 @@ class InterviewService:
             self._update_interview_harness(
                 interview.id,
                 harness_status="degraded",
-                last_harness_error=str(fallback_error) or fallback_error.__class__.__name__,
+                last_harness_error=safe_error_code(fallback_error),
                 had_degradation=True,
             )
             self._update_round_execution(round_record.id, execution_status="degraded")
@@ -1764,7 +1825,7 @@ class InterviewService:
                 payload={
                     "trace_id": trace_id,
                     "reason": "skill_runner_failed",
-                    "error": str(exc)[:300] or exc.__class__.__name__,
+                    "error": safe_error_code(exc),
                 },
             )
             return SkillRunBundle(trace_id=trace_id, selected=[], calls=[])
@@ -1920,7 +1981,7 @@ class InterviewService:
             self._update_interview_harness(
                 interview.id,
                 harness_status="pending",
-                last_harness_error=str(exc) or exc.__class__.__name__,
+                last_harness_error=safe_error_code(exc),
             )
             if round_record is not None:
                 self._update_round_execution(round_record.id, execution_status="failed")
@@ -1929,7 +1990,7 @@ class InterviewService:
             self._update_interview_harness(
                 interview.id,
                 harness_status="failed",
-                last_harness_error=str(exc) or exc.__class__.__name__,
+                last_harness_error=safe_error_code(exc),
             )
             if round_record is not None:
                 self._update_round_execution(round_record.id, execution_status="failed")
@@ -1965,7 +2026,7 @@ class InterviewService:
             self._update_interview_harness(
                 interview.id,
                 harness_status="paused",
-                last_harness_error=str(exc) or exc.__class__.__name__,
+                last_harness_error=safe_error_code(exc),
             )
             if round_record is not None:
                 self._update_round_execution(round_record.id, execution_status="paused")
@@ -2088,11 +2149,19 @@ def _require_resume(
     repository: InterviewRepository,
     resume_id: int,
     user_id: int,
+    *,
+    snapshot: dict[str, Any] | None = None,
 ) -> Any:
     resume = repository.get_resume_for_user(resume_id, user_id)
-    if resume is None:
-        raise AppError(ErrorCode.FORBIDDEN, status.HTTP_403_FORBIDDEN)
-    return resume
+    if resume is not None:
+        return resume
+    if snapshot is not None:
+        return ResumeRecord(
+            id=resume_id,
+            user_id=user_id,
+            structured_data=dict(snapshot),
+        )
+    raise AppError(ErrorCode.FORBIDDEN, status.HTTP_403_FORBIDDEN)
 
 
 def _has_answer_evidence(history: list[QARecord]) -> bool:
@@ -2725,7 +2794,7 @@ def _execute_with_harness(
                 retry_records.append(
                     {
                         "attempt": attempt,
-                        "error": str(exc) or exc.__class__.__name__,
+                        "error": safe_error_code(exc),
                     }
                 )
     if last_error is not None:
@@ -2735,7 +2804,7 @@ def _execute_with_harness(
                 status="failed",
                 validation_status="failed",
                 error_code="BUSINESS_EXECUTION_FAILED",
-                error_detail=str(last_error) or last_error.__class__.__name__,
+                error_detail=safe_error_code(last_error),
                 retry_records=retry_records,
             )
             _save_fallback_rule_evaluations(
@@ -2743,7 +2812,7 @@ def _execute_with_harness(
                 request=request,
                 trace_id=trace_id,
                 validation_status="failed",
-                error_detail=str(last_error) or last_error.__class__.__name__,
+                error_detail=safe_error_code(last_error),
             )
         except Exception:
             pass

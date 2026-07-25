@@ -365,7 +365,7 @@ import metricStatusAsset from "../assets/harness/metric-status.png";
 import rulesEmptyAsset from "../assets/harness/rules-empty.png";
 import syncGlyphAsset from "../assets/harness/sync-glyph.png";
 import traceEmptyAsset from "../assets/harness/trace-empty.png";
-import { formatDate } from "../formatters";
+import { formatDate, parseApiDate } from "../formatters";
 
 type RuleRow = {
   name: string;
@@ -677,7 +677,7 @@ function ensureSelectedInterview(): HistoryItem | null {
 
 function latestTime(item: HistoryItem): number {
   const value = latestActivityAt(item);
-  return value ? new Date(value).getTime() : 0;
+  return value ? parseApiDate(value).getTime() : 0;
 }
 
 function latestActivityAt(item: HistoryItem): string | null {
@@ -798,7 +798,7 @@ function formatTime(value?: string | null): string {
   if (!value) {
     return "暂无记录";
   }
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return parseApiDate(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatElapsed(value?: number | null): string {

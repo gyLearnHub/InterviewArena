@@ -72,6 +72,83 @@ class UserRepository:
             password_hash=password_hash,
         )
 
+    def consume_auth_rate_limit(
+        self,
+        *,
+        scope: str,
+        identifier_hash: str,
+        window_started_at: datetime,
+        limit: int,
+    ) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO auth_rate_limits (
+                    scope, identifier_hash, window_started_at, request_count
+                )
+                VALUES (%s, %s, %s, 1)
+                ON DUPLICATE KEY UPDATE
+                    request_count = request_count + 1,
+                    updated_at = UTC_TIMESTAMP()
+                """,
+                (scope, identifier_hash, window_started_at),
+            )
+            cursor.execute(
+                """
+                SELECT request_count
+                FROM auth_rate_limits
+                WHERE scope = %s
+                  AND identifier_hash = %s
+                  AND window_started_at = %s
+                """,
+                (scope, identifier_hash, window_started_at),
+            )
+            row = cursor.fetchone() or {}
+            cursor.execute(
+                """
+                DELETE FROM auth_rate_limits
+                WHERE window_started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY)
+                LIMIT 100
+                """
+            )
+        return int(row.get("request_count") or 0) <= max(1, limit)
+
+    def get_auth_rate_limit_count(
+        self,
+        *,
+        scope: str,
+        identifier_hash: str,
+        window_started_at: datetime,
+    ) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT request_count
+                FROM auth_rate_limits
+                WHERE scope = %s
+                  AND identifier_hash = %s
+                  AND window_started_at = %s
+                """,
+                (scope, identifier_hash, window_started_at),
+            )
+            row = cursor.fetchone() or {}
+        return int(row.get("request_count") or 0)
+
+    def clear_auth_rate_limit(
+        self,
+        *,
+        scope: str,
+        identifier_hash: str,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM auth_rate_limits
+                WHERE scope = %s AND identifier_hash = %s
+                """,
+                (scope, identifier_hash),
+            )
+
     def update_display_name(self, user_id: int, display_name: str) -> UserRecord | None:
         with self.connection.cursor() as cursor:
             cursor.execute(

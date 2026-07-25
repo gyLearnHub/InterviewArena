@@ -3,6 +3,7 @@ import uuid
 from typing import Protocol
 
 from app.core.config import get_settings
+from app.core.errors import safe_error_code
 from app.repositories.memories import MemoryRecord, MemoryRepository
 from app.repositories.rag_audit import RagAuditRepository
 from app.schemas.memory import (
@@ -58,8 +59,8 @@ class MemoryRetrievalService:
         request_id = uuid.uuid4().hex
         started_at = time.perf_counter()
         fallback_reason: str | None = None
-        candidate_ids: list[int] = []
-        injected_ids: list[int] = []
+        candidate_ids: list[str] = []
+        injected_ids: list[str] = []
         scores: dict[str, float] = {}
         rewritten_query = request.query_text
         timings: dict[str, int] = {
@@ -91,7 +92,7 @@ class MemoryRetrievalService:
             timings["initial_recall_ms"] = int((time.perf_counter() - recall_started_at) * 1000)
             if vector_fallback:
                 fallback_reason = _join_fallbacks(fallback_reason, vector_fallback)
-            candidate_ids = [item.id for item in candidates]
+            candidate_ids = [_memory_key(item) for item in candidates]
             timings["candidate_count"] = len(candidates)
             rank_started_at = time.perf_counter()
             ranked, reranker_fallback_count, reranker_fallback = self._rank(
@@ -121,16 +122,18 @@ class MemoryRetrievalService:
                 )
                 for record, score in ranked
             ]
-            injected_ids = [item.memory_id for item in memories]
+            injected_ids = [
+                f"{item.collection}:{item.memory_id}" for item in memories
+            ]
             timings["injected_count"] = len(injected_ids)
-            scores = {str(record.id): score for record, score in ranked}
+            scores = {_memory_key(record): score for record, score in ranked}
             return MemoryRetrievalResult(
                 request_id=request_id,
                 memories=memories,
                 fallback_reason=fallback_reason,
             )
         except Exception as exc:
-            fallback_reason = str(exc) or exc.__class__.__name__
+            fallback_reason = safe_error_code(exc)
             return MemoryRetrievalResult(
                 request_id=request_id,
                 memories=[],
@@ -175,11 +178,14 @@ class MemoryRetrievalService:
                 )
             )
         for collection in ("interviewer_memories", "agent_memories"):
-            if collection in collections:
+            if collection in collections and request.user_id is not None:
                 bm25_candidates.extend(
                     self.memories.list_system_memories(
                         collection=collection,
+                        user_id=request.user_id,
                         agent_type=request.agent_type,
+                        position_key=request.position_key,
+                        scenario=request.scenario,
                         memory_types=memory_types or None,
                     )
                 )
@@ -232,7 +238,7 @@ class MemoryRetrievalService:
                     vector_scores[key] = hit.score
                 vector_fallback = vector_result.fallback_reason
         except Exception as exc:
-            vector_fallback = str(exc) or exc.__class__.__name__
+            vector_fallback = safe_error_code(exc)
 
         return list(records_by_key.values()), vector_scores, vector_fallback, scope_filtered_count
 
@@ -293,8 +299,8 @@ class MemoryRetrievalService:
         request: MemoryRetrievalRequest,
         request_id: str,
         rewritten_query: str | None,
-        candidate_ids: list[int],
-        injected_ids: list[int],
+        candidate_ids: list[str],
+        injected_ids: list[str],
         scores: dict[str, float],
         fallback_reason: str | None,
         timings: dict[str, int],
@@ -353,11 +359,25 @@ def _is_record_in_scope(
     if record.collection == "candidate_memories":
         return request.user_id is not None and record.user_id == request.user_id
     if record.collection in {"interviewer_memories", "agent_memories"}:
-        if record.user_id is not None:
+        if request.user_id is None or record.user_id != request.user_id:
             return False
         if not record.agent_type:
-            return True
-        return request.agent_type is not None and record.agent_type == request.agent_type
+            return False
+        if request.agent_type is None or record.agent_type != request.agent_type:
+            return False
+        if (
+            record.collection == "interviewer_memories"
+            and request.position_key
+            and record.position_key not in {"", request.position_key}
+        ):
+            return False
+        if (
+            record.collection == "agent_memories"
+            and request.scenario
+            and record.scenario not in {"", request.scenario}
+        ):
+            return False
+        return True
     return False
 
 

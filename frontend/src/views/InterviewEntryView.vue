@@ -503,6 +503,7 @@ import {
   type RoundType
 } from "../api";
 import { analyzeResumeJobMatch, type JobMatchAnalysis } from "../jobMatchApi";
+import { parseApiDate } from "../formatters";
 
 const router = useRouter();
 const currentUserId = getUser()?.id ?? null;
@@ -1034,7 +1035,7 @@ function formatDateTime(value: string | null) {
   if (!value) {
     return "暂无";
   }
-  const date = new Date(value);
+  const date = parseApiDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }

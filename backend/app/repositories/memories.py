@@ -89,52 +89,99 @@ class MemoryRepository:
         user_id: int,
         limit: int = 100,
         offset: int = 0,
+        query: str = "",
+        memory_type: str | None = None,
+        status: str | None = None,
     ) -> list[MemoryRecord]:
+        conditions, params = _candidate_management_filters(
+            user_id=user_id,
+            query=query,
+            memory_type=memory_type,
+            status=status,
+        )
         with self.connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT *
                 FROM candidate_memories
-                WHERE user_id = %s
-                  AND status <> 'deleted'
+                WHERE {" AND ".join(conditions)}
                 ORDER BY updated_at DESC, id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (user_id, limit, offset),
+                (*params, limit, offset),
             )
             rows = cursor.fetchall()
         return [_to_memory(row, "candidate_memories") for row in rows]
 
-    def count_user_candidate_memories_by_status(self, *, user_id: int) -> dict[str, int]:
+    def count_user_candidate_memories_by_status(
+        self,
+        *,
+        user_id: int,
+        query: str = "",
+        memory_type: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, int]:
+        conditions, params = _candidate_management_filters(
+            user_id=user_id,
+            query=query,
+            memory_type=memory_type,
+            status=status,
+        )
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT status, COUNT(*) AS count
+                FROM candidate_memories
+                WHERE {" AND ".join(conditions)}
+                GROUP BY status
+                """,
+                tuple(params),
+            )
+            rows = cursor.fetchall()
+        return {str(row["status"]): int(row.get("count") or 0) for row in rows}
+
+    def list_user_candidate_memory_types(self, *, user_id: int) -> list[str]:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT status, COUNT(*) AS count
+                SELECT DISTINCT memory_type
                 FROM candidate_memories
-                WHERE user_id = %s
-                  AND status <> 'deleted'
-                GROUP BY status
+                WHERE user_id = %s AND status <> 'deleted'
+                ORDER BY memory_type
                 """,
                 (user_id,),
             )
             rows = cursor.fetchall()
-        return {str(row["status"]): int(row.get("count") or 0) for row in rows}
+        return [str(row["memory_type"]) for row in rows]
 
     def list_system_memories(
         self,
         *,
         collection: str,
+        user_id: int,
         agent_type: str | None = None,
+        position_key: str | None = None,
+        scenario: str | None = None,
         memory_types: list[str] | None = None,
     ) -> list[MemoryRecord]:
         _ensure_collection(collection)
         if collection == "candidate_memories":
             raise ValueError("candidate memories require user filtering")
-        conditions = ["status = 'active'", "index_status IN ('indexed', 'pending_index')"]
-        params: list[Any] = []
+        conditions = [
+            "user_id = %s",
+            "status = 'active'",
+            "index_status IN ('indexed', 'pending_index')",
+        ]
+        params: list[Any] = [user_id]
         if agent_type:
             conditions.append("agent_type = %s")
             params.append(agent_type)
+        if collection == "interviewer_memories" and position_key:
+            conditions.append("(position_key = '' OR position_key = %s)")
+            params.append(position_key)
+        if collection == "agent_memories" and scenario:
+            conditions.append("(scenario = '' OR scenario = %s)")
+            params.append(scenario)
         if memory_types:
             conditions.append(f"memory_type IN ({','.join(['%s'] * len(memory_types))})")
             params.extend(memory_types)
@@ -178,17 +225,35 @@ class MemoryRepository:
             """
             params: tuple[Any, ...] = (user_id, memory_type, title)
         else:
+            if user_id is None:
+                return None
+            identity_column = (
+                "position_key" if collection == "interviewer_memories" else "scenario"
+            )
+            identity_value = (
+                item.get("position_key")
+                if collection == "interviewer_memories"
+                else item.get("scenario")
+            )
             query = f"""
                 SELECT *
                 FROM {collection}
-                WHERE agent_type = %s
+                WHERE user_id = %s
+                  AND agent_type = %s
+                  AND {identity_column} = %s
                   AND memory_type = %s
                   AND title = %s
                   AND status IN ('active', 'pending_review')
                 ORDER BY version DESC
                 LIMIT 1
             """
-            params = (agent_type or "", memory_type, title)
+            params = (
+                user_id,
+                agent_type or "",
+                str(identity_value or ""),
+                memory_type,
+                title,
+            )
         with self.connection.cursor() as cursor:
             cursor.execute(query, params)
             row = cursor.fetchone()
@@ -244,14 +309,16 @@ class MemoryRepository:
             identity_column = "position_key" if collection == "interviewer_memories" else "scenario"
             identity_value = position_key if collection == "interviewer_memories" else scenario
             columns = f"""
-                agent_type, {identity_column}, memory_type, title, content, structured_data,
+                user_id, agent_type, {identity_column}, memory_type, title, content,
+                structured_data,
                 tokens, confidence, confidence_detail, status, index_status,
                 source_interview_id, source_round_id, version, last_evidence_at
             """
             values = """
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP
             """
             params = (
+                user_id,
                 agent_type or "",
                 identity_value or "",
                 memory_type,
@@ -340,6 +407,21 @@ class MemoryRepository:
             )
             return int(cursor.rowcount)
 
+    def mark_user_memories_pending_delete(self, user_id: int) -> int:
+        total = self.mark_user_candidate_pending_delete(user_id)
+        with self.connection.cursor() as cursor:
+            for collection in ("interviewer_memories", "agent_memories"):
+                cursor.execute(
+                    f"""
+                    UPDATE {collection}
+                    SET status = 'deleted', index_status = 'pending_delete'
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
+                total += int(cursor.rowcount)
+        return total
+
     def mark_candidate_memory_deleted(self, *, memory_id: int, user_id: int) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -367,6 +449,22 @@ class MemoryRepository:
                 (user_id,),
             )
             return int(cursor.rowcount)
+
+    def delete_user_memories(self, user_id: int) -> int:
+        total = self.delete_user_candidate_memories(user_id)
+        with self.connection.cursor() as cursor:
+            for collection in ("interviewer_memories", "agent_memories"):
+                cursor.execute(
+                    f"""
+                    DELETE FROM {collection}
+                    WHERE user_id = %s
+                      AND status = 'deleted'
+                      AND index_status = 'pending_delete'
+                    """,
+                    (user_id,),
+                )
+                total += int(cursor.rowcount)
+        return total
 
     def mark_indexed(self, collection: str, memory_id: int) -> None:
         _ensure_collection(collection)
@@ -436,3 +534,28 @@ def _json_string_list(value: Any) -> list[str]:
         if isinstance(parsed, list):
             return [str(item) for item in parsed]
     return []
+
+
+def _candidate_management_filters(
+    *,
+    user_id: int,
+    query: str,
+    memory_type: str | None,
+    status: str | None,
+) -> tuple[list[str], list[Any]]:
+    conditions = ["user_id = %s", "status <> 'deleted'"]
+    params: list[Any] = [user_id]
+    if memory_type:
+        conditions.append("memory_type = %s")
+        params.append(memory_type)
+    if status:
+        conditions.append("status = %s")
+        params.append(status)
+    keyword = query.strip()
+    if keyword:
+        pattern = f"%{keyword}%"
+        conditions.append(
+            "(title LIKE %s OR content LIKE %s OR CAST(structured_data AS CHAR) LIKE %s)"
+        )
+        params.extend([pattern, pattern, pattern])
+    return conditions, params

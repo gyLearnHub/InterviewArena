@@ -4,6 +4,7 @@ import time
 import uuid
 from typing import Any
 
+from app.core.errors import safe_error_code
 from app.skills.registry import DEFAULT_SKILL_REGISTRY, SkillRegistry
 from app.skills.selector import select_skills
 from app.skills.types import SkillCallTrace, SkillContext, SkillRunBundle
@@ -84,7 +85,7 @@ class SkillRunner:
                         confidence=None,
                         llm_enhanced=definition.llm_enhanced,
                         elapsed_ms=elapsed_ms,
-                        error_message=str(exc)[:1000] or exc.__class__.__name__,
+                        error_message=safe_error_code(exc),
                     )
                 )
         return SkillRunBundle(trace_id=trace_id, selected=selected, calls=calls)

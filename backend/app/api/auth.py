@@ -1,6 +1,8 @@
 import secrets
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from hashlib import sha256
 from threading import Lock
 from time import monotonic
 from typing import Literal, cast
@@ -34,6 +36,7 @@ LOGIN_FAILURE_LIMIT = 5
 LOGIN_FAILURE_WINDOW_SECONDS = 300
 LOGIN_LOCK_SECONDS = 300
 LOGIN_FAILURE_MAX_ENTRIES = 4096
+REGISTRATION_ATTEMPT_LIMIT = 10
 CookieSameSite = Literal["lax", "strict", "none"]
 
 
@@ -51,12 +54,14 @@ _login_failures_lock = Lock()
 @router.post("/register", response_model=UserPublic)
 def register(
     request: AuthRequest,
+    http_request: Request = None,  # type: ignore[assignment]
     users: UserRepository = UserRepositoryDep,
 ) -> UserPublic:
     username = request.username.strip()
-    password = request.password.strip()
+    password = request.password
     if not username or not password:
         raise AppError(ErrorCode.VALIDATION_ERROR, HTTP_422_UNPROCESSABLE_CONTENT)
+    _enforce_registration_rate_limit(http_request, users)
     if users.get_by_username(username) is not None:
         raise AppError(
             ErrorCode.CONFLICT,
@@ -83,19 +88,19 @@ def login(
     users: UserRepository = UserRepositoryDep,
 ) -> LoginResponse:
     username = request.username.strip()
-    password = request.password.strip()
+    password = request.password
     source_ip = _source_ip_from_request(http_request)
-    _ensure_login_not_limited(username, source_ip)
+    _ensure_login_not_limited(username, source_ip, users)
     user = users.get_by_username(username)
     if user is None or not verify_password(password, user.password_hash):
-        _record_login_failure(username, source_ip)
+        _record_login_failure(username, source_ip, users)
         raise AppError(
             ErrorCode.UNAUTHORIZED,
             status.HTTP_401_UNAUTHORIZED,
             message="用户名或密码错误。",
         )
 
-    _clear_login_failures(username, source_ip)
+    _clear_login_failures(username, source_ip, users)
     access_token = create_access_token(user.id)
     if response is not None:
         _set_auth_cookie(response, access_token)
@@ -230,6 +235,36 @@ def _source_ip_from_request(request: Request) -> str:
     return request.client.host
 
 
+def _enforce_registration_rate_limit(
+    request: Request | None,
+    users: UserRepository,
+) -> None:
+    consume = getattr(users, "consume_auth_rate_limit", None)
+    if request is None or not callable(consume):
+        return
+    source_ip = _source_ip_from_request(request)
+    identifier_hash = sha256(source_ip.encode("utf-8")).hexdigest()
+    window_started_at = datetime.now(UTC).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+        tzinfo=None,
+    )
+    if not consume(
+        scope="registration_ip",
+        identifier_hash=identifier_hash,
+        window_started_at=window_started_at,
+        limit=REGISTRATION_ATTEMPT_LIMIT,
+    ):
+        users.commit()
+        raise AppError(
+            ErrorCode.TOO_MANY_REQUESTS,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            message="注册请求过于频繁，请稍后再试。",
+        )
+    users.commit()
+
+
 def _login_failure_key(username: str, source_ip: str) -> str:
     return f"{username.strip().casefold()}|{source_ip.strip() or 'unknown'}"
 
@@ -238,8 +273,28 @@ def _now() -> float:
     return monotonic()
 
 
-def _ensure_login_not_limited(username: str, source_ip: str) -> None:
+def _ensure_login_not_limited(
+    username: str,
+    source_ip: str,
+    users: UserRepository,
+) -> None:
     if not username.strip():
+        return
+    get_count = getattr(users, "get_auth_rate_limit_count", None)
+    if callable(get_count):
+        if (
+            get_count(
+                scope="login_failure",
+                identifier_hash=_login_failure_hash(username, source_ip),
+                window_started_at=_login_failure_window(),
+            )
+            >= LOGIN_FAILURE_LIMIT
+        ):
+            raise AppError(
+                ErrorCode.TOO_MANY_REQUESTS,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                message="登录失败次数过多，请稍后再试。",
+            )
         return
     key = _login_failure_key(username, source_ip)
     now = _now()
@@ -260,8 +315,22 @@ def _ensure_login_not_limited(username: str, source_ip: str) -> None:
             _login_failures.pop(key, None)
 
 
-def _record_login_failure(username: str, source_ip: str) -> None:
+def _record_login_failure(
+    username: str,
+    source_ip: str,
+    users: UserRepository | None = None,
+) -> None:
     if not username.strip():
+        return
+    consume = getattr(users, "consume_auth_rate_limit", None)
+    if users is not None and callable(consume):
+        consume(
+            scope="login_failure",
+            identifier_hash=_login_failure_hash(username, source_ip),
+            window_started_at=_login_failure_window(),
+            limit=LOGIN_FAILURE_LIMIT,
+        )
+        users.commit()
         return
     key = _login_failure_key(username, source_ip)
     now = _now()
@@ -277,9 +346,36 @@ def _record_login_failure(username: str, source_ip: str) -> None:
             state.locked_until = now + LOGIN_LOCK_SECONDS
 
 
-def _clear_login_failures(username: str, source_ip: str) -> None:
+def _clear_login_failures(
+    username: str,
+    source_ip: str,
+    users: UserRepository,
+) -> None:
+    clear = getattr(users, "clear_auth_rate_limit", None)
+    if callable(clear):
+        clear(
+            scope="login_failure",
+            identifier_hash=_login_failure_hash(username, source_ip),
+        )
+        return
     with _login_failures_lock:
         _login_failures.pop(_login_failure_key(username, source_ip), None)
+
+
+def _login_failure_hash(username: str, source_ip: str) -> str:
+    key = _login_failure_key(username, source_ip)
+    return sha256(key.encode("utf-8")).hexdigest()
+
+
+def _login_failure_window() -> datetime:
+    now = datetime.now(UTC)
+    window_minute = now.minute - (now.minute % max(1, LOGIN_FAILURE_WINDOW_SECONDS // 60))
+    return now.replace(
+        minute=window_minute,
+        second=0,
+        microsecond=0,
+        tzinfo=None,
+    )
 
 
 def _prune_login_failures(now: float) -> None:

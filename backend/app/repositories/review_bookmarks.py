@@ -123,6 +123,28 @@ class ReviewBookmarkRepository:
             row = cursor.fetchone()
         return _to_record(row) if row is not None else None
 
+    def lock_for_practice(
+        self,
+        bookmark_id: int,
+        user_id: int,
+    ) -> ReviewBookmarkRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT rb.id, rb.user_id, rb.bookmark_key, rb.source_interview_id,
+                       rb.target_position, rb.round_id, rb.round_type, rb.question_id,
+                       rb.title, rb.issue, rb.suggestion, rb.question, rb.answer,
+                       rb.evaluation, rb.source_score, rb.status,
+                       rb.practice_interview_id, rb.created_at, rb.updated_at
+                FROM review_bookmarks rb
+                WHERE rb.id = %s AND rb.user_id = %s
+                FOR UPDATE
+                """,
+                (bookmark_id, user_id),
+            )
+            row = cursor.fetchone()
+        return _to_record(row) if row is not None else None
+
     def get_by_key(
         self,
         user_id: int,
@@ -219,7 +241,7 @@ class ReviewBookmarkRepository:
                 SET status = 'practice_created',
                     practice_interview_id = %s,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND user_id = %s
+                WHERE id = %s AND user_id = %s AND practice_interview_id IS NULL
                 """,
                 (practice_interview_id, bookmark_id, user_id),
             )

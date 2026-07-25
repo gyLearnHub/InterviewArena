@@ -10,6 +10,12 @@ from app.repositories.weakness_practice_progress import (
     to_weakness_practice_progress as _to_weakness_practice_progress,
 )
 
+MAX_REANSWER_ATTEMPTS_PER_QUESTION = 20
+
+
+class ReanswerAttemptLimitError(RuntimeError):
+    pass
+
 
 @dataclass(frozen=True)
 class ResumeRecord:
@@ -47,6 +53,7 @@ class InterviewRecord:
     had_degradation: bool = False
     job_family_key: str | None = None
     harness_bundle_id: int | None = None
+    resume_snapshot: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -161,19 +168,30 @@ class InterviewRepository:
         difficulty: str = "normal",
         experience_mode: str = "training",
         time_limit_minutes: int = 45,
+        resume_snapshot: dict[str, Any] | None = None,
     ) -> InterviewRecord:
         selected_rounds_json = (
             json.dumps(selected_rounds, ensure_ascii=False) if selected_rounds is not None else None
         )
         optional_columns = self._existing_columns(
             "interviews",
-            ["interview_goal", "difficulty", "experience_mode", "time_limit_minutes"],
+            [
+                "interview_goal",
+                "difficulty",
+                "experience_mode",
+                "time_limit_minutes",
+                "resume_snapshot",
+            ],
         )
         optional_values = [
             ("interview_goal", interview_goal),
             ("difficulty", difficulty),
             ("experience_mode", experience_mode),
             ("time_limit_minutes", time_limit_minutes),
+            (
+                "resume_snapshot",
+                json.dumps(resume_snapshot or {}, ensure_ascii=False),
+            ),
         ]
         optional_values = [
             (column, value) for column, value in optional_values if column in optional_columns
@@ -223,6 +241,7 @@ class InterviewRepository:
             experience_mode=experience_mode,
             time_limit_minutes=time_limit_minutes,
             overall_status="created",
+            resume_snapshot=dict(resume_snapshot or {}),
         )
 
     def get_interview_for_user(
@@ -246,6 +265,7 @@ class InterviewRepository:
                     "time_limit_minutes",
                     "job_family_key",
                     "harness_bundle_id",
+                    "resume_snapshot",
                 ],
             )
             optional_select = "".join(f", {column}" for column in optional_columns)
@@ -927,6 +947,17 @@ class InterviewRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
+                SELECT id
+                FROM interview_qa
+                WHERE id = %s AND interview_id = %s
+                FOR UPDATE
+                """,
+                (question_id, interview_id),
+            )
+            if cursor.fetchone() is None:
+                raise RuntimeError("reanswer source question was not found")
+            cursor.execute(
+                """
                 SELECT COALESCE(MAX(attempt_number), 0) + 1 AS attempt_number
                 FROM answer_reanswer_attempts
                 WHERE interview_id = %s AND question_id = %s
@@ -935,6 +966,8 @@ class InterviewRepository:
             )
             row = cursor.fetchone() or {}
             attempt_number = int(row.get("attempt_number") or 1)
+            if attempt_number > MAX_REANSWER_ATTEMPTS_PER_QUESTION:
+                raise ReanswerAttemptLimitError("reanswer attempt limit reached")
             cursor.execute(
                 """
                 INSERT INTO answer_reanswer_attempts (
@@ -1011,8 +1044,13 @@ class InterviewRepository:
                 FROM answer_reanswer_attempts
                 WHERE interview_id = %s AND question_id = %s
                 ORDER BY attempt_number ASC, id ASC
+                LIMIT %s
                 """,
-                (interview_id, question_id),
+                (
+                    interview_id,
+                    question_id,
+                    MAX_REANSWER_ATTEMPTS_PER_QUESTION,
+                ),
             )
             rows = cursor.fetchall()
         return [
@@ -1409,6 +1447,7 @@ def _to_interview(row: dict[str, Any] | None) -> InterviewRecord | None:
         harness_bundle_id=(
             int(row["harness_bundle_id"]) if row.get("harness_bundle_id") is not None else None
         ),
+        resume_snapshot=_json_dict(row.get("resume_snapshot")),
     )
 
 

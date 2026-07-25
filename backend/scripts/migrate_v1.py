@@ -90,11 +90,46 @@ INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION = "2026_07_20_interview_experien
 INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_DESCRIPTION = (
     "Add interview experience mode and answer reattempts"
 )
+MEMORY_USER_SCOPE_MIGRATION_VERSION = "2026_07_24_memory_user_scope"
+MEMORY_USER_SCOPE_MIGRATION_DESCRIPTION = "Scope interviewer and agent memories by user"
+INTERVIEW_RESUME_SNAPSHOT_MIGRATION_VERSION = "2026_07_24_interview_resume_snapshot"
+INTERVIEW_RESUME_SNAPSHOT_MIGRATION_DESCRIPTION = (
+    "Preserve immutable resume evidence for interview follow-up workflows"
+)
+AUTH_RATE_LIMIT_MIGRATION_VERSION = "2026_07_24_auth_rate_limit"
+AUTH_RATE_LIMIT_MIGRATION_DESCRIPTION = "Add shared registration rate limiting"
+FILE_CLEANUP_TASK_MIGRATION_VERSION = "2026_07_24_file_cleanup_tasks"
+FILE_CLEANUP_TASK_MIGRATION_DESCRIPTION = "Add retryable uploaded file cleanup"
+MIGRATION_LOCK_NAME = "interview_arena_schema_migrations"
 
 
 def main() -> None:
     with mysql_connection() as connection:
+        migrate_with_lock(connection)
+
+
+def migrate_with_lock(connection: Any, timeout_seconds: int = 60) -> None:
+    acquired = False
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT GET_LOCK(%s, %s) AS acquired",
+                (MIGRATION_LOCK_NAME, max(0, timeout_seconds)),
+            )
+            row = cursor.fetchone() or {}
+            acquired = int(row.get("acquired") or 0) == 1
+        if not acquired:
+            raise RuntimeError("schema_migration_lock_timeout")
         migrate(connection)
+        connection.commit()
+    finally:
+        if acquired:
+            with suppress(Exception):
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT RELEASE_LOCK(%s) AS released",
+                        (MIGRATION_LOCK_NAME,),
+                    )
 
 
 def migrate(connection: Any) -> None:
@@ -325,6 +360,214 @@ def migrate(connection: Any) -> None:
             INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION,
             INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_DESCRIPTION,
         )
+
+    if not _migration_applied(connection, MEMORY_USER_SCOPE_MIGRATION_VERSION):
+        _apply_memory_user_scope(connection, database)
+        _record_migration(
+            connection,
+            MEMORY_USER_SCOPE_MIGRATION_VERSION,
+            MEMORY_USER_SCOPE_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, INTERVIEW_RESUME_SNAPSHOT_MIGRATION_VERSION):
+        _apply_interview_resume_snapshot(connection, database)
+        _record_migration(
+            connection,
+            INTERVIEW_RESUME_SNAPSHOT_MIGRATION_VERSION,
+            INTERVIEW_RESUME_SNAPSHOT_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, AUTH_RATE_LIMIT_MIGRATION_VERSION):
+        _create_tables_from_init_sql(connection, ["auth_rate_limits"])
+        _record_migration(
+            connection,
+            AUTH_RATE_LIMIT_MIGRATION_VERSION,
+            AUTH_RATE_LIMIT_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, FILE_CLEANUP_TASK_MIGRATION_VERSION):
+        _create_tables_from_init_sql(connection, ["file_cleanup_tasks"])
+        _record_migration(
+            connection,
+            FILE_CLEANUP_TASK_MIGRATION_VERSION,
+            FILE_CLEANUP_TASK_MIGRATION_DESCRIPTION,
+        )
+
+
+def _apply_interview_resume_snapshot(connection: Any, database: str) -> None:
+    _add_column(
+        connection,
+        database,
+        "interviews",
+        "resume_snapshot",
+        "JSON NULL AFTER resume_id",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE interviews interview
+            JOIN resumes resume ON resume.id = interview.resume_id
+            SET interview.resume_snapshot = resume.structured_data
+            WHERE interview.resume_snapshot IS NULL
+            """
+        )
+        cursor.execute(
+            """
+            ALTER TABLE interviews
+            MODIFY COLUMN resume_snapshot JSON NOT NULL
+            """
+        )
+
+
+def _apply_memory_user_scope(connection: Any, database: str) -> None:
+    for table_name in ("interviewer_memories", "agent_memories"):
+        _add_column(
+            connection,
+            database,
+            table_name,
+            "user_id",
+            "BIGINT UNSIGNED NULL AFTER id",
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE {table_name} memory
+                JOIN interviews interview ON interview.id = memory.source_interview_id
+                SET memory.user_id = interview.user_id
+                WHERE memory.user_id IS NULL
+                """
+            )
+            cursor.execute(
+                f"""
+                UPDATE {table_name} memory
+                JOIN interview_rounds round_record ON round_record.id = memory.source_round_id
+                JOIN interviews interview ON interview.id = round_record.interview_id
+                SET memory.user_id = interview.user_id
+                WHERE memory.user_id IS NULL
+                """
+            )
+
+    _drop_index(
+        connection,
+        database,
+        "interviewer_memories",
+        "idx_interviewer_memories_agent_position_status",
+    )
+    _drop_index(
+        connection,
+        database,
+        "interviewer_memories",
+        "idx_interviewer_memories_type_status",
+    )
+    _drop_index(
+        connection,
+        database,
+        "interviewer_memories",
+        "uk_interviewer_memory_summary",
+    )
+    _add_index(
+        connection,
+        database,
+        "interviewer_memories",
+        "idx_interviewer_memories_user_agent_position_status",
+        (
+            "CREATE INDEX idx_interviewer_memories_user_agent_position_status "
+            "ON interviewer_memories (user_id, agent_type, position_key, status)"
+        ),
+    )
+    _add_index(
+        connection,
+        database,
+        "interviewer_memories",
+        "idx_interviewer_memories_user_type_status",
+        (
+            "CREATE INDEX idx_interviewer_memories_user_type_status "
+            "ON interviewer_memories (user_id, memory_type, status)"
+        ),
+    )
+    _add_index(
+        connection,
+        database,
+        "interviewer_memories",
+        "uk_interviewer_memory_summary",
+        (
+            "CREATE UNIQUE INDEX uk_interviewer_memory_summary ON interviewer_memories "
+            "(user_id, agent_type, position_key, memory_type, title, "
+            "source_interview_id, source_round_id, version)"
+        ),
+    )
+    _add_foreign_key(
+        connection,
+        database,
+        "interviewer_memories",
+        "fk_interviewer_memories_user_id",
+        (
+            "ALTER TABLE interviewer_memories ADD CONSTRAINT "
+            "fk_interviewer_memories_user_id FOREIGN KEY (user_id) "
+            "REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE"
+        ),
+    )
+
+    _drop_index(
+        connection,
+        database,
+        "agent_memories",
+        "idx_agent_memories_agent_scenario_status",
+    )
+    _drop_index(
+        connection,
+        database,
+        "agent_memories",
+        "idx_agent_memories_type_status",
+    )
+    _drop_index(
+        connection,
+        database,
+        "agent_memories",
+        "uk_agent_memory_summary",
+    )
+    _add_index(
+        connection,
+        database,
+        "agent_memories",
+        "idx_agent_memories_user_agent_scenario_status",
+        (
+            "CREATE INDEX idx_agent_memories_user_agent_scenario_status "
+            "ON agent_memories (user_id, agent_type, scenario, status)"
+        ),
+    )
+    _add_index(
+        connection,
+        database,
+        "agent_memories",
+        "idx_agent_memories_user_type_status",
+        (
+            "CREATE INDEX idx_agent_memories_user_type_status "
+            "ON agent_memories (user_id, memory_type, status)"
+        ),
+    )
+    _add_index(
+        connection,
+        database,
+        "agent_memories",
+        "uk_agent_memory_summary",
+        (
+            "CREATE UNIQUE INDEX uk_agent_memory_summary ON agent_memories "
+            "(user_id, agent_type, scenario, memory_type, title, "
+            "source_interview_id, source_round_id, version)"
+        ),
+    )
+    _add_foreign_key(
+        connection,
+        database,
+        "agent_memories",
+        "fk_agent_memories_user_id",
+        (
+            "ALTER TABLE agent_memories ADD CONSTRAINT "
+            "fk_agent_memories_user_id FOREIGN KEY (user_id) "
+            "REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE"
+        ),
+    )
 
 
 def _apply_harness_evolution_user_scope(connection: Any, database: str) -> None:

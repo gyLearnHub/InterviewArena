@@ -541,6 +541,7 @@ import {
   type UserPreferences
 } from "./api";
 import { getUser, isLoggedIn, saveAuth } from "./auth";
+import { parseApiDate } from "./formatters";
 import { markSessionUnverified } from "./session";
 
 const router = useRouter();
@@ -590,6 +591,7 @@ const notificationHasError = ref(false);
 let settingsMessageTimer: number | null = null;
 let clearMemoryPollTimer: ReturnType<typeof window.setInterval> | null = null;
 let notificationPollTimer: ReturnType<typeof window.setInterval> | null = null;
+let notificationRequestSequence = 0;
 
 const activeClearStatuses = new Set(["pending", "processing", "retry_wait"]);
 
@@ -1034,7 +1036,7 @@ async function refreshUnreadNotificationCount() {
     const response = await getUnreadNotificationCount();
     unreadNotificationCount.value = response.count;
   } catch {
-    stopNotificationPolling();
+    // A transient polling failure must not disable future refresh attempts.
   }
 }
 
@@ -1089,6 +1091,7 @@ function handleWindowFocus() {
 }
 
 async function loadNotifications(options: { reset?: boolean; silent?: boolean } = {}) {
+  const requestSequence = ++notificationRequestSequence;
   const reset = options.reset ?? false;
   if (reset) {
     notificationNextCursor.value = null;
@@ -1102,18 +1105,36 @@ async function loadNotifications(options: { reset?: boolean; silent?: boolean } 
       cursor: reset ? null : notificationNextCursor.value,
       limit: NOTIFICATION_PAGE_SIZE
     });
+    if (requestSequence !== notificationRequestSequence) {
+      return;
+    }
     unreadNotificationCount.value = response.unread_count;
     notificationNextCursor.value = response.next_cursor;
     notificationItems.value = reset
       ? response.items
-      : [...notificationItems.value, ...response.items];
+      : [
+          ...notificationItems.value,
+          ...response.items.filter(
+            (item) => !notificationItems.value.some((existing) => existing.id === item.id)
+          )
+        ];
     if (!options.silent) {
       clearNotificationMessage();
     }
-  } catch {
-    clearNotificationMessage();
+  } catch (error) {
+    if (requestSequence !== notificationRequestSequence) {
+      return;
+    }
+    if (!options.silent) {
+      showNotificationMessage(
+        error instanceof ApiError ? error.message : "通知加载失败，请稍后重试。",
+        true
+      );
+    }
   } finally {
-    notificationsLoading.value = false;
+    if (requestSequence === notificationRequestSequence) {
+      notificationsLoading.value = false;
+    }
   }
 }
 
@@ -1141,7 +1162,9 @@ async function openNotificationItem(item: NotificationItem) {
   notificationDetailLoading.value = true;
   clearNotificationMessage();
   try {
-    await markNotificationRead(item.id);
+    if (!wasRead) {
+      await markNotificationRead(item.id);
+    }
     const detail = await getNotificationDetail(item.id);
     if (detail.target.exists === false) {
       notificationDetail.value = detail;
@@ -1223,7 +1246,7 @@ function notificationTypeLabel(type: string) {
 }
 
 function formatNotificationTime(value: string) {
-  const date = new Date(value);
+  const date = parseApiDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }

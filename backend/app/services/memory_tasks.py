@@ -1,9 +1,12 @@
 import asyncio
 import contextlib
+import logging
 from threading import Event, Thread
 from typing import Any
+from uuid import uuid4
 
 from app.core.config import get_settings
+from app.core.errors import AppError
 from app.db.mysql import mysql_connection
 from app.harness.events import record_harness_event
 from app.repositories.evaluations import EvaluationRepository
@@ -15,6 +18,10 @@ from app.services.llm import get_llm_client
 from app.services.memory_index import MemoryIndexService
 from app.services.memory_lifecycle import MemoryLifecycleService
 from app.services.memory_summary import MemorySummaryService
+from app.services.memory_user_lock import memory_user_lock
+from app.services.runner_health import record_runner_failure, record_runner_success
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MemoryTaskService:
@@ -67,26 +74,47 @@ class MemoryTaskRunner:
         try:
             with mysql_connection() as connection:
                 tasks = MemoryTaskRepository(connection)
-                result = self._handle_task(connection, task)
-                completed = tasks.mark_completed(task.id, task.processing_token, result)
-                if not completed:
-                    raise RuntimeError("memory task processing lease was lost before completion")
-                if task.interview_id is not None and task.user_id is not None:
-                    record_harness_event(
-                        connection=connection,
-                        user_id=task.user_id,
-                        interview_id=task.interview_id,
-                        round_id=None,
-                        node_type="memory_write_tracker",
-                        event_type="memory_task_completed",
-                        payload={"task_type": task.task_type, "result": result},
-                    )
+                lock = (
+                    memory_user_lock(connection, task.user_id)
+                    if task.user_id is not None
+                    else contextlib.nullcontext()
+                )
+                with lock:
+                    if not tasks.owns_processing_lease(task.id, task.processing_token):
+                        return True
+                    result = self._handle_task(connection, task)
+                    completed = tasks.mark_completed(task.id, task.processing_token, result)
+                    if not completed:
+                        raise RuntimeError(
+                            "memory task processing lease was lost before completion"
+                        )
+                    if task.interview_id is not None and task.user_id is not None:
+                        record_harness_event(
+                            connection=connection,
+                            user_id=task.user_id,
+                            interview_id=task.interview_id,
+                            round_id=None,
+                            node_type="memory_write_tracker",
+                            event_type="memory_task_completed",
+                            payload={"task_type": task.task_type, "result": result},
+                        )
+                    connection.commit()
         except Exception as exc:
+            error_id = uuid4().hex[:12]
+            LOGGER.exception(
+                "memory task failed",
+                extra={"task_id": task.id, "error_id": error_id},
+            )
+            public_error = (
+                exc.message
+                if isinstance(exc, AppError)
+                else f"记忆任务处理失败，请稍后重试。（错误编号：{error_id}）"
+            )
             with mysql_connection() as connection:
                 tasks = MemoryTaskRepository(connection)
                 failed = tasks.mark_failed_or_retry(
                     task,
-                    str(exc) or exc.__class__.__name__,
+                    public_error,
                     task.processing_token,
                 )
                 if failed and task.interview_id is not None and task.user_id is not None:
@@ -99,7 +127,7 @@ class MemoryTaskRunner:
                         event_type="memory_task_failed",
                         payload={
                             "task_type": task.task_type,
-                            "error": str(exc) or exc.__class__.__name__,
+                            "error": public_error,
                         },
                     )
         finally:
@@ -118,7 +146,7 @@ class MemoryTaskRunner:
         if task.task_type == "memory_clear":
             if task.user_id is None:
                 raise ValueError("memory_clear requires user_id")
-            deleted_count = lifecycle.clear_user_candidate_memories(task.user_id)
+            deleted_count = lifecycle.clear_user_memories(task.user_id)
             return {"deleted_count": deleted_count}
         if task.task_type == "memory_summary":
             if task.user_id is None or task.interview_id is None:
@@ -177,8 +205,10 @@ def start_memory_task_runner() -> asyncio.Task[None]:
         while True:
             try:
                 await asyncio.to_thread(runner.run_once)
-            except Exception:
-                pass
+                record_runner_success("memory")
+            except Exception as exc:
+                record_runner_failure("memory", exc)
+                LOGGER.exception("memory task runner iteration failed")
             await asyncio.sleep(max(1, settings.memory_task_poll_seconds))
 
     return asyncio.create_task(_loop())

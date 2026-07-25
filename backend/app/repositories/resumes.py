@@ -58,6 +58,16 @@ class ResumeParseTaskRecord:
     heartbeat_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class FileCleanupTaskRecord:
+    id: int
+    original_file_path: str
+    status: str
+    attempt_count: int
+    max_retries: int
+    processing_token: str | None = None
+
+
 class ResumeRepository:
     def __init__(self, connection: Any) -> None:
         self.connection = connection
@@ -225,9 +235,6 @@ class ResumeRepository:
                 """,
                 (clean_name, resume_id, user_id),
             )
-            updated = int(cursor.rowcount) > 0
-        if not updated:
-            return None
         return self.get_detail_for_user(resume_id, user_id)
 
     def set_default_for_user(
@@ -471,25 +478,8 @@ class ResumeRepository:
     ) -> ResumeParseTaskRecord | None:
         timeout_seconds = max(1, processing_timeout_seconds)
         processing_token = uuid4().hex
+        self.fail_stale_parse_tasks(timeout_seconds)
         with self.connection.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE resume_parse_tasks
-                SET status = 'failed',
-                    error_message = 'processing_timeout',
-                    processing_token = NULL,
-                    heartbeat_at = NULL,
-                    completed_at = UTC_TIMESTAMP()
-                WHERE status = 'processing'
-                  AND (
-                      COALESCE(heartbeat_at, started_at) IS NULL
-                      OR COALESCE(heartbeat_at, started_at) <= DATE_SUB(
-                          UTC_TIMESTAMP(), INTERVAL %s SECOND
-                      )
-                  )
-                """,
-                (timeout_seconds,),
-            )
             cursor.execute(
                 """
                 UPDATE resume_parse_tasks
@@ -514,6 +504,173 @@ class ResumeRepository:
                 return None
             task_id = int(row["task_id"])
         return self.get_parse_task(task_id)
+
+    def fail_stale_parse_tasks(self, processing_timeout_seconds: int) -> list[str]:
+        timeout_seconds = max(1, processing_timeout_seconds)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT original_file_path
+                FROM resume_parse_tasks
+                WHERE status = 'processing'
+                  AND (
+                      COALESCE(heartbeat_at, started_at) IS NULL
+                      OR COALESCE(heartbeat_at, started_at) <= DATE_SUB(
+                          UTC_TIMESTAMP(), INTERVAL %s SECOND
+                      )
+                  )
+                FOR UPDATE
+                """,
+                (timeout_seconds,),
+            )
+            paths = [str(row["original_file_path"]) for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                UPDATE resume_parse_tasks
+                SET status = 'failed',
+                    error_message = 'processing_timeout',
+                    processing_token = NULL,
+                    heartbeat_at = NULL,
+                    completed_at = UTC_TIMESTAMP()
+                WHERE status = 'processing'
+                  AND (
+                      COALESCE(heartbeat_at, started_at) IS NULL
+                      OR COALESCE(heartbeat_at, started_at) <= DATE_SUB(
+                          UTC_TIMESTAMP(), INTERVAL %s SECOND
+                      )
+                  )
+                """,
+                (timeout_seconds,),
+            )
+        return paths
+
+    def enqueue_file_cleanup(
+        self,
+        original_file_path: str,
+        *,
+        max_retries: int = 20,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO file_cleanup_tasks (
+                    original_file_path, status, max_retries
+                )
+                VALUES (%s, 'pending', %s)
+                ON DUPLICATE KEY UPDATE
+                    status = 'pending',
+                    attempt_count = 0,
+                    max_retries = VALUES(max_retries),
+                    processing_token = NULL,
+                    next_retry_at = NULL,
+                    completed_at = NULL,
+                    error_message = NULL
+                """,
+                (original_file_path, max(1, max_retries)),
+            )
+
+    def claim_due_file_cleanup(
+        self,
+        processing_timeout_seconds: int = 900,
+    ) -> FileCleanupTaskRecord | None:
+        timeout_seconds = max(1, processing_timeout_seconds)
+        processing_token = uuid4().hex
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE file_cleanup_tasks
+                SET id = LAST_INSERT_ID(id),
+                    status = 'processing',
+                    processing_token = %s,
+                    attempt_count = attempt_count + 1,
+                    started_at = UTC_TIMESTAMP(),
+                    error_message = NULL
+                WHERE status = 'pending'
+                   OR (
+                       status = 'retry_wait'
+                       AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())
+                   )
+                   OR (
+                       status = 'processing'
+                       AND (
+                           started_at IS NULL
+                           OR started_at <= DATE_SUB(
+                               UTC_TIMESTAMP(), INTERVAL %s SECOND
+                           )
+                       )
+                   )
+                ORDER BY created_at, id
+                LIMIT 1
+                """,
+                (processing_token, timeout_seconds),
+            )
+            if int(cursor.rowcount) != 1:
+                return None
+            cursor.execute("SELECT LAST_INSERT_ID() AS task_id")
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            task_id = int(row["task_id"])
+            cursor.execute(
+                """
+                SELECT id, original_file_path, status, attempt_count,
+                       max_retries, processing_token
+                FROM file_cleanup_tasks
+                WHERE id = %s
+                """,
+                (task_id,),
+            )
+            task_row = cursor.fetchone()
+        return _to_file_cleanup_task(task_row)
+
+    def complete_file_cleanup(self, task_id: int, processing_token: str) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE file_cleanup_tasks
+                SET status = 'completed',
+                    completed_at = UTC_TIMESTAMP(),
+                    processing_token = NULL,
+                    next_retry_at = NULL,
+                    error_message = NULL
+                WHERE id = %s AND status = 'processing' AND processing_token = %s
+                """,
+                (task_id, processing_token),
+            )
+            return int(cursor.rowcount) > 0
+
+    def retry_file_cleanup(
+        self,
+        task: FileCleanupTaskRecord,
+        error_message: str,
+    ) -> bool:
+        exhausted = task.attempt_count >= task.max_retries
+        retry_delay_seconds = min(3600, (2 ** min(task.attempt_count, 10)) * 5)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE file_cleanup_tasks
+                SET status = %s,
+                    next_retry_at = CASE
+                        WHEN %s THEN NULL
+                        ELSE DATE_ADD(UTC_TIMESTAMP(), INTERVAL %s SECOND)
+                    END,
+                    completed_at = CASE WHEN %s THEN UTC_TIMESTAMP() ELSE NULL END,
+                    processing_token = NULL,
+                    error_message = %s
+                WHERE id = %s AND status = 'processing' AND processing_token = %s
+                """,
+                (
+                    "failed" if exhausted else "retry_wait",
+                    exhausted,
+                    retry_delay_seconds,
+                    exhausted,
+                    error_message[:500],
+                    task.id,
+                    task.processing_token,
+                ),
+            )
+            return int(cursor.rowcount) > 0
 
     def mark_parse_task_processing(self, task_id: int) -> bool:
         processing_token = uuid4().hex
@@ -693,6 +850,21 @@ def _to_parse_task(row: dict[str, Any]) -> ResumeParseTaskRecord:
         completed_at=row.get("completed_at"),
         processing_token=row.get("processing_token"),
         heartbeat_at=row.get("heartbeat_at"),
+    )
+
+
+def _to_file_cleanup_task(
+    row: dict[str, Any] | None,
+) -> FileCleanupTaskRecord | None:
+    if row is None:
+        return None
+    return FileCleanupTaskRecord(
+        id=int(row["id"]),
+        original_file_path=str(row["original_file_path"]),
+        status=str(row["status"]),
+        attempt_count=int(row.get("attempt_count") or 0),
+        max_retries=int(row.get("max_retries") or 1),
+        processing_token=row.get("processing_token"),
     )
 
 

@@ -1,3 +1,6 @@
+import contextlib
+import logging
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -26,8 +29,11 @@ from app.schemas.history import (
     ReportRoundScoreSource,
     ResumeSummary,
 )
+from app.services.interview_mutation_lock import interview_mutation_lock
 from app.services.interview_strategy import round_label as _round_label
 from app.services.short_term_memory_store import ShortTermMemoryStoreError
+
+LOGGER = logging.getLogger(__name__)
 
 
 class HistoryRepositoryProtocol(Protocol):
@@ -71,6 +77,9 @@ class HistoryRepositoryProtocol(Protocol):
         ...
 
     def delete_all_by_user(self, user_id: int) -> int:
+        ...
+
+    def delete_ids_by_user(self, interview_ids: list[int], user_id: int) -> int:
         ...
 
     def list_interview_ids_by_user(self, user_id: int) -> list[int]:
@@ -159,35 +168,67 @@ class HistoryService:
         return _to_detail(record)
 
     def delete_history_item(self, interview_id: int, current_user: UserRecord) -> None:
-        deleted = self.history_repository.delete_by_id_for_user(interview_id, current_user.id)
-        if not deleted:
-            raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        with _lock_interviews(self.history_repository, [interview_id]):
+            deleted = self.history_repository.delete_by_id_for_user(
+                interview_id,
+                current_user.id,
+            )
+            if not deleted:
+                raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+            _commit_repository(self.history_repository)
         if self.short_term_memory_store is not None:
             try:
                 self.short_term_memory_store.delete(current_user.id, interview_id)
-            except ShortTermMemoryStoreError as exc:
-                raise _short_memory_cleanup_error() from exc
+            except ShortTermMemoryStoreError:
+                LOGGER.warning(
+                    "short-term memory cleanup deferred after history deletion",
+                    exc_info=True,
+                    extra={"user_id": current_user.id, "interview_id": interview_id},
+                )
 
     def clear_history(self, current_user: UserRecord) -> None:
-        interview_ids = (
-            self.history_repository.list_interview_ids_by_user(current_user.id)
-            if self.short_term_memory_store is not None
-            else []
-        )
-        self.history_repository.delete_all_by_user(current_user.id)
+        interview_ids = self.history_repository.list_interview_ids_by_user(current_user.id)
+        with _lock_interviews(self.history_repository, interview_ids):
+            delete_ids = getattr(self.history_repository, "delete_ids_by_user", None)
+            if callable(delete_ids):
+                delete_ids(interview_ids, current_user.id)
+            else:
+                self.history_repository.delete_all_by_user(current_user.id)
+            _commit_repository(self.history_repository)
         if self.short_term_memory_store is not None and interview_ids:
             try:
                 self.short_term_memory_store.delete_many(current_user.id, interview_ids)
-            except ShortTermMemoryStoreError as exc:
-                raise _short_memory_cleanup_error() from exc
+            except ShortTermMemoryStoreError:
+                LOGGER.warning(
+                    "short-term memory cleanup deferred after clearing history",
+                    exc_info=True,
+                    extra={"user_id": current_user.id, "interview_ids": interview_ids},
+                )
 
 
-def _short_memory_cleanup_error() -> AppError:
-    return AppError(
-        ErrorCode.BUSINESS_ERROR,
-        status.HTTP_503_SERVICE_UNAVAILABLE,
-        message="短期记忆清理暂时失败，请稍后重试删除。",
-    )
+def _lock_interviews(
+    repository: HistoryRepositoryProtocol,
+    interview_ids: list[int],
+) -> contextlib.AbstractContextManager[Any]:
+    connection = getattr(repository, "connection", None)
+    if connection is None or not interview_ids:
+        return contextlib.nullcontext()
+    stack = ExitStack()
+    try:
+        for interview_id in sorted(set(interview_ids)):
+            stack.enter_context(
+                interview_mutation_lock(connection, interview_id, wait_seconds=1)
+            )
+    except Exception:
+        stack.close()
+        raise
+    return stack
+
+
+def _commit_repository(repository: HistoryRepositoryProtocol) -> None:
+    commit = getattr(repository, "commit", None)
+    if callable(commit):
+        commit()
 
 
 def _to_list_item(record: HistoryInterviewRecord) -> HistoryListItem:

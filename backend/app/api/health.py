@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.db.mysql import mysql_connection
 from app.services.avatar_storage import resolve_avatar_upload_dir
 from app.services.resume_parser import resolve_upload_dir
+from app.services.runner_health import runner_health
 
 router = APIRouter(tags=["health"])
 
@@ -26,6 +27,9 @@ def readiness_check(request: Request) -> JSONResponse:
         "uploads": {"status": "ok"},
         "avatars": {"status": "ok"},
         "autonomous_evolution": {"status": "ok"},
+        "resume_parse_runner": {"status": "ok"},
+        "interview_operation_runner": {"status": "ok"},
+        "memory_runner": {"status": "ok"},
     }
 
     try:
@@ -44,6 +48,7 @@ def readiness_check(request: Request) -> JSONResponse:
                 cursor.fetchone()
                 if settings.evolution_enabled:
                     checks["autonomous_evolution"] = _evolution_schema_check(cursor)
+                checks.update(_background_queue_checks(cursor, settings))
     except Exception as exc:
         checks["database"] = _failed_check(exc)
         if settings.evolution_enabled:
@@ -63,6 +68,37 @@ def readiness_check(request: Request) -> JSONResponse:
         checks["autonomous_evolution"] = {
             "status": "degraded",
             "reason": "autonomous evolution is disabled",
+        }
+
+    for check_name, state_name, app_state_name in (
+        ("resume_parse_runner", "resume_parse", "resume_parse_task_runner"),
+        (
+            "interview_operation_runner",
+            "interview_operation",
+            "interview_operation_task_runner",
+        ),
+        ("memory_runner", "memory", "memory_task_runner"),
+    ):
+        task = getattr(request.app.state, app_state_name, None)
+        if task is None or task.done():
+            checks[check_name] = {
+                "status": "failed",
+                "reason": "runner is not running",
+            }
+            continue
+        runtime_health = runner_health(state_name)
+        queue_health = checks.get(check_name, {})
+        combined_status = (
+            "failed"
+            if "failed" in {queue_health.get("status"), runtime_health.get("status")}
+            else "degraded"
+            if "degraded" in {queue_health.get("status"), runtime_health.get("status")}
+            else "ok"
+        )
+        checks[check_name] = {
+            **queue_health,
+            **runtime_health,
+            "status": combined_status,
         }
 
     upload_dir = resolve_upload_dir(settings)
@@ -164,3 +200,75 @@ def _evolution_schema_check(cursor: Any) -> dict[str, str]:
     if int(cursor.fetchone()["count"]) != 2:
         return {"status": "failed", "reason": "autonomous evolution migration is missing"}
     return {"status": "ok"}
+
+
+def _background_queue_checks(
+    cursor: Any,
+    settings: Any,
+) -> dict[str, dict[str, Any]]:
+    definitions = {
+        "resume_parse_runner": (
+            (
+                ("resume_parse_tasks", "status = 'pending'"),
+                (
+                    "file_cleanup_tasks",
+                    (
+                        "status = 'pending' OR (status = 'retry_wait' "
+                        "AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP()))"
+                    ),
+                ),
+            ),
+            settings.usage_limit_active_timeout_seconds,
+        ),
+        "interview_operation_runner": (
+            (
+                (
+                    "interview_operation_tasks",
+                    (
+                        "status = 'pending' OR (status = 'retry_wait' "
+                        "AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP()))"
+                    ),
+                ),
+            ),
+            settings.interview_task_processing_timeout_seconds,
+        ),
+        "memory_runner": (
+            (
+                (
+                    "memory_tasks",
+                    (
+                        "status = 'pending' OR (status = 'retry_wait' "
+                        "AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP()))"
+                    ),
+                ),
+            ),
+            settings.memory_task_processing_timeout_seconds,
+        ),
+    }
+    checks: dict[str, dict[str, Any]] = {}
+    for name, (queues, threshold) in definitions.items():
+        pending_count = 0
+        lag = 0
+        for table, due_predicate in queues:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*) AS pending_count,
+                       COALESCE(
+                           TIMESTAMPDIFF(SECOND, MIN(created_at), UTC_TIMESTAMP()),
+                           0
+                       ) AS oldest_pending_seconds
+                FROM {table}
+                WHERE {due_predicate}
+                """
+            )
+            row = cursor.fetchone() or {}
+            pending_count += int(row.get("pending_count") or 0)
+            lag = max(lag, int(row.get("oldest_pending_seconds") or 0))
+        checks[name] = {
+            "status": "failed" if lag > max(1, int(threshold)) else "ok",
+            "pending_count": pending_count,
+            "oldest_pending_seconds": lag,
+        }
+        if checks[name]["status"] == "failed":
+            checks[name]["reason"] = "queue lag exceeds processing timeout"
+    return checks

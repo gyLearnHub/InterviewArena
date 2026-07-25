@@ -93,7 +93,13 @@ class NotificationRepository:
                 """,
                 (notification_id, user_id),
             )
-            return int(cursor.rowcount) > 0
+            if int(cursor.rowcount) > 0:
+                return True
+            cursor.execute(
+                "SELECT 1 FROM notifications WHERE id = %s AND user_id = %s",
+                (notification_id, user_id),
+            )
+            return cursor.fetchone() is not None
 
     def mark_all_read(self, user_id: int) -> int:
         with self.connection.cursor() as cursor:

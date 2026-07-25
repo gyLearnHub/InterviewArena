@@ -333,6 +333,97 @@ def test_csrf_validation_uses_configured_cookie_and_header_names(
     assert error_info.value.code == ErrorCode.FORBIDDEN
 
 
+def test_csrf_validation_rejects_untrusted_origin_even_with_matching_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        app_env="production",
+        jwt_secret_key="configured_jwt_secret_key_for_tests_123",
+        cors_allowed_origins="https://app.example.com",
+    )
+    monkeypatch.setattr(deps_module, "get_settings", lambda: settings)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/preferences",
+            "headers": [
+                (b"origin", b"https://attacker.example"),
+                (b"cookie", b"interview_arena_csrf=csrf-token"),
+                (b"x-csrf-token", b"csrf-token"),
+            ],
+        }
+    )
+
+    with pytest.raises(AppError) as error_info:
+        deps_module._validate_csrf_token(request)
+
+    assert error_info.value.code == ErrorCode.FORBIDDEN
+    assert error_info.value.message == "请求来源不受信任。"
+
+
+def test_csrf_validation_accepts_configured_referer_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        app_env="production",
+        jwt_secret_key="configured_jwt_secret_key_for_tests_123",
+        cors_allowed_origins="https://app.example.com",
+    )
+    monkeypatch.setattr(deps_module, "get_settings", lambda: settings)
+    request = Request(
+        {
+            "type": "http",
+            "method": "PATCH",
+            "path": "/api/preferences",
+            "headers": [
+                (b"referer", b"https://app.example.com/settings"),
+                (b"cookie", b"interview_arena_csrf=csrf-token"),
+                (b"x-csrf-token", b"csrf-token"),
+            ],
+        }
+    )
+
+    deps_module._validate_csrf_token(request)
+
+
+def test_registration_rate_limit_is_shared_through_repository() -> None:
+    class SharedRateLimitRepository(FakeUserRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.counts: dict[tuple[str, str, object], int] = {}
+
+        def consume_auth_rate_limit(
+            self,
+            *,
+            scope: str,
+            identifier_hash: str,
+            window_started_at: object,
+            limit: int,
+        ) -> bool:
+            key = (scope, identifier_hash, window_started_at)
+            self.counts[key] = self.counts.get(key, 0) + 1
+            return self.counts[key] <= limit
+
+    repository = SharedRateLimitRepository()
+    request = request_from_ip("10.10.10.10")
+    for index in range(auth_module.REGISTRATION_ATTEMPT_LIMIT):
+        register(
+            AuthRequest(username=f"user-{index:02d}", password="secret-password"),
+            http_request=request,
+            users=repository,  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(AppError) as error_info:
+        register(
+            AuthRequest(username="user-over-limit", password="secret-password"),
+            http_request=request,
+            users=repository,  # type: ignore[arg-type]
+        )
+
+    assert error_info.value.code == ErrorCode.TOO_MANY_REQUESTS
+
+
 def test_jwt_default_secret_is_rejected_outside_test(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("JWT_SECRET_KEY", Settings.jwt_secret_key)

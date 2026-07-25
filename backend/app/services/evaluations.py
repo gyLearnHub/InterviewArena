@@ -19,6 +19,7 @@ from app.autonomous_evolution.runtime import (
     resolve_prompt,
     resolve_round_spec,
 )
+from app.core.errors import safe_error_code
 from app.harness.events import (
     build_harness_request as _harness_request,
 )
@@ -301,7 +302,7 @@ class EvaluationSchedulerService:
                 interview_id=interview.id,
                 round_id=round_record.id,
                 question_id=qa.id,
-                error_message=str(exc) or exc.__class__.__name__,
+                error_message=safe_error_code(exc),
                 prompt_version=prompt_version,
                 model_name=_model_name(self.llm_client),
             )
@@ -410,7 +411,7 @@ class EvaluationSchedulerService:
                 interview_id=interview.id,
                 round_id=round_record.id,
                 question_id=None,
-                error_message=str(exc) or exc.__class__.__name__,
+                error_message=safe_error_code(exc),
                 prompt_version=prompt_version,
                 model_name=_model_name(self.llm_client),
             )
@@ -500,7 +501,7 @@ class EvaluationSchedulerService:
                 interview_id=interview.id,
                 round_id=None,
                 question_id=None,
-                error_message=str(exc) or exc.__class__.__name__,
+                error_message=safe_error_code(exc),
                 prompt_version=prompt_version,
                 model_name=_model_name(self.llm_client),
             )
@@ -753,7 +754,7 @@ class EvaluationSchedulerService:
                     retry_records.append(
                         {
                             "attempt": attempt,
-                            "error": str(exc) or exc.__class__.__name__,
+                            "error": safe_error_code(exc),
                         }
                     )
         if last_error is not None:
@@ -762,7 +763,7 @@ class EvaluationSchedulerService:
                 status="failed",
                 validation_status="failed",
                 error_code="BUSINESS_EXECUTION_FAILED",
-                error_detail=str(last_error) or last_error.__class__.__name__,
+                error_detail=safe_error_code(last_error),
                 retry_records=retry_records,
             )
             _save_fallback_rule_evaluations(
@@ -770,7 +771,7 @@ class EvaluationSchedulerService:
                 request=request,
                 trace_id=trace_id,
                 validation_status="failed",
-                error_detail=str(last_error) or last_error.__class__.__name__,
+                error_detail=safe_error_code(last_error),
             )
             if connection is not None:
                 record_runtime_execution(

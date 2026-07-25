@@ -10,6 +10,7 @@ from app.api.interviews import get_interview_harness_status, get_interview_servi
 from app.core.errors import AppError, ErrorCode
 from app.deps import get_current_user
 from app.repositories.interviews import (
+    MAX_REANSWER_ATTEMPTS_PER_QUESTION,
     AnswerDraftRecord,
     AnswerReanswerAttemptRecord,
     FeedbackReportRecord,
@@ -84,6 +85,7 @@ class FakeInterviewRepository:
         difficulty: str = "normal",
         experience_mode: str = "training",
         time_limit_minutes: int = 45,
+        resume_snapshot: dict[str, Any] | None = None,
     ) -> InterviewRecord:
         interview = InterviewRecord(
             id=self.next_interview_id,
@@ -102,6 +104,7 @@ class FakeInterviewRepository:
             experience_mode=experience_mode,
             time_limit_minutes=time_limit_minutes,
             overall_status="created",
+            resume_snapshot=resume_snapshot,
         )
         self.next_interview_id += 1
         self.interviews[interview.id] = interview
@@ -2158,6 +2161,34 @@ def test_reanswer_rejects_blank_or_oversized_answer() -> None:
         with pytest.raises(AppError) as exc_info:
             service.create_reanswer(1, interview.id, 1, answer)
         assert exc_info.value.status_code == 422
+
+
+def test_reanswer_attempt_creation_is_serialized_and_bounded() -> None:
+    source = __import__("inspect").getsource(InterviewRepository.create_reanswer_attempt)
+
+    assert "FOR UPDATE" in source
+    assert "MAX(attempt_number)" in source
+    assert MAX_REANSWER_ATTEMPTS_PER_QUESTION == 20
+
+
+def test_interview_uses_immutable_resume_snapshot_after_resume_deletion() -> None:
+    service, repository = make_service()
+    repository.add_resume(resume_id=1, user_id=1)
+    interview = service.create_interview(
+        1,
+        1,
+        "后端开发",
+        selected_rounds=["resume"],
+    )
+    repository.resumes.pop(1)
+    round_record = repository.list_rounds(interview.id)[0]
+
+    question = service.start_round(1, interview.id, round_record.id)
+
+    assert question.question
+    assert repository.interviews[interview.id].resume_snapshot == {
+        "skills": ["Python"]
+    }
 
 
 def test_answer_draft_roundtrip_does_not_persist_as_formal_answer() -> None:

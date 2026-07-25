@@ -48,6 +48,7 @@ def create_connection(database_url: str | None = None) -> Any:
         charset=config.charset,
         autocommit=False,
         cursorclass=pymysql.cursors.DictCursor,
+        init_command="SET time_zone = '+00:00'",
     )
 
 

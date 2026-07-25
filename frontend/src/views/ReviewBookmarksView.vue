@@ -125,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import {
@@ -166,6 +166,7 @@ const activeActionId = ref<number | null>(null);
 const expandedEvidenceIds = ref<number[]>([]);
 const roundFilter = ref<RoundFilter>("all");
 const statusFilter = ref<ReviewBookmarkFilterStatus>("open");
+let bookmarkRequestSequence = 0;
 
 const roundOptions: Array<{ value: RoundFilter; label: string }> = [
   { value: "all", label: "全部" },
@@ -186,25 +187,48 @@ onMounted(() => {
 });
 
 async function loadBookmarks(reset: boolean) {
-  if (loading.value) {
+  if (!reset && loading.value) {
     return;
   }
+  const requestSequence = ++bookmarkRequestSequence;
+  const selectedRound = roundFilter.value;
+  const selectedStatus = statusFilter.value;
   loading.value = true;
   clearMessage();
   try {
     const offset = reset ? 0 : bookmarks.value.length;
     const items = await listReviewBookmarks({
-      limit: PAGE_SIZE,
+      limit: PAGE_SIZE + 1,
       offset,
-      roundType: roundFilter.value,
-      status: statusFilter.value
+      roundType: selectedRound,
+      status: selectedStatus
     });
-    bookmarks.value = reset ? items : [...bookmarks.value, ...items];
-    hasMore.value = items.length === PAGE_SIZE;
+    if (
+      requestSequence !== bookmarkRequestSequence ||
+      selectedRound !== roundFilter.value ||
+      selectedStatus !== statusFilter.value
+    ) {
+      return;
+    }
+    const pageItems = items.slice(0, PAGE_SIZE);
+    bookmarks.value = reset
+      ? pageItems
+      : [
+          ...bookmarks.value,
+          ...pageItems.filter(
+            (item) => !bookmarks.value.some((existing) => existing.id === item.id)
+          )
+        ];
+    hasMore.value = items.length > PAGE_SIZE;
   } catch (error) {
+    if (requestSequence !== bookmarkRequestSequence) {
+      return;
+    }
     showError(error instanceof ApiError ? error.message : "复盘收藏加载失败。");
   } finally {
-    loading.value = false;
+    if (requestSequence === bookmarkRequestSequence) {
+      loading.value = false;
+    }
   }
 }
 
@@ -233,6 +257,10 @@ function changeStatusFilter(value: ReviewBookmarkFilterStatus) {
   statusFilter.value = value;
   void loadBookmarks(true);
 }
+
+onUnmounted(() => {
+  bookmarkRequestSequence += 1;
+});
 
 async function startPractice(item: BookmarkRow) {
   if (activeActionId.value !== null) {

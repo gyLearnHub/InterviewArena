@@ -31,6 +31,38 @@ def test_memory_tables_define_user_round_uniqueness_and_foreign_keys() -> None:
     assert "unique key uk_memory_tasks_dedupe_key (dedupe_key)" in ddl
 
 
+def test_system_memory_tables_are_user_scoped() -> None:
+    ddl = _ddl()
+    interviewer_ddl = ddl.split(
+        "create table if not exists interviewer_memories",
+        1,
+    )[1].split(") engine=innodb", 1)[0]
+    agent_ddl = ddl.split(
+        "create table if not exists agent_memories",
+        1,
+    )[1].split(") engine=innodb", 1)[0]
+
+    for table_ddl in (interviewer_ddl, agent_ddl):
+        assert "user_id bigint unsigned not null" in table_ddl
+        assert "foreign key (user_id) references users (id)" in table_ddl
+    normalized_interviewer = " ".join(interviewer_ddl.split()).replace("( ", "(")
+    normalized_agent = " ".join(agent_ddl.split()).replace("( ", "(")
+    assert "uk_interviewer_memory_summary (user_id, agent_type" in normalized_interviewer
+    assert "uk_agent_memory_summary (user_id, agent_type" in normalized_agent
+
+
+def test_autonomous_evolution_verification_uses_resume_snapshot() -> None:
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "verify_autonomous_evolution_flow.py"
+    ).read_text(encoding="utf-8")
+
+    assert "user_id, resume_id, resume_snapshot, target_position" in source
+
+
 def test_harness_tables_are_in_init_sql_and_migration_table_list() -> None:
     ddl = _ddl()
     required_tables = {
@@ -255,6 +287,16 @@ def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:
         "_apply_review_bookmark_history_detach",
         lambda _connection, _database: calls.append("review_bookmark_history_detach"),
     )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_memory_user_scope",
+        lambda _connection, _database: calls.append("memory_user_scope"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
+        "_apply_interview_resume_snapshot",
+        lambda _connection, _database: calls.append("interview_resume_snapshot"),
+    )
 
     migrate_v1.migrate(object())
 
@@ -268,6 +310,65 @@ def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:
     assert "review_bookmark_history_detach" in calls
     assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION in applied_versions
     assert MEMORY_TASK_LEASE_MIGRATION_VERSION in applied_versions
+
+
+def test_schema_migration_uses_database_lock_and_commits_before_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import migrate_v1
+
+    events: list[str] = []
+
+    class LockConnection:
+        def cursor(self) -> "LockConnection":
+            return self
+
+        def __enter__(self) -> "LockConnection":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, _params: tuple[Any, ...] = ()) -> None:
+            if "GET_LOCK" in sql:
+                events.append("lock")
+            elif "RELEASE_LOCK" in sql:
+                events.append("release")
+
+        def fetchone(self) -> dict[str, int]:
+            return {"acquired": 1}
+
+        def commit(self) -> None:
+            events.append("commit")
+
+    monkeypatch.setattr(
+        migrate_v1,
+        "migrate",
+        lambda _connection: events.append("migrate"),
+    )
+
+    migrate_v1.migrate_with_lock(LockConnection())
+
+    assert events == ["lock", "migrate", "commit", "release"]
+
+
+def test_resume_snapshot_migration_backfills_and_enforces_not_null() -> None:
+    from scripts import migrate_v1
+
+    connection = _RecordingConnection()
+    connection.fetchone_results.append({"count": 0})
+
+    migrate_v1._apply_interview_resume_snapshot(connection, "test_db")
+
+    statements = [" ".join(sql.lower().split()) for sql, _params in connection.executed]
+    assert any(
+        statement.startswith("update interviews interview join resumes resume")
+        for statement in statements
+    )
+    assert (
+        "alter table interviews modify column resume_snapshot json not null"
+        in statements
+    )
 
 
 def test_stored_generated_column_is_rebuilt_as_virtual() -> None:

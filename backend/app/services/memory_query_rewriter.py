@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.core.errors import safe_error_code
 from app.schemas.memory import MemoryRetrievalRequest
 
 PROMPT_VERSION = "memory-query-rewriter-v1"
@@ -22,7 +23,7 @@ class MemoryQueryRewriter:
                 if isinstance(query_text, str) and query_text.strip():
                     return query_text.strip(), None
             except Exception as exc:
-                return self._template_query(request), str(exc) or exc.__class__.__name__
+                return self._template_query(request), safe_error_code(exc)
         return self._template_query(request), "template_rewriter"
 
     def _template_query(self, request: MemoryRetrievalRequest) -> str:

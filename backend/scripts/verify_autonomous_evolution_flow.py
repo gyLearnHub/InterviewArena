@@ -19,6 +19,7 @@ def verify(connection: Any) -> dict[str, bool]:
     repository = AutonomousEvolutionRepository(connection)
     suffix = uuid4().hex[:12]
     family_key = f"verification-{suffix}"
+    resume_snapshot = {"skills": ["Python"]}
     with connection.cursor() as cursor:
         cursor.execute(
             "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
@@ -30,7 +31,7 @@ def verify(connection: Any) -> dict[str, bool]:
             INSERT INTO resumes (user_id, original_file_path, structured_data)
             VALUES (%s, %s, %s)
             """,
-            (user_id, "verification-only", json.dumps({"skills": ["Python"]})),
+            (user_id, "verification-only", json.dumps(resume_snapshot)),
         )
         resume_id = int(cursor.lastrowid)
 
@@ -45,11 +46,11 @@ def verify(connection: Any) -> dict[str, bool]:
             cursor.execute(
                 """
                 INSERT INTO interviews (
-                    user_id, resume_id, target_position, status, mode,
+                    user_id, resume_id, resume_snapshot, target_position, status, mode,
                     job_description, selected_rounds, job_family_key,
                     harness_bundle_id, overall_status, ended_at, harness_status
                 ) VALUES (
-                    %s, %s, '事务验证工程师', 'finished', 'multi_round',
+                    %s, %s, %s, '事务验证工程师', 'finished', 'multi_round',
                     '仅用于自动进化事务验证', %s, %s,
                     %s, 'finished', DATE_ADD('2026-01-01 00:00:00', INTERVAL %s SECOND),
                     'completed'
@@ -58,6 +59,7 @@ def verify(connection: Any) -> dict[str, bool]:
                 (
                     user_id,
                     resume_id,
+                    json.dumps(resume_snapshot),
                     json.dumps(["technical"]),
                     family_key,
                     baseline.id,

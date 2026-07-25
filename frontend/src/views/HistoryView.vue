@@ -56,7 +56,7 @@
       <template v-else>
         <div class="history-summary">
           <strong>{{ filteredItems.length }}</strong>
-          <span>共 {{ listItems.length }} {{ pageCopy.countUnit }}</span>
+          <span>已加载 {{ listItems.length }} {{ pageCopy.countUnit }}</span>
           <span class="sort-summary">{{ sortSummary }}</span>
         </div>
         <div
@@ -199,6 +199,7 @@ const PAGE_SIZE = 20;
 const historyNextOffset = ref<number | null>(null);
 const reportsNextOffset = ref<number | null>(null);
 const loadingMore = ref(false);
+let historyRequestSequence = 0;
 const isReportsMode = computed(() => props.mode === "reports");
 const hasMoreItems = computed(() =>
   isReportsMode.value ? reportsNextOffset.value !== null : historyNextOffset.value !== null
@@ -257,20 +258,31 @@ onMounted(async () => {
 });
 
 async function refreshHistory(): Promise<boolean> {
+  const requestSequence = ++historyRequestSequence;
+  const reportsMode = isReportsMode.value;
   try {
-    if (isReportsMode.value) {
+    if (reportsMode) {
       const response = await listReportsPage(reportListOptions(0));
+      if (requestSequence !== historyRequestSequence || !isReportsMode.value) {
+        return false;
+      }
       reportItems.value = response.items;
       reportsNextOffset.value = response.next_offset;
     } else {
       const response = await listHistoryPage(historyListOptions(0));
+      if (requestSequence !== historyRequestSequence || isReportsMode.value) {
+        return false;
+      }
       historyItems.value = response.items;
       historyNextOffset.value = response.next_offset;
     }
     clearMessage();
     return true;
   } catch (error) {
-    const fallbackMessage = isReportsMode.value ? "面试报告加载失败。" : "历史记录加载失败。";
+    if (requestSequence !== historyRequestSequence) {
+      return false;
+    }
+    const fallbackMessage = reportsMode ? "面试报告加载失败。" : "历史记录加载失败。";
     showError(error instanceof ApiError ? error.message : fallbackMessage);
     return false;
   }
@@ -286,19 +298,30 @@ async function loadMore() {
   }
 
   loadingMore.value = true;
+  const requestSequence = ++historyRequestSequence;
+  const reportsMode = isReportsMode.value;
   try {
-    if (isReportsMode.value) {
+    if (reportsMode) {
       const response = await listReportsPage(reportListOptions(nextOffset));
+      if (requestSequence !== historyRequestSequence || !isReportsMode.value) {
+        return;
+      }
       reportItems.value = [...reportItems.value, ...response.items];
       reportsNextOffset.value = response.next_offset;
     } else {
       const response = await listHistoryPage(historyListOptions(nextOffset));
+      if (requestSequence !== historyRequestSequence || isReportsMode.value) {
+        return;
+      }
       historyItems.value = [...historyItems.value, ...response.items];
       historyNextOffset.value = response.next_offset;
     }
     clearMessage();
   } catch (error) {
-    const fallbackMessage = isReportsMode.value ? "更多报告加载失败。" : "更多历史记录加载失败。";
+    if (requestSequence !== historyRequestSequence) {
+      return;
+    }
+    const fallbackMessage = reportsMode ? "更多报告加载失败。" : "更多历史记录加载失败。";
     showError(error instanceof ApiError ? error.message : fallbackMessage);
   } finally {
     loadingMore.value = false;
@@ -429,7 +452,10 @@ watch([searchText, statusFilter, scoreFilter, sortMode], () => {
   }, 250);
 });
 
-onBeforeUnmount(() => window.clearTimeout(filterRefreshTimer));
+onBeforeUnmount(() => {
+  historyRequestSequence += 1;
+  window.clearTimeout(filterRefreshTimer);
+});
 </script>
 
 <style scoped>

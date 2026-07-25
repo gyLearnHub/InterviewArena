@@ -154,6 +154,7 @@ import {
   type QuestionReanswerResponse,
   type ReanswerAttempt
 } from "../api";
+import { parseApiDate } from "../formatters";
 
 type FeedbackKey = "strengths" | "issues";
 type DimensionRow = {
@@ -307,7 +308,7 @@ function formatScore(value: number): string {
 }
 
 function formatDateTime(value: string): string {
-  const date = new Date(value);
+  const date = parseApiDate(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
 }
 

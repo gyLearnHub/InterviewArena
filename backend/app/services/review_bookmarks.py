@@ -54,6 +54,13 @@ class ReviewBookmarkRepositoryProtocol(Protocol):
     ) -> ReviewBookmarkRecord | None:
         ...
 
+    def lock_for_practice(
+        self,
+        bookmark_id: int,
+        user_id: int,
+    ) -> ReviewBookmarkRecord | None:
+        ...
+
     def upsert_bookmark(
         self,
         *,
@@ -309,7 +316,12 @@ class ReviewBookmarkService:
         current_user: UserRecord,
         bookmark_id: int,
     ) -> ReviewBookmarkPracticeResponse:
-        bookmark = self.repository.get_for_user(bookmark_id, current_user.id)
+        lock_for_practice = getattr(self.repository, "lock_for_practice", None)
+        bookmark = (
+            lock_for_practice(bookmark_id, current_user.id)
+            if callable(lock_for_practice)
+            else self.repository.get_for_user(bookmark_id, current_user.id)
+        )
         if bookmark is None:
             raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
         if bookmark.practice_interview_id is not None:

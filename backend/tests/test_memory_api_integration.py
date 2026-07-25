@@ -166,6 +166,12 @@ class _Connection:
         normalized = " ".join(sql.lower().split())
         self.rowcount = 0
         self._result = None
+        if normalized.startswith("select get_lock"):
+            self._result = {"acquired": 1}
+            return
+        if normalized.startswith("select release_lock"):
+            self._result = {"released": 1}
+            return
         if normalized.startswith("select memory_enabled from users"):
             user = self.store.users.get(int(params[0]))
             self._result = {"memory_enabled": user.memory_enabled} if user else None
@@ -192,6 +198,15 @@ class _Connection:
                     memory["status"] = "deleted"
                     memory["index_status"] = "pending_delete"
                     self.rowcount += 1
+            return
+        if normalized.startswith("update interviewer_memories") or normalized.startswith(
+            "update agent_memories"
+        ):
+            return
+        if (
+            normalized.startswith("update memory_tasks")
+            and "cancelled_by_memory_clear" in normalized
+        ):
             return
         if normalized.startswith("select * from memory_tasks where user_id"):
             user_id = int(params[0])

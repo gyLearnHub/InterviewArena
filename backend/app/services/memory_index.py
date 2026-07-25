@@ -87,11 +87,30 @@ class ChromaMemoryIndex:
             return f"chroma_delete_failed:{exc.__class__.__name__}"
 
     def delete_user_candidate_memories(self, user_id: int) -> str | None:
+        return self.delete_user_memories(user_id, collections=("candidate_memories",))
+
+    def delete_user_memories(
+        self,
+        user_id: int,
+        *,
+        collections: tuple[str, ...] = COLLECTIONS,
+    ) -> str | None:
         if not self.enabled:
             return self.fallback_reason
+        errors: list[str] = []
         try:
-            self.collections["candidate_memories"].delete(where={"user_id": int(user_id)})
-            return None
+            for collection_name in collections:
+                try:
+                    self.collections[collection_name].delete(
+                        where={"user_id": int(user_id)}
+                    )
+                except Exception as exc:
+                    errors.append(f"{collection_name}:{exc.__class__.__name__}")
+            return (
+                f"chroma_delete_user_failed:{';'.join(errors)}"
+                if errors
+                else None
+            )
         except Exception as exc:
             return f"chroma_delete_user_failed:{exc.__class__.__name__}"
 
@@ -161,6 +180,9 @@ class MemoryIndexService:
     def delete_user_candidate_vectors(self, user_id: int) -> str | None:
         return self.vector_index.delete_user_candidate_memories(user_id)
 
+    def delete_user_vectors(self, user_id: int) -> str | None:
+        return self.vector_index.delete_user_memories(user_id)
+
     def delete_memory_vectors(self, collection: str, memory_id: int) -> str | None:
         return self.vector_index.delete_memory(collection, memory_id)
 
@@ -189,7 +211,7 @@ def _search_where(
     agent_type: str | None,
 ) -> dict[str, Any]:
     filters: list[dict[str, Any]] = [{"status": "active"}]
-    if collection_name == "candidate_memories" and user_id is not None:
+    if user_id is not None:
         filters.append({"user_id": int(user_id)})
     if collection_name in {"interviewer_memories", "agent_memories"} and agent_type:
         filters.append({"agent_type": agent_type})

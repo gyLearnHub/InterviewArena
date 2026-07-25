@@ -47,11 +47,12 @@ from app.autonomous_evolution import (
 )
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
+from app.core.origins import configured_origins
 from app.db.mysql import mysql_connection
 from app.services.avatar_storage import resolve_avatar_upload_dir
 from app.services.memory_tasks import start_memory_task_runner, stop_memory_task_runner
 from app.services.short_term_memory_store import close_short_term_memory_store
-from scripts.migrate_v1 import migrate
+from scripts.migrate_v1 import migrate_with_lock
 
 
 @asynccontextmanager
@@ -78,19 +79,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="InterviewArena API", lifespan=lifespan)
     settings = get_settings()
-    allowed_origins = [
-        origin.strip()
-        for origin in settings.cors_allowed_origins.split(",")
-        if origin.strip()
-    ]
-    if allowed_origins:
+    allowed_origins = configured_origins(settings)
+    allowed_origin_regex = settings.cors_allowed_origin_regex.strip() or None
+    if allowed_origins or allowed_origin_regex:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=allowed_origins,
-            allow_origin_regex=settings.cors_allowed_origin_regex or None,
+            allow_origin_regex=allowed_origin_regex,
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                settings.csrf_header_name,
+            ],
         )
     register_exception_handlers(app)
     avatar_upload_dir = resolve_avatar_upload_dir()
@@ -125,7 +127,7 @@ def run_startup_migrations() -> None:
         return
 
     with mysql_connection() as connection:
-        migrate(connection)
+        migrate_with_lock(connection)
 
 
 app = create_app()

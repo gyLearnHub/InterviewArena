@@ -7,7 +7,11 @@ from typing import Any
 import pytest
 from app.schemas.memory import MemorySummaryOutput
 from app.services.interviews import InterviewService
-from app.services.memory_summary import MAX_TEXT_LENGTH, MemorySummaryService
+from app.services.memory_summary import (
+    MAX_TEXT_LENGTH,
+    MemorySummaryService,
+    _parse_summary_output,
+)
 from pydantic import ValidationError
 
 
@@ -26,6 +30,26 @@ def test_memory_summary_service_rejects_invalid_llm_output_contract() -> None:
                 ]
             }
         )
+
+
+def test_memory_summary_parser_caps_each_collection_without_rejecting_output() -> None:
+    item = {
+        "collection": "candidate_memories",
+        "memory_type": "technical_weakness",
+        "title": "需要补强数据库基础",
+        "content": "数据库题目的回答证据不足。",
+        "confidence": 0.8,
+    }
+
+    output = _parse_summary_output(
+        {
+            "candidate_memories": [item for _ in range(25)],
+            "interviewer_memories": [],
+            "agent_memories": [],
+        }
+    )
+
+    assert len(output.candidate_memories) == 20
 
 
 def test_memory_summary_service_exists() -> None:
@@ -125,12 +149,11 @@ def test_memory_summary_adds_candidate_retry_when_focused_output_is_agent_only()
 
     result = service.summarize_interview(user_id=1, interview_id=22)
 
-    assert result == {"created_or_updated": 2}
+    assert result == {"created_or_updated": 1}
     assert len(llm.payloads) == 3
     assert lifecycle.upserts[0]["user_id"] == 1
     assert lifecycle.upserts[0]["item"].collection == "candidate_memories"
-    assert lifecycle.upserts[1]["user_id"] is None
-    assert lifecycle.upserts[1]["item"].collection == "agent_memories"
+    assert len(lifecycle.upserts) == 1
 
 
 class _CapturingLLM:

@@ -24,6 +24,9 @@ class ResumeDeleteRepository(Protocol):
     def get_original_file_path_for_user(self, resume_id: int, user_id: int) -> str | None:
         ...
 
+    def enqueue_file_cleanup(self, original_file_path: str, *, max_retries: int = 20) -> None:
+        ...
+
 
 ACTIVE_INTERVIEW_DELETE_MESSAGE = "该简历仍有进行中的面试，请先结束面试后再删除。"
 
@@ -48,7 +51,11 @@ class ResumeService:
         deleted = self.repository.soft_delete_for_user(resume_id, user_id)
         if deleted:
             self.repository.commit()
-            _delete_original_file(original_file_path, self.upload_dir)
+            if not delete_resume_file(original_file_path, self.upload_dir):
+                enqueue = getattr(self.repository, "enqueue_file_cleanup", None)
+                if callable(enqueue) and original_file_path:
+                    enqueue(original_file_path)
+                    self.repository.commit()
             return
 
         if self.repository.has_active_interview_dependency_for_resume(resume_id, user_id):
@@ -56,20 +63,25 @@ class ResumeService:
         raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
 
-def _delete_original_file(original_file_path: str | None, upload_dir: Path) -> None:
+def delete_resume_file(original_file_path: str | None, upload_dir: Path) -> bool:
     if not original_file_path:
-        return
+        return True
     try:
         upload_root = upload_dir.resolve()
         original_file = Path(original_file_path).resolve()
     except OSError:
-        return
+        return True
     if not original_file.is_relative_to(upload_root):
-        return
+        return True
     try:
         original_file.unlink(missing_ok=True)
     except OSError:
-        return
+        return False
+    try:
+        original_file.parent.rmdir()
+    except OSError:
+        pass
+    return True
 
 
 def _active_interview_dependency_error() -> AppError:

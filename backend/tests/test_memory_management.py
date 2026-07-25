@@ -19,21 +19,57 @@ class FakeMemoryManagementRepository:
         user_id: int,
         limit: int = 100,
         offset: int = 0,
+        query: str = "",
+        memory_type: str | None = None,
+        status: str | None = None,
     ) -> list[MemoryRecord]:
         self.list_calls.append((user_id, limit, offset))
-        return [
+        records = [
             record
             for record in self.records
             if record.user_id == user_id and record.status != "deleted"
-        ][offset : offset + limit]
+        ]
+        if query:
+            records = [
+                record
+                for record in records
+                if query.casefold() in f"{record.title} {record.content}".casefold()
+            ]
+        if memory_type:
+            records = [record for record in records if record.memory_type == memory_type]
+        if status:
+            records = [record for record in records if record.status == status]
+        return records[offset : offset + limit]
 
-    def count_user_candidate_memories_by_status(self, *, user_id: int) -> dict[str, int]:
+    def count_user_candidate_memories_by_status(
+        self,
+        *,
+        user_id: int,
+        query: str = "",
+        memory_type: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, int]:
         counts: dict[str, int] = {}
         for record in self.records:
             if record.user_id != user_id or record.status == "deleted":
                 continue
+            if query and query.casefold() not in f"{record.title} {record.content}".casefold():
+                continue
+            if memory_type and record.memory_type != memory_type:
+                continue
+            if status and record.status != status:
+                continue
             counts[record.status] = counts.get(record.status, 0) + 1
         return counts
+
+    def list_user_candidate_memory_types(self, *, user_id: int) -> list[str]:
+        return sorted(
+            {
+                record.memory_type
+                for record in self.records
+                if record.user_id == user_id and record.status != "deleted"
+            }
+        )
 
     def mark_candidate_memory_deleted(self, *, memory_id: int, user_id: int) -> bool:
         for index, record in enumerate(self.records):
@@ -103,6 +139,42 @@ def test_list_memories_returns_global_counts_and_next_offset() -> None:
     assert response.offset == 2
     assert response.next_offset is None
     assert repository.list_calls == [(1, 2, 2)]
+
+
+def test_list_memories_applies_search_type_and_status_before_pagination() -> None:
+    repository = FakeMemoryManagementRepository(
+        [
+            _memory(1, user_id=1, status="active"),
+            MemoryRecord(
+                **{
+                    **_memory(2, user_id=1, status="pending_review").__dict__,
+                    "title": "MySQL 索引",
+                    "content": "需要补充执行计划证据",
+                    "memory_type": "database_weakness",
+                }
+            ),
+            MemoryRecord(
+                **{
+                    **_memory(3, user_id=1, status="active").__dict__,
+                    "title": "MySQL 事务",
+                    "memory_type": "database_weakness",
+                }
+            ),
+        ]
+    )
+    service = MemoryManagementService(repository)
+
+    response = service.list_memories(
+        _user(1),
+        limit=1,
+        query="MySQL",
+        memory_type="database_weakness",
+        status_filter="pending_review",
+    )
+
+    assert [item.id for item in response.items] == [2]
+    assert response.total == 1
+    assert response.memory_types == ["database_weakness", "technical_weakness"]
 
 
 def test_delete_memory_marks_current_users_memory_and_deletes_vector() -> None:

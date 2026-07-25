@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from threading import Event, Thread
 from typing import Any, Literal, TypeVar, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from starlette.status import HTTP_204_NO_CONTENT
@@ -70,6 +71,7 @@ from app.services.interviews import InterviewService
 from app.services.llm import LLMClient, get_llm_client
 from app.services.memory_retrieval import MemoryRetrievalService
 from app.services.memory_tasks import MemoryTaskService
+from app.services.runner_health import record_runner_failure, record_runner_success
 from app.services.short_term_memory import ShortTermMemoryService
 from app.services.short_term_memory_store import get_short_term_memory_store
 from app.services.usage_limits import usage_limiter
@@ -344,6 +346,33 @@ def create_question_reanswer(
                 question_id,
                 request.answer,
             )
+
+
+@router.post(
+    "/{interview_id}/questions/{question_id}/reanswers-task",
+    response_model=InterviewOperationTaskResponse,
+    status_code=202,
+)
+def create_question_reanswer_task(
+    interview_id: int,
+    question_id: int,
+    background_tasks: BackgroundTasks,
+    request: AnswerReanswerRequest,
+    current_user: UserRecord = CurrentUserDep,
+    interview_repository: InterviewRepository = InterviewRepositoryDep,
+    task_repository: InterviewOperationTaskRepository = InterviewTaskRepositoryDep,
+) -> InterviewOperationTaskResponse:
+    task = _enqueue_interview_operation(
+        interview_repository,
+        task_repository,
+        background_tasks,
+        user_id=current_user.id,
+        interview_id=interview_id,
+        round_id=None,
+        operation="question_reanswer",
+        payload={"question_id": question_id, "answer": request.answer},
+    )
+    return _operation_task_response(task)
 
 
 @router.get(
@@ -743,11 +772,16 @@ def run_interview_operation_task(task_id: int, *, already_claimed: bool = False)
             processing_token=task.processing_token if task is not None else None,
         )
         return
-    except Exception as exc:
+    except Exception:
+        error_id = uuid4().hex[:12]
+        LOGGER.exception(
+            "interview operation task failed",
+            extra={"task_id": task_id, "error_id": error_id},
+        )
         _mark_interview_task_failed(
             task_id,
             ErrorCode.INTERNAL_ERROR.value,
-            str(exc) or exc.__class__.__name__,
+            f"面试任务处理失败，请稍后重试。（错误编号：{error_id}）",
             processing_token=task.processing_token if task is not None else None,
         )
         return
@@ -781,7 +815,7 @@ def _run_interview_operation(
     with mysql_connection() as connection:
         with interview_mutation_lock(connection, task.interview_id, wait_seconds=1):
             service = _build_interview_service(connection)
-            result: RoundAnswerResponse | FeedbackReportResponse
+            result: RoundAnswerResponse | FeedbackReportResponse | AnswerReanswerResponse
             if task.operation == "start_round":
                 question = service.start_round(
                     task.user_id,
@@ -832,10 +866,19 @@ def _run_interview_operation(
                     task.interview_id,
                     str(payload.get("finish_type", "normal")),
                 )
+            elif task.operation == "question_reanswer":
+                result = service.create_reanswer(
+                    task.user_id,
+                    task.interview_id,
+                    int(payload["question_id"]),
+                    str(payload["answer"]),
+                )
             else:
                 raise AppError(ErrorCode.VALIDATION_ERROR, 422, message="未知面试任务。")
             result_payload = result.model_dump(mode="json")
 
+    if task.operation == "question_reanswer":
+        return result_payload
     short_memory_status = _sync_short_term_memory_after_operation(task)
     if task.operation != "finish_interview":
         result_payload["short_term_memory"] = short_memory_status.model_dump(mode="json")
@@ -957,7 +1000,7 @@ def _interview_service_mutation_lock(
 def _operation_usage_scope(operation: str) -> str:
     if operation in {"start_round", "regenerate_round_question", "skip_round_question"}:
         return "interview_question"
-    if operation == "answer_round_question":
+    if operation in {"answer_round_question", "question_reanswer"}:
         return "interview_answer"
     if operation == "finish_round":
         return "interview_round_finish"
@@ -980,11 +1023,12 @@ ROUND_MUTATING_OPERATIONS: tuple[str, ...] = (
 INTERVIEW_MUTATING_OPERATIONS: tuple[str, ...] = (
     *ROUND_MUTATING_OPERATIONS,
     "finish_interview",
+    "question_reanswer",
 )
 
 
 def _conflicting_operations_for_operation(operation: str) -> tuple[str, ...]:
-    if operation == "finish_interview":
+    if operation in {"finish_interview", "question_reanswer"}:
         return INTERVIEW_MUTATING_OPERATIONS
     if operation in ROUND_MUTATING_OPERATIONS:
         return ROUND_MUTATING_OPERATIONS
@@ -1013,8 +1057,10 @@ def start_interview_operation_task_runner() -> asyncio.Task[None]:
         while True:
             try:
                 await asyncio.to_thread(runner.run_once)
-            except Exception:
-                pass
+                record_runner_success("interview_operation")
+            except Exception as exc:
+                record_runner_failure("interview_operation", exc)
+                LOGGER.exception("interview operation task runner iteration failed")
             await asyncio.sleep(max(1, settings.memory_task_poll_seconds))
 
     return asyncio.create_task(_loop())

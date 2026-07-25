@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MemoryCollection = Literal["candidate_memories", "interviewer_memories", "agent_memories"]
 MemoryStatus = Literal["active", "pending_review", "superseded", "archived", "deleted"]
@@ -17,21 +17,47 @@ class MemoryItem(BaseModel):
     id: int | None = None
     memory_type: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=255)
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=2000)
     structured_data: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(ge=0.0, le=1.0)
     source_round_id: int | None = None
-    agent_type: str | None = None
-    position_key: str | None = None
-    scenario: str | None = None
+    agent_type: str | None = Field(default=None, min_length=1, max_length=64)
+    position_key: str | None = Field(default=None, min_length=1, max_length=128)
+    scenario: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_collection_identity(self) -> "MemoryItem":
+        if self.collection == "interviewer_memories":
+            if not self.agent_type or not self.position_key:
+                raise ValueError(
+                    "interviewer memories require agent_type and position_key"
+                )
+        elif self.collection == "agent_memories":
+            if not self.agent_type or not self.scenario:
+                raise ValueError("agent memories require agent_type and scenario")
+        return self
 
 
 class MemorySummaryOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    candidate_memories: list[MemoryItem] = Field(default_factory=list)
-    interviewer_memories: list[MemoryItem] = Field(default_factory=list)
-    agent_memories: list[MemoryItem] = Field(default_factory=list)
+    candidate_memories: list[MemoryItem] = Field(default_factory=list, max_length=20)
+    interviewer_memories: list[MemoryItem] = Field(default_factory=list, max_length=20)
+    agent_memories: list[MemoryItem] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_collection_buckets(self) -> "MemorySummaryOutput":
+        buckets = {
+            "candidate_memories": self.candidate_memories,
+            "interviewer_memories": self.interviewer_memories,
+            "agent_memories": self.agent_memories,
+        }
+        for expected_collection, items in buckets.items():
+            if any(item.collection != expected_collection for item in items):
+                raise ValueError(
+                    f"{expected_collection} contains an item for another collection"
+                )
+        return self
 
 
 class MemoryClearStatusResponse(BaseModel):
@@ -71,6 +97,7 @@ class ManagedMemoryListResponse(BaseModel):
     limit: int
     offset: int
     next_offset: int | None = None
+    memory_types: list[str] = Field(default_factory=list)
 
 
 class RetrievedMemory(BaseModel):
@@ -94,6 +121,8 @@ class MemoryRetrievalRequest(BaseModel):
     interview_id: int | None = None
     round_id: int | None = None
     agent_type: str | None = None
+    position_key: str | None = None
+    scenario: str | None = None
     usage_scene: MemoryUsageScene
     intent: str
     query_text: str | None = None

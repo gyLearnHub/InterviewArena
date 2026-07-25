@@ -153,7 +153,7 @@
             <strong>{{ roundLabel(round.type) }}</strong>
             <p>
               <b>{{ round.scoreNumber }}</b
-              ><span>分</span>
+              ><span v-if="round.scoreNumber !== '-'">分</span>
             </p>
             <small>{{ scoreSourceText(round.scoreSource) }}</small>
             <div class="score-track"><i :style="{ width: `${round.progress}%` }"></i></div>
@@ -162,11 +162,11 @@
         </article>
       </section>
 
-      <section class="visual-grid" aria-label="能力画像和趋势">
+      <section class="visual-grid" aria-label="轮次得分和趋势">
         <article class="chart-card radar-card">
-          <h2><span aria-hidden="true">◉</span> 能力画像</h2>
+          <h2><span aria-hidden="true">◉</span> 轮次得分分布</h2>
           <div class="radar-wrap">
-            <svg viewBox="0 0 360 250" role="img" aria-label="五维能力雷达图">
+            <svg viewBox="0 0 360 250" role="img" aria-label="面试轮次与综合得分雷达图">
               <g class="radar-guides">
                 <polygon
                   v-for="level in [1, 0.75, 0.5, 0.25]"
@@ -182,7 +182,7 @@
                   :y2="point.y"
                 />
               </g>
-              <polygon class="radar-fill" :points="radarDataPoints" />
+              <polygon v-if="hasCompleteRadar" class="radar-fill" :points="radarDataPoints" />
               <circle
                 v-for="point in radarValuePoints"
                 :key="`dot-${point.x}-${point.y}`"
@@ -482,7 +482,8 @@
               <span class="round-index">▣</span>
               <strong>{{ round.title }}</strong>
               <span
-                ><small>轮次评分</small><b>{{ round.scoreNumber }} 分</b></span
+                ><small>轮次评分</small
+                ><b>{{ round.scoreNumber === "-" ? "-" : `${round.scoreNumber} 分` }}</b></span
               >
               <span
                 ><small>面试官</small><b>{{ round.interviewer }}</b></span
@@ -572,6 +573,7 @@ import managerInterviewer from "../assets/interviewers/manager-interviewer.webp"
 import resumeInterviewer from "../assets/interviewers/resume-interviewer.webp";
 import technicalInterviewer from "../assets/interviewers/technical-interviewer.webp";
 import QuestionReanswerPanel from "../components/QuestionReanswerPanel.vue";
+import { parseApiDate } from "../formatters";
 
 const route = useRoute();
 const router = useRouter();
@@ -716,24 +718,49 @@ const abilityValues = computed(() => {
       item.scoreNumber === "-" ? null : Number(item.scoreNumber)
     ])
   );
-  const fallback = finalScore.value ?? 0;
   return [
-    scoreByType.technical ?? fallback,
-    scoreByType.resume ?? fallback,
-    scoreByType.manager ?? fallback,
-    scoreByType.hr ?? fallback,
-    finalScore.value ?? fallback
+    scoreByType.resume,
+    scoreByType.technical,
+    scoreByType.manager,
+    scoreByType.hr,
+    finalScore.value
   ];
 });
 const abilityLabels = computed(() => [
-  { label: "专业技能", value: formatScore(abilityValues.value[0]), position: "top" },
-  { label: "问题解决", value: formatScore(abilityValues.value[1]), position: "right-top" },
-  { label: "系统设计", value: formatScore(abilityValues.value[2]), position: "right-bottom" },
-  { label: "沟通表达", value: formatScore(abilityValues.value[3]), position: "left-bottom" },
-  { label: "学习能力", value: formatScore(abilityValues.value[4]), position: "left-top" }
+  {
+    label: "简历面",
+    value: abilityValues.value[0] === null ? "-" : formatScore(abilityValues.value[0]),
+    position: "top"
+  },
+  {
+    label: "技术面",
+    value: abilityValues.value[1] === null ? "-" : formatScore(abilityValues.value[1]),
+    position: "right-top"
+  },
+  {
+    label: "主管面",
+    value: abilityValues.value[2] === null ? "-" : formatScore(abilityValues.value[2]),
+    position: "right-bottom"
+  },
+  {
+    label: "HR 面",
+    value: abilityValues.value[3] === null ? "-" : formatScore(abilityValues.value[3]),
+    position: "left-bottom"
+  },
+  {
+    label: "综合分",
+    value: abilityValues.value[4] === null ? "-" : formatScore(abilityValues.value[4]),
+    position: "left-top"
+  }
 ]);
 const radarOuterPoints = computed(() => radarPoints([100, 100, 100, 100, 100]));
-const radarValuePoints = computed(() => radarPoints(abilityValues.value));
+const hasCompleteRadar = computed(() =>
+  abilityValues.value.every((value) => value !== null)
+);
+const radarValuePoints = computed(() => {
+  const points = radarPoints(abilityValues.value.map((value) => value ?? 0));
+  return points.filter((_point, index) => abilityValues.value[index] !== null);
+});
 const radarDataPoints = computed(() => pointString(radarValuePoints.value));
 
 const trendValues = computed(() => {
@@ -1010,7 +1037,7 @@ function answeredText(entry: MultiRoundQaEntry): string {
   return entry.answer || entry.answer_text || entry.user_answer || "";
 }
 function formatDateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "暂无";
+  return value ? parseApiDate(value).toLocaleString("zh-CN", { hour12: false }) : "暂无";
 }
 function formatDuration(seconds: number): string {
   if (!seconds) return "-";

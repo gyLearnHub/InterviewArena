@@ -61,15 +61,15 @@
       <span>稍等片刻。</span>
     </section>
 
-    <section v-else-if="filteredMemories.length === 0" class="memory-empty">
-      <strong>{{ memories.length === 0 ? "暂无记忆" : "没有匹配记忆" }}</strong>
+    <section v-else-if="memories.length === 0" class="memory-empty">
+      <strong>{{ hasActiveFilters ? "没有匹配记忆" : "暂无记忆" }}</strong>
       <span>{{
-        memories.length === 0 ? "完成面试后，系统会在这里沉淀长期记忆。" : "调整搜索或筛选条件。"
+        hasActiveFilters ? "调整搜索或筛选条件。" : "完成面试后，系统会在这里沉淀长期记忆。"
       }}</span>
     </section>
 
     <section v-else class="memory-list" aria-label="记忆列表">
-      <article v-for="memory in filteredMemories" :key="memory.id" class="memory-card">
+      <article v-for="memory in memories" :key="memory.id" class="memory-card">
         <header>
           <div>
             <div class="memory-card-tags">
@@ -128,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { ApiError, deleteManagedMemory, listManagedMemories, type ManagedMemoryItem } from "../api";
 import { formatDate } from "../formatters";
@@ -144,30 +144,15 @@ const statusFilter = ref("all");
 const typeFilter = ref("");
 const nextOffset = ref<number | null>(null);
 const summaryState = ref({ total: 0, active: 0, pending: 0 });
+const availableTypes = ref<string[]>([]);
+let requestSequence = 0;
+let searchTimer: number | null = null;
 
-const normalizedSearch = computed(() => searchText.value.trim().toLowerCase());
-const typeOptions = computed(() =>
-  Array.from(new Set(memories.value.map((memory) => memory.memory_type))).sort()
-);
+const typeOptions = computed(() => availableTypes.value);
 const summary = computed(() => summaryState.value);
-const filteredMemories = computed(() => {
-  const query = normalizedSearch.value;
-  return memories.value.filter((memory) => {
-    const matchesStatus = statusFilter.value === "all" || memory.status === statusFilter.value;
-    const matchesType = !typeFilter.value || memory.memory_type === typeFilter.value;
-    const searchableText = [
-      memory.title,
-      memory.content,
-      memory.memory_type,
-      memory.target_position || "",
-      ...memory.evidence
-    ]
-      .join(" ")
-      .toLowerCase();
-    const matchesSearch = !query || searchableText.includes(query);
-    return matchesStatus && matchesType && matchesSearch;
-  });
-});
+const hasActiveFilters = computed(
+  () => Boolean(searchText.value.trim() || typeFilter.value || statusFilter.value !== "all")
+);
 
 async function loadMemories(): Promise<void> {
   await fetchMemories(0, true);
@@ -181,11 +166,19 @@ async function loadMoreMemories(): Promise<void> {
 }
 
 async function fetchMemories(offset: number, reset: boolean): Promise<void> {
+  const sequence = ++requestSequence;
   loading.value = true;
   message.value = "";
   hasError.value = false;
   try {
-    const response = await listManagedMemories(MEMORY_PAGE_SIZE, offset);
+    const response = await listManagedMemories(MEMORY_PAGE_SIZE, offset, {
+      query: searchText.value.trim(),
+      memoryType: typeFilter.value,
+      status: statusFilter.value
+    });
+    if (sequence !== requestSequence) {
+      return;
+    }
     if (reset) {
       memories.value = response.items;
     } else {
@@ -201,13 +194,42 @@ async function fetchMemories(offset: number, reset: boolean): Promise<void> {
       pending: response.pending_review_count
     };
     nextOffset.value = response.next_offset ?? null;
+    availableTypes.value =
+      response.memory_types ||
+      Array.from(new Set(response.items.map((memory) => memory.memory_type))).sort();
   } catch (error) {
+    if (sequence !== requestSequence) {
+      return;
+    }
     hasError.value = true;
     message.value = error instanceof ApiError ? error.message : "记忆加载失败。";
   } finally {
-    loading.value = false;
+    if (sequence === requestSequence) {
+      loading.value = false;
+    }
   }
 }
+
+watch([statusFilter, typeFilter], () => {
+  void loadMemories();
+});
+
+watch(searchText, () => {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer);
+  }
+  searchTimer = window.setTimeout(() => {
+    searchTimer = null;
+    void loadMemories();
+  }, 300);
+});
+
+onUnmounted(() => {
+  requestSequence += 1;
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer);
+  }
+});
 
 async function deleteMemory(memory: ManagedMemoryItem): Promise<void> {
   const confirmed = window.confirm(`删除记忆“${memory.title}”？`);

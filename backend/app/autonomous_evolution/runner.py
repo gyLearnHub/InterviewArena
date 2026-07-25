@@ -9,6 +9,7 @@ from app.autonomous_evolution.engine import AutonomousEvolutionEngine
 from app.autonomous_evolution.repository import AutonomousEvolutionRepository
 from app.autonomous_evolution.runtime import prepare_interview_evolution_context
 from app.core.config import get_settings
+from app.core.errors import safe_error_code
 from app.db.mysql import mysql_connection
 from app.services.llm import DeepSeekLLMClient, get_llm_client
 
@@ -81,7 +82,7 @@ class EvolutionTaskRunner:
                 )
                 repository.fail_or_retry_run(
                     owned_run,
-                    str(exc) or exc.__class__.__name__,
+                    safe_error_code(exc),
                 )
         finally:
             stop_heartbeat.set()

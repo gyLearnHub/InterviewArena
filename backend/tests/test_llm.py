@@ -170,6 +170,43 @@ def test_timeout_is_converted_after_retries() -> None:
     assert len(attempts) == 3
 
 
+@pytest.mark.parametrize("transient_status", [429, 500, 503])
+def test_transient_http_status_is_retried(
+    transient_status: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    monkeypatch.setattr("app.services.llm.time.sleep", lambda _seconds: None)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(transient_status, headers={"Retry-After": "1"})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"question_type":"skill_check","question":"问题"}'
+                        }
+                    }
+                ]
+            },
+        )
+
+    client = DeepSeekLLMClient(
+        settings=make_settings(deepseek_retry_count=2),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = client.generate_question({}, "后端开发", [])
+
+    assert result["question"] == "问题"
+    assert attempts == 2
+
+
 def test_invalid_response_json_is_business_error() -> None:
     client = DeepSeekLLMClient(
         settings=make_settings(),
@@ -207,7 +244,6 @@ def test_http_status_error_keeps_redacted_diagnostics() -> None:
         "status_code": 400,
         "error": {
             "code": "invalid_request",
-            "message": "payload too large",
             "type": None,
         },
     }

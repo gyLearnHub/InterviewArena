@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.harness.events import record_harness_event
 from app.prompts.loader import load_prompt
 from app.repositories.evaluations import EvaluationRepository
@@ -32,7 +34,12 @@ class MemorySummaryService:
         if interview is None:
             raise ValueError("interview not found for user")
         resume = self.interviews.get_resume_for_user(interview.resume_id, user_id)
-        if resume is None:
+        resume_data = (
+            resume.structured_data
+            if resume is not None
+            else getattr(interview, "resume_snapshot", None)
+        )
+        if resume_data is None:
             raise ValueError("resume not found for user")
         payload = {
             "interview": {
@@ -41,7 +48,7 @@ class MemorySummaryService:
                 "job_description": _clip_text(interview.job_description),
                 "selected_rounds": interview.selected_rounds,
             },
-            "resume_summary": _compact_resume(resume.structured_data),
+            "resume_summary": _compact_resume(resume_data),
             "rounds": [_round_payload(item) for item in self.interviews.list_rounds(interview.id)],
             "qa_history": [_qa_payload(item) for item in self.interviews.list_qa(interview.id)],
             "evaluations": [
@@ -57,13 +64,9 @@ class MemorySummaryService:
         collection_counts: dict[str, int] = {}
         for item in _all_items(output):
             item = _canonicalize_memory_item(item)
-            if item.collection == "candidate_memories":
-                target_user_id = user_id
-            else:
-                target_user_id = None
             self.lifecycle.upsert_memory(
                 item=item,
-                user_id=target_user_id,
+                user_id=user_id,
                 source_interview_id=interview.id,
                 target_position=interview.target_position,
             )
@@ -82,13 +85,13 @@ class MemorySummaryService:
 
     def _generate_summary(self, payload: dict[str, Any]) -> MemorySummaryOutput:
         result = self.llm_client.generate_json(load_prompt("memory_summary.md"), payload)
-        output = MemorySummaryOutput.model_validate(result)
+        output = _parse_summary_output(result)
         if not _all_items(output) and _has_memory_evidence(payload):
             retry_result = self.llm_client.generate_json(
                 _focused_retry_prompt(load_prompt("memory_summary.md")),
                 _focused_payload(payload),
             )
-            output = MemorySummaryOutput.model_validate(retry_result)
+            output = _parse_summary_output(retry_result)
         if not output.candidate_memories and _has_candidate_evidence(payload):
             candidate_result = self.llm_client.generate_json(
                 _candidate_retry_prompt(load_prompt("memory_summary.md")),
@@ -96,7 +99,7 @@ class MemorySummaryService:
             )
             output = _merge_summary_outputs(
                 output,
-                MemorySummaryOutput.model_validate(candidate_result),
+                _parse_summary_output(candidate_result),
             )
         return output
 
@@ -107,6 +110,30 @@ def _all_items(output: MemorySummaryOutput) -> list[MemoryItem]:
         *output.interviewer_memories,
         *output.agent_memories,
     ]
+
+
+def _parse_summary_output(value: Any) -> MemorySummaryOutput:
+    if not isinstance(value, dict):
+        return MemorySummaryOutput()
+    parsed: dict[str, list[MemoryItem]] = {
+        "candidate_memories": [],
+        "interviewer_memories": [],
+        "agent_memories": [],
+    }
+    for collection in parsed:
+        raw_items = value.get(collection)
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in raw_items:
+            if len(parsed[collection]) >= 20:
+                break
+            try:
+                item = MemoryItem.model_validate(raw_item)
+            except ValidationError:
+                continue
+            if item.collection == collection:
+                parsed[collection].append(item)
+    return MemorySummaryOutput(**parsed)
 
 
 def _canonicalize_memory_item(item: MemoryItem) -> MemoryItem:

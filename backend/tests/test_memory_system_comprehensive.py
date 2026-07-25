@@ -103,7 +103,7 @@ def test_low_relevance_memories_are_filtered_and_audited() -> None:
     )
 
     assert result.memories == []
-    assert audit.calls[-1]["candidate_memory_ids"] == [1]
+    assert audit.calls[-1]["candidate_memory_ids"] == ["candidate_memories:1"]
     assert audit.calls[-1]["injected_memory_ids"] == []
     assert audit.calls[-1]["timings"]["filtered_count"] == 1
 
@@ -179,15 +179,15 @@ def test_reranker_failure_degrades_to_initial_sort_without_breaking_recall() -> 
 def test_agent_memory_type_policy_and_dynamic_top_k_are_stage_aware() -> None:
     policy = MemoryUsagePolicy()
 
-    assert policy.allowed_memory_types(_request(agent_type="resume")) == sorted(
-        {
-            "resume_key_fact",
-            "project_highlight",
-            "experience_authenticity",
-            "project_follow_up",
-            "unresolved_question",
-        }
-    )
+    assert {
+        "resume_key_fact",
+        "project_highlight",
+        "experience_authenticity",
+        "project_follow_up",
+        "unresolved_question",
+        "scoring_rubric",
+        "agent_behavior",
+    }.issubset(policy.allowed_memory_types(_request(agent_type="resume")))
     assert "technical_weakness" in policy.allowed_memory_types(_request(agent_type="technical"))
     assert "collaboration" in policy.allowed_memory_types(_request(agent_type="manager"))
     assert "career_plan" in policy.allowed_memory_types(_request(agent_type="hr"))
@@ -211,7 +211,7 @@ def test_query_rewriter_uses_llm_json_and_template_fallbacks() -> None:
         request
     )
     assert "find weak points before a follow up" in fallback_query
-    assert fallback_reason == "timeout"
+    assert fallback_reason == "RuntimeError"
 
     invalid_query, invalid_reason = MemoryQueryRewriter(_LLM({"keywords": ["missing"]})).rewrite(
         request

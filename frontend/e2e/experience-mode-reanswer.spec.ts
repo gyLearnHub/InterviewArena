@@ -251,21 +251,6 @@ test("history review submits immutable reanswers and compares scored attempts", 
   await page.route(
     `**/api/interviews/${historyInterviewId}/questions/${questionId}/reanswers`,
     async (route) => {
-      if (route.request().method() === "POST") {
-        submittedAnswer = (route.request().postDataJSON() as { answer: string }).answer;
-        await route.fulfill({
-          status: 201,
-          json: {
-            interview_id: historyInterviewId,
-            question_id: questionId,
-            question: "请介绍一次接口性能优化经历。",
-            original_answer: originalAnswer,
-            original_evaluation: evaluation(questionId, 9400, "resume", 70, "补充量化指标。"),
-            attempt: reanswerAttempt(2, secondReanswer, 88, 18, "继续补充容量上限。")
-          }
-        });
-        return;
-      }
       await route.fulfill({
         json: {
           interview_id: historyInterviewId,
@@ -278,6 +263,39 @@ test("history review submits immutable reanswers and compares scored attempts", 
       });
     }
   );
+  await page.route(
+    `**/api/interviews/${historyInterviewId}/questions/${questionId}/reanswers-task`,
+    async (route) => {
+      submittedAnswer = (route.request().postDataJSON() as { answer: string }).answer;
+      await route.fulfill({
+        status: 202,
+        json: {
+          task_id: 9901,
+          operation: "question_reanswer",
+          status: "pending",
+          interview_id: historyInterviewId
+        }
+      });
+    }
+  );
+  await page.route("**/api/interviews/tasks/9901", async (route) => {
+    await route.fulfill({
+      json: {
+        task_id: 9901,
+        operation: "question_reanswer",
+        status: "completed",
+        interview_id: historyInterviewId,
+        result: {
+          interview_id: historyInterviewId,
+          question_id: questionId,
+          question: "请介绍一次接口性能优化经历。",
+          original_answer: originalAnswer,
+          original_evaluation: evaluation(questionId, 9400, "resume", 70, "补充量化指标。"),
+          attempt: reanswerAttempt(2, secondReanswer, 88, 18, "继续补充容量上限。")
+        }
+      }
+    });
+  });
 
   await page.goto(`/reports/${historyInterviewId}`);
   await page.locator(".round-toggle").first().click();

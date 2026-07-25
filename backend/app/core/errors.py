@@ -59,6 +59,12 @@ class AppError(Exception):
         return f"{base} details={self.details}"
 
 
+def safe_error_code(exc: Exception) -> str:
+    if isinstance(exc, AppError):
+        return exc.code.value
+    return exc.__class__.__name__
+
+
 def build_error_response(error: AppError) -> dict[str, dict[str, Any]]:
     return {
         "error": {

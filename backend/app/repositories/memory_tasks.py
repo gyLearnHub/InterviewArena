@@ -101,6 +101,40 @@ class MemoryTaskRepository:
             rows = cursor.fetchall()
         return {str(row["status"]): int(row.get("count") or 0) for row in rows}
 
+    def cancel_summary_tasks_for_user(self, user_id: int) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE memory_tasks
+                SET status = 'failed',
+                    error_message = 'cancelled_by_memory_clear',
+                    completed_at = UTC_TIMESTAMP(),
+                    next_retry_at = NULL,
+                    dedupe_key = NULL,
+                    processing_token = NULL,
+                    heartbeat_at = NULL
+                WHERE user_id = %s
+                  AND task_type = 'memory_summary'
+                  AND status IN ('pending', 'processing', 'retry_wait')
+                """,
+                (user_id,),
+            )
+            return int(cursor.rowcount)
+
+    def owns_processing_lease(self, task_id: int, processing_token: str) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM memory_tasks
+                WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
+                """,
+                (task_id, processing_token),
+            )
+            return cursor.fetchone() is not None
+
     def get_by_id(self, task_id: int) -> MemoryTaskRecord | None:
         with self.connection.cursor() as cursor:
             cursor.execute("SELECT * FROM memory_tasks WHERE id = %s", (task_id,))

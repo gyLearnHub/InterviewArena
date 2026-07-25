@@ -32,6 +32,18 @@ AGENT_MEMORY_TYPES = {
         "answer_consistency",
     },
 }
+INTERVIEWER_MEMORY_TYPES = {
+    "scoring_rubric",
+    "follow_up_strategy",
+    "position_calibration",
+    "question_strategy",
+}
+AGENT_SYSTEM_MEMORY_TYPES = {
+    "agent_behavior",
+    "agent_anomaly",
+    "prompt_effect",
+    "retrieval_effect",
+}
 
 
 class MemoryUsagePolicy:
@@ -49,7 +61,11 @@ class MemoryUsagePolicy:
         if request.memory_types:
             return request.memory_types
         if request.agent_type in AGENT_MEMORY_TYPES:
-            return sorted(AGENT_MEMORY_TYPES[request.agent_type])
+            return sorted(
+                AGENT_MEMORY_TYPES[request.agent_type]
+                | INTERVIEWER_MEMORY_TYPES
+                | AGENT_SYSTEM_MEMORY_TYPES
+            )
         return []
 
     def top_k(self, request: MemoryRetrievalRequest) -> int:

@@ -18,10 +18,23 @@ class MemoryManagementRepositoryProtocol(Protocol):
         user_id: int,
         limit: int = DEFAULT_MEMORY_MANAGEMENT_LIMIT,
         offset: int = 0,
+        query: str = "",
+        memory_type: str | None = None,
+        status: str | None = None,
     ) -> list[MemoryRecord]:
         ...
 
-    def count_user_candidate_memories_by_status(self, *, user_id: int) -> dict[str, int]:
+    def count_user_candidate_memories_by_status(
+        self,
+        *,
+        user_id: int,
+        query: str = "",
+        memory_type: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, int]:
+        ...
+
+    def list_user_candidate_memory_types(self, *, user_id: int) -> list[str]:
         ...
 
     def mark_candidate_memory_deleted(self, *, memory_id: int, user_id: int) -> bool:
@@ -48,6 +61,9 @@ class MemoryManagementService:
         *,
         limit: int = DEFAULT_MEMORY_MANAGEMENT_LIMIT,
         offset: int = 0,
+        query: str = "",
+        memory_type: str | None = None,
+        status_filter: str | None = None,
     ) -> ManagedMemoryListResponse:
         page_size = max(1, min(limit, MAX_MEMORY_MANAGEMENT_LIMIT))
         page_offset = max(0, offset)
@@ -55,8 +71,16 @@ class MemoryManagementService:
             user_id=current_user.id,
             limit=page_size,
             offset=page_offset,
+            query=query,
+            memory_type=memory_type,
+            status=status_filter,
         )
-        counts = self.repository.count_user_candidate_memories_by_status(user_id=current_user.id)
+        counts = self.repository.count_user_candidate_memories_by_status(
+            user_id=current_user.id,
+            query=query,
+            memory_type=memory_type,
+            status=status_filter,
+        )
         total = sum(counts.values())
         next_offset = page_offset + len(records)
         return ManagedMemoryListResponse(
@@ -67,6 +91,9 @@ class MemoryManagementService:
             limit=page_size,
             offset=page_offset,
             next_offset=next_offset if next_offset < total else None,
+            memory_types=self.repository.list_user_candidate_memory_types(
+                user_id=current_user.id
+            ),
         )
 
     def delete_memory(self, current_user: UserRecord, memory_id: int) -> None:

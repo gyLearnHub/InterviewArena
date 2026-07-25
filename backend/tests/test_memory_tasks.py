@@ -142,6 +142,9 @@ def test_memory_clear_vector_failure_is_recorded_for_retry(monkeypatch) -> None:
         def __init__(self, _connection: Any) -> None:
             pass
 
+        def owns_processing_lease(self, task_id: int, processing_token: str) -> bool:
+            return task_id == task.id and processing_token == "lease-token"
+
         def mark_failed_or_retry(
             self,
             failed_task: MemoryTaskRecord,
@@ -155,8 +158,29 @@ def test_memory_clear_vector_failure_is_recorded_for_retry(monkeypatch) -> None:
     monkeypatch.setattr(memory_tasks_module, "mysql_connection", fake_mysql_connection)
     monkeypatch.setattr(memory_tasks_module, "MemoryTaskRepository", RecordingTaskRepository)
 
+    @contextmanager
+    def no_memory_user_lock(*_args: Any, **_kwargs: Any) -> Any:
+        yield
+
+    monkeypatch.setattr(memory_tasks_module, "memory_user_lock", no_memory_user_lock)
+
     assert runner.run_once() is True
-    assert retry_calls == [(task, "chroma_delete_user_failed:PermissionError")]
+    assert retry_calls[0][0] == task
+    assert retry_calls[0][1].startswith("记忆任务处理失败，请稍后重试。")
+    assert "PermissionError" not in retry_calls[0][1]
+
+
+def test_memory_clear_and_summary_runner_share_user_lock_and_lease_check() -> None:
+    from app.api.memories import clear_memories
+
+    clear_source = __import__("inspect").getsource(clear_memories)
+    runner_source = __import__("inspect").getsource(MemoryTaskRunner.run_once)
+
+    assert "memory_user_lock" in clear_source
+    assert "cancel_summary_tasks_for_user" in clear_source
+    assert "mark_user_memories_pending_delete" in clear_source
+    assert "memory_user_lock" in runner_source
+    assert "owns_processing_lease" in runner_source
 
 
 def _task(

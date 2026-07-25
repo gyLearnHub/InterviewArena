@@ -140,6 +140,16 @@ class FakeHistoryRepository:
         self.records = [record for record in self.records if record.user_id != user_id]
         return original_count - len(self.records)
 
+    def delete_ids_by_user(self, interview_ids: list[int], user_id: int) -> int:
+        target_ids = set(interview_ids)
+        original_count = len(self.records)
+        self.records = [
+            record
+            for record in self.records
+            if not (record.id in target_ids and record.user_id == user_id)
+        ]
+        return original_count - len(self.records)
+
     def list_interview_ids_by_user(self, user_id: int) -> list[int]:
         return [record.id for record in self.records if record.user_id == user_id]
 
@@ -593,6 +603,20 @@ def test_clear_history_removes_only_current_user_records() -> None:
     assert [record.id for record in repository.records] == [3]
 
 
+def test_clear_history_does_not_delete_interviews_created_after_snapshot() -> None:
+    class ConcurrentCreateRepository(FakeHistoryRepository):
+        def list_interview_ids_by_user(self, user_id: int) -> list[int]:
+            interview_ids = super().list_interview_ids_by_user(user_id)
+            self.records.append(_record(99, user_id))
+            return interview_ids
+
+    repository = ConcurrentCreateRepository([_record(1, 1)])
+
+    HistoryService(repository).clear_history(_user(1))
+
+    assert [record.id for record in repository.records] == [99]
+
+
 def test_delete_history_item_clears_short_term_memory() -> None:
     repository = _fake_repository([_record(1, 1), _record(2, 1)])
     store = FakeShortTermMemoryStore()
@@ -613,15 +637,21 @@ def test_clear_history_clears_all_short_term_memory_keys_for_user() -> None:
     assert store.batch_deleted == [(1, [1, 2])]
 
 
-def test_history_delete_surfaces_short_term_memory_cleanup_failure() -> None:
+def test_history_delete_succeeds_when_short_term_memory_cleanup_is_unavailable() -> None:
     repository = _fake_repository([_record(1, 1)])
     service = HistoryService(repository, FakeShortTermMemoryStore(fail=True))
 
-    with pytest.raises(AppError) as error_info:
-        service.delete_history_item(1, _user(1))
+    service.delete_history_item(1, _user(1))
 
-    assert error_info.value.status_code == 503
-    assert error_info.value.code == ErrorCode.BUSINESS_ERROR
+    assert repository.records == []
+
+
+def test_history_delete_commits_under_interview_mutation_lock() -> None:
+    source = __import__("inspect").getsource(HistoryService.delete_history_item)
+
+    assert "_lock_interviews" in source
+    assert "_commit_repository" in source
+    assert source.index("_commit_repository") < source.index("short_term_memory_store.delete")
 
 
 def _fake_repository(records: list[HistoryInterviewRecord]) -> FakeHistoryRepository:

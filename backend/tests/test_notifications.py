@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 from app.api.notifications import list_notifications as api_list_notifications
 from app.core.errors import AppError, ErrorCode
-from app.repositories.notifications import NotificationRecord
+from app.repositories.notifications import NotificationRecord, NotificationRepository
 from app.repositories.users import UserRecord
 from app.schemas.notification import NotificationListResponse
 from app.services.notifications import NotificationService
@@ -140,6 +140,33 @@ def test_mark_read_rejects_other_users_notification() -> None:
 
     assert error_info.value.code == ErrorCode.NOT_FOUND
     assert error_info.value.status_code == 404
+
+
+def test_repository_mark_read_is_idempotent_for_already_read_notification() -> None:
+    class Cursor:
+        rowcount = 0
+
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def __enter__(self) -> "Cursor":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, sql: str, _params: tuple[int, int]) -> None:
+            self.statements.append(" ".join(sql.split()))
+
+        def fetchone(self) -> dict[str, int]:
+            return {"1": 1}
+
+    cursor = Cursor()
+    connection = type("Connection", (), {"cursor": lambda self: cursor})()
+
+    assert NotificationRepository(connection).mark_read(1, 7) is True
+    assert cursor.statements[0].startswith("UPDATE notifications")
+    assert cursor.statements[1].startswith("SELECT 1 FROM notifications")
 
 
 def test_mark_all_read_only_updates_current_user() -> None:

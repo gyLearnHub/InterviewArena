@@ -1,10 +1,11 @@
 import asyncio
 import contextlib
+import logging
 from collections.abc import Iterator
-from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Thread
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
 
@@ -17,6 +18,7 @@ from app.core.http_status import (
 from app.db.mysql import mysql_connection
 from app.deps import get_current_user
 from app.repositories.resumes import (
+    FileCleanupTaskRecord,
     ResumeDetailRecord,
     ResumeParseTaskRecord,
     ResumeRecord,
@@ -41,10 +43,12 @@ from app.services.resume_parser import (
     store_resume_upload,
     validate_resume_extension,
 )
-from app.services.resumes import ResumeService
+from app.services.resumes import ResumeService, delete_resume_file
+from app.services.runner_health import record_runner_failure, record_runner_success
 from app.services.usage_limits import usage_limiter
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
+LOGGER = logging.getLogger(__name__)
 RESUME_PARSE_VERSION = b"resume-parser-v2-project-completeness\0"
 ResumeFile = File(...)
 CurrentUserDep = Depends(get_current_user)
@@ -158,7 +162,11 @@ def upload_resume_async(
                 content_hash=content_hash,
             )
         except Exception:
-            _remove_resume_upload(original_path)
+            if not _remove_resume_upload(original_path):
+                with mysql_connection() as cleanup_connection:
+                    ResumeRepository(cleanup_connection).enqueue_file_cleanup(
+                        str(original_path)
+                    )
             raise
 
     background_tasks.add_task(parse_resume_upload_task, task.id, current_user.id)
@@ -306,17 +314,27 @@ def parse_resume_upload_task(
         finally:
             _stop_resume_parse_task_heartbeat(heartbeat)
             heartbeat = None
-    except Exception as exc:
+    except Exception:
+        error_id = uuid4().hex[:12]
+        LOGGER.exception(
+            "resume parse task failed",
+            extra={"task_id": task_id, "error_id": error_id},
+        )
         _stop_resume_parse_task_heartbeat(heartbeat)
-        if task is not None:
-            _remove_resume_upload(Path(task.original_file_path))
+        cleanup_required = (
+            task is not None
+            and not _remove_resume_upload(Path(task.original_file_path))
+        )
         if task is not None and task.processing_token is not None:
             with mysql_connection() as connection:
-                ResumeRepository(connection).mark_parse_task_failed(
+                repository = ResumeRepository(connection)
+                repository.mark_parse_task_failed(
                     task_id,
-                    str(exc) or exc.__class__.__name__,
+                    f"简历解析失败，请稍后重试。（错误编号：{error_id}）",
                     task.processing_token,
                 )
+                if cleanup_required:
+                    repository.enqueue_file_cleanup(task.original_file_path)
 
 
 def _start_resume_parse_task_heartbeat(
@@ -354,23 +372,46 @@ def _stop_resume_parse_task_heartbeat(heartbeat: tuple[Event, Thread] | None) ->
     thread.join(timeout=1)
 
 
-def _remove_resume_upload(path: Path) -> None:
-    with suppress(OSError):
-        path.unlink()
-    with suppress(OSError):
-        path.parent.rmdir()
+def _remove_resume_upload(path: Path) -> bool:
+    return delete_resume_file(str(path), resolve_upload_dir())
 
 
 class ResumeParseTaskRunner:
     def run_once(self) -> bool:
+        settings = get_settings()
         with mysql_connection() as connection:
-            task = ResumeRepository(connection).claim_due_parse_task(
-                processing_timeout_seconds=get_settings().usage_limit_active_timeout_seconds,
+            repository = ResumeRepository(connection)
+            stale_paths = repository.fail_stale_parse_tasks(
+                settings.usage_limit_active_timeout_seconds
             )
+            cleanup_task = repository.claim_due_file_cleanup(
+                settings.usage_limit_active_timeout_seconds
+            )
+            task = repository.claim_due_parse_task(
+                processing_timeout_seconds=settings.usage_limit_active_timeout_seconds,
+            )
+        for path in stale_paths:
+            if not _remove_resume_upload(Path(path)):
+                with mysql_connection() as connection:
+                    ResumeRepository(connection).enqueue_file_cleanup(path)
+        if cleanup_task is not None:
+            _process_file_cleanup_task(cleanup_task)
         if task is None:
-            return False
+            return cleanup_task is not None or bool(stale_paths)
         parse_resume_upload_task(task.id, task.user_id, already_claimed=True)
         return True
+
+
+def _process_file_cleanup_task(task: FileCleanupTaskRecord) -> None:
+    if task.processing_token is None:
+        return
+    deleted = _remove_resume_upload(Path(task.original_file_path))
+    with mysql_connection() as connection:
+        repository = ResumeRepository(connection)
+        if deleted:
+            repository.complete_file_cleanup(task.id, task.processing_token)
+        else:
+            repository.retry_file_cleanup(task, "file_is_temporarily_unavailable")
 
 
 def start_resume_parse_task_runner() -> asyncio.Task[None]:
@@ -381,8 +422,10 @@ def start_resume_parse_task_runner() -> asyncio.Task[None]:
         while True:
             try:
                 await asyncio.to_thread(runner.run_once)
-            except Exception:
-                pass
+                record_runner_success("resume_parse")
+            except Exception as exc:
+                record_runner_failure("resume_parse", exc)
+                LOGGER.exception("resume parse task runner iteration failed")
             await asyncio.sleep(max(1, settings.memory_task_poll_seconds))
 
     return asyncio.create_task(_loop())

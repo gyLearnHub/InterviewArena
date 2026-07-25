@@ -85,6 +85,12 @@ class MemoryLifecycleService:
             raise RuntimeError(delete_error)
         return self.repository.delete_user_candidate_memories(user_id)
 
+    def clear_user_memories(self, user_id: int) -> int:
+        delete_error = self.index_service.delete_user_vectors(user_id)
+        if delete_error not in {None, "chroma_disabled"}:
+            raise RuntimeError(delete_error)
+        return self.repository.delete_user_memories(user_id)
+
 
 def _merge_structured(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     occurrences = int(old.get("occurrences") or 1) + 1

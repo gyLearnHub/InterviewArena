@@ -18,6 +18,16 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uk_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS auth_rate_limits (
+    scope VARCHAR(32) NOT NULL,
+    identifier_hash CHAR(64) NOT NULL,
+    window_started_at DATETIME NOT NULL,
+    request_count INT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (scope, identifier_hash, window_started_at),
+    KEY idx_auth_rate_limits_window (window_started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS resumes (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -80,10 +90,28 @@ CREATE TABLE IF NOT EXISTS resume_parse_tasks (
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS file_cleanup_tasks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    original_file_path VARCHAR(512) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
+    max_retries INT UNSIGNED NOT NULL DEFAULT 20,
+    next_retry_at DATETIME NULL,
+    processing_token CHAR(32) NULL,
+    error_message VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_file_cleanup_tasks_path (original_file_path),
+    KEY idx_file_cleanup_tasks_claim (status, next_retry_at, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS interviews (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
     resume_id BIGINT UNSIGNED NOT NULL,
+    resume_snapshot JSON NOT NULL,
     target_position VARCHAR(128) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'created',
     mode VARCHAR(32) NOT NULL DEFAULT 'multi_round',
@@ -442,6 +470,7 @@ CREATE TABLE IF NOT EXISTS candidate_memories (
 
 CREATE TABLE IF NOT EXISTS interviewer_memories (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
     agent_type VARCHAR(64) NOT NULL,
     position_key VARCHAR(128) NOT NULL DEFAULT '',
     memory_type VARCHAR(64) NOT NULL,
@@ -461,12 +490,18 @@ CREATE TABLE IF NOT EXISTS interviewer_memories (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_interviewer_memories_agent_position_status (agent_type, position_key, status),
-    KEY idx_interviewer_memories_type_status (memory_type, status),
+    KEY idx_interviewer_memories_user_agent_position_status (
+        user_id, agent_type, position_key, status
+    ),
+    KEY idx_interviewer_memories_user_type_status (user_id, memory_type, status),
     KEY idx_interviewer_memories_index_status (index_status),
     UNIQUE KEY uk_interviewer_memory_summary (
-        agent_type, position_key, memory_type, title, source_interview_id, source_round_id, version
+        user_id, agent_type, position_key, memory_type, title,
+        source_interview_id, source_round_id, version
     ),
+    CONSTRAINT fk_interviewer_memories_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_interviewer_memories_source_interview_id
         FOREIGN KEY (source_interview_id) REFERENCES interviews (id)
         ON DELETE SET NULL ON UPDATE CASCADE,
@@ -480,6 +515,7 @@ CREATE TABLE IF NOT EXISTS interviewer_memories (
 
 CREATE TABLE IF NOT EXISTS agent_memories (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
     agent_type VARCHAR(64) NOT NULL,
     scenario VARCHAR(64) NOT NULL DEFAULT '',
     memory_type VARCHAR(64) NOT NULL,
@@ -499,12 +535,18 @@ CREATE TABLE IF NOT EXISTS agent_memories (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_agent_memories_agent_scenario_status (agent_type, scenario, status),
-    KEY idx_agent_memories_type_status (memory_type, status),
+    KEY idx_agent_memories_user_agent_scenario_status (
+        user_id, agent_type, scenario, status
+    ),
+    KEY idx_agent_memories_user_type_status (user_id, memory_type, status),
     KEY idx_agent_memories_index_status (index_status),
     UNIQUE KEY uk_agent_memory_summary (
-        agent_type, scenario, memory_type, title, source_interview_id, source_round_id, version
+        user_id, agent_type, scenario, memory_type, title,
+        source_interview_id, source_round_id, version
     ),
+    CONSTRAINT fk_agent_memories_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_agent_memories_source_interview_id
         FOREIGN KEY (source_interview_id) REFERENCES interviews (id)
         ON DELETE SET NULL ON UPDATE CASCADE,

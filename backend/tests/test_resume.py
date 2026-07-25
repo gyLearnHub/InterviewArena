@@ -137,6 +137,7 @@ class FakeResumeRepository:
         self.unfinished_interview_resume_ids: set[tuple[int, int]] = set()
         self.parser: ResumeParserService | None = None
         self.commit_error: Exception | None = None
+        self.cleanup_paths: list[str] = []
 
     def commit(self) -> None:
         if self.commit_error is not None:
@@ -262,6 +263,15 @@ class FakeResumeRepository:
             if record.id == resume_id and record.user_id == user_id and record.deleted_at is None:
                 return record.original_file_path
         return None
+
+    def enqueue_file_cleanup(
+        self,
+        original_file_path: str,
+        *,
+        max_retries: int = 20,
+    ) -> None:
+        _ = max_retries
+        self.cleanup_paths.append(original_file_path)
 
     def has_unfinished_interview_for_resume(self, resume_id: int, user_id: int) -> bool:
         return self.has_active_interview_dependency_for_resume(resume_id, user_id)
@@ -760,6 +770,34 @@ def test_resume_service_preserves_file_when_commit_fails(tmp_path: Path) -> None
         )
 
     assert original_path.exists()
+
+
+def test_resume_service_queues_file_cleanup_when_unlink_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upload_dir = tmp_path / "resume"
+    upload_dir.mkdir()
+    original_path = upload_dir / "backend.docx"
+    original_path.write_bytes(b"resume")
+    repository = FakeResumeRepository()
+    repository.created.append(
+        ResumeRecord(
+            id=7,
+            user_id=42,
+            original_file_path=str(original_path),
+            structured_data=structured_resume(),
+        )
+    )
+    monkeypatch.setattr("app.services.resumes.delete_resume_file", lambda *_args: False)
+
+    ResumeService(repository, upload_dir=upload_dir).delete_resume(
+        resume_id=7,
+        user_id=42,
+    )
+
+    assert repository.created[0].deleted_at is not None
+    assert repository.cleanup_paths == [str(original_path)]
 
 
 def test_upload_same_deleted_resume_creates_fresh_record(
