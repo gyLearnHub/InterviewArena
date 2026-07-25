@@ -142,9 +142,7 @@ async function readJson(
   }
 }
 
-function normalizeErrorBody(
-  data: unknown
-): { code?: string; message: string; details?: unknown } {
+function normalizeErrorBody(data: unknown): { code?: string; message: string; details?: unknown } {
   if (!data || typeof data !== "object") {
     return { message: "" };
   }

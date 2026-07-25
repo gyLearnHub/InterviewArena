@@ -754,9 +754,7 @@ const abilityLabels = computed(() => [
   }
 ]);
 const radarOuterPoints = computed(() => radarPoints([100, 100, 100, 100, 100]));
-const hasCompleteRadar = computed(() =>
-  abilityValues.value.every((value) => value !== null)
-);
+const hasCompleteRadar = computed(() => abilityValues.value.every((value) => value !== null));
 const radarValuePoints = computed(() => {
   const points = radarPoints(abilityValues.value.map((value) => value ?? 0));
   return points.filter((_point, index) => abilityValues.value[index] !== null);

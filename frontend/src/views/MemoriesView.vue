@@ -150,8 +150,8 @@ let searchTimer: number | null = null;
 
 const typeOptions = computed(() => availableTypes.value);
 const summary = computed(() => summaryState.value);
-const hasActiveFilters = computed(
-  () => Boolean(searchText.value.trim() || typeFilter.value || statusFilter.value !== "all")
+const hasActiveFilters = computed(() =>
+  Boolean(searchText.value.trim() || typeFilter.value || statusFilter.value !== "all")
 );
 
 async function loadMemories(): Promise<void> {

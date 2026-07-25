@@ -9,8 +9,7 @@ const configuredInterviewOperationTimeout = Number(
   import.meta.env.VITE_INTERVIEW_OPERATION_TIMEOUT_MS
 );
 const INTERVIEW_OPERATION_TIMEOUT_MS =
-  Number.isFinite(configuredInterviewOperationTimeout) &&
-  configuredInterviewOperationTimeout > 0
+  Number.isFinite(configuredInterviewOperationTimeout) && configuredInterviewOperationTimeout > 0
     ? configuredInterviewOperationTimeout
     : 1200000;
 const INTERVIEW_OPERATION_POLL_INTERVAL_MS = 1200;
