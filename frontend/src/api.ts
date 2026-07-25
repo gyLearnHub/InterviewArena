@@ -157,6 +157,17 @@ export type MemoryClearStatus = {
   error_message?: string | null;
 };
 
+export type MemoryGenerationStatus = {
+  pending_count: number;
+  processing_count: number;
+  retry_wait_count: number;
+  failed_count: number;
+};
+
+export type MemoryRetryResponse = {
+  requeued_count: number;
+};
+
 export type ManagedMemoryStatus =
   "active" | "pending_review" | "superseded" | "archived" | "deleted" | string;
 
@@ -1092,6 +1103,14 @@ export function clearMemories(): Promise<MemoryClearStatus> {
 
 export function getMemoryClearStatus(): Promise<MemoryClearStatus> {
   return request("/memories/clear-status");
+}
+
+export function getMemoryGenerationStatus(): Promise<MemoryGenerationStatus> {
+  return request("/memories/generation-status");
+}
+
+export function retryFailedMemories(): Promise<MemoryRetryResponse> {
+  return request("/memories/retry-failed", { method: "POST" });
 }
 
 export function listManagedMemories(

@@ -17,3 +17,5 @@ def test_user_preferences_and_memory_routes_are_registered() -> None:
     assert ("DELETE", "/api/memories") in routes
     assert ("DELETE", "/api/memories/{memory_id}") in routes
     assert ("GET", "/api/memories/clear-status") in routes
+    assert ("GET", "/api/memories/generation-status") in routes
+    assert ("POST", "/api/memories/retry-failed") in routes

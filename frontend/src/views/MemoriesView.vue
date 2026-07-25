@@ -2,9 +2,20 @@
   <section class="memory-page" aria-label="我的记忆">
     <header class="memory-header">
       <p>系统保存的长期画像、薄弱项和训练线索。</p>
-      <button class="refresh-button" type="button" :disabled="loading" @click="loadMemories">
-        {{ loading ? "刷新中..." : "刷新" }}
-      </button>
+      <div class="memory-header-actions">
+        <button
+          v-if="generationStatus.failed_count > 0"
+          class="retry-memory-button"
+          type="button"
+          :disabled="retryingMemories"
+          @click="retryFailedMemoryTasks"
+        >
+          {{ retryingMemories ? "提交中..." : `重新生成（${generationStatus.failed_count}）` }}
+        </button>
+        <button class="refresh-button" type="button" :disabled="loading" @click="refreshPage">
+          {{ loading ? "刷新中..." : "刷新" }}
+        </button>
+      </div>
     </header>
 
     <section class="memory-summary" aria-label="记忆概览">
@@ -62,10 +73,17 @@
     </section>
 
     <section v-else-if="memories.length === 0" class="memory-empty">
-      <strong>{{ hasActiveFilters ? "没有匹配记忆" : "暂无记忆" }}</strong>
-      <span>{{
-        hasActiveFilters ? "调整搜索或筛选条件。" : "完成面试后，系统会在这里沉淀长期记忆。"
-      }}</span>
+      <strong>{{ emptyStateTitle }}</strong>
+      <span>{{ emptyStateDescription }}</span>
+      <button
+        v-if="!hasActiveFilters && generationStatus.failed_count > 0"
+        class="retry-memory-button"
+        type="button"
+        :disabled="retryingMemories"
+        @click="retryFailedMemoryTasks"
+      >
+        {{ retryingMemories ? "提交中..." : "重新生成记忆" }}
+      </button>
     </section>
 
     <section v-else class="memory-list" aria-label="记忆列表">
@@ -130,13 +148,23 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
-import { ApiError, deleteManagedMemory, listManagedMemories, type ManagedMemoryItem } from "../api";
+import {
+  ApiError,
+  deleteManagedMemory,
+  getMemoryGenerationStatus,
+  listManagedMemories,
+  retryFailedMemories,
+  type ManagedMemoryItem,
+  type MemoryGenerationStatus
+} from "../api";
 import { formatDate } from "../formatters";
 
 const MEMORY_PAGE_SIZE = 100;
+const GENERATION_POLL_INTERVAL_MS = 3000;
 const memories = ref<ManagedMemoryItem[]>([]);
 const loading = ref(false);
 const deletingId = ref<number | null>(null);
+const retryingMemories = ref(false);
 const message = ref("");
 const hasError = ref(false);
 const searchText = ref("");
@@ -145,17 +173,54 @@ const typeFilter = ref("");
 const nextOffset = ref<number | null>(null);
 const summaryState = ref({ total: 0, active: 0, pending: 0 });
 const availableTypes = ref<string[]>([]);
+const generationStatus = ref<MemoryGenerationStatus>({
+  pending_count: 0,
+  processing_count: 0,
+  retry_wait_count: 0,
+  failed_count: 0
+});
 let requestSequence = 0;
 let searchTimer: number | null = null;
+let generationPollTimer: number | null = null;
 
 const typeOptions = computed(() => availableTypes.value);
 const summary = computed(() => summaryState.value);
 const hasActiveFilters = computed(() =>
   Boolean(searchText.value.trim() || typeFilter.value || statusFilter.value !== "all")
 );
+const activeGenerationCount = computed(
+  () =>
+    generationStatus.value.pending_count +
+    generationStatus.value.processing_count +
+    generationStatus.value.retry_wait_count
+);
+const emptyStateTitle = computed(() => {
+  if (hasActiveFilters.value) return "没有匹配记忆";
+  if (activeGenerationCount.value > 0) return "正在生成记忆";
+  if (generationStatus.value.failed_count > 0) return "记忆生成失败";
+  return "暂无记忆";
+});
+const emptyStateDescription = computed(() => {
+  if (hasActiveFilters.value) return "调整搜索或筛选条件。";
+  if (activeGenerationCount.value > 0) return "系统正在总结历史面试，完成后会自动刷新。";
+  if (generationStatus.value.failed_count > 0) {
+    return "历史面试已经保留，可以重新提交记忆生成任务。";
+  }
+  return "完成面试后，系统会在这里沉淀长期记忆。";
+});
 
 async function loadMemories(): Promise<void> {
   await fetchMemories(0, true);
+}
+
+async function refreshPage(): Promise<void> {
+  await loadMemories();
+  try {
+    await loadGenerationStatus();
+  } catch (error) {
+    hasError.value = true;
+    message.value = error instanceof ApiError ? error.message : "记忆生成状态读取失败。";
+  }
 }
 
 async function loadMoreMemories(): Promise<void> {
@@ -210,6 +275,66 @@ async function fetchMemories(offset: number, reset: boolean): Promise<void> {
   }
 }
 
+async function loadGenerationStatus(): Promise<void> {
+  generationStatus.value = await getMemoryGenerationStatus();
+}
+
+async function retryFailedMemoryTasks(): Promise<void> {
+  retryingMemories.value = true;
+  message.value = "";
+  hasError.value = false;
+  try {
+    const response = await retryFailedMemories();
+    await loadGenerationStatus();
+    if (response.requeued_count === 0) {
+      message.value = "没有可重新生成的失败任务，请确认记忆功能已经开启。";
+      return;
+    }
+    message.value = `已重新提交 ${response.requeued_count} 场面试的记忆生成任务。`;
+    scheduleGenerationPoll();
+  } catch (error) {
+    hasError.value = true;
+    message.value = error instanceof ApiError ? error.message : "重新生成记忆失败。";
+  } finally {
+    retryingMemories.value = false;
+  }
+}
+
+function scheduleGenerationPoll(): void {
+  stopGenerationPoll();
+  if (activeGenerationCount.value === 0) {
+    return;
+  }
+  generationPollTimer = window.setTimeout(async () => {
+    generationPollTimer = null;
+    try {
+      await loadGenerationStatus();
+      if (activeGenerationCount.value === 0) {
+        await loadMemories();
+        if (generationStatus.value.failed_count > 0) {
+          hasError.value = true;
+          message.value = "记忆生成仍未成功，请稍后重新尝试。";
+        } else {
+          hasError.value = false;
+          message.value = "记忆生成完成。";
+        }
+        return;
+      }
+    } catch (error) {
+      hasError.value = true;
+      message.value = error instanceof ApiError ? error.message : "记忆生成状态读取失败。";
+    }
+    scheduleGenerationPoll();
+  }, GENERATION_POLL_INTERVAL_MS);
+}
+
+function stopGenerationPoll(): void {
+  if (generationPollTimer !== null) {
+    window.clearTimeout(generationPollTimer);
+    generationPollTimer = null;
+  }
+}
+
 watch([statusFilter, typeFilter], () => {
   void loadMemories();
 });
@@ -226,6 +351,7 @@ watch(searchText, () => {
 
 onUnmounted(() => {
   requestSequence += 1;
+  stopGenerationPoll();
   if (searchTimer !== null) {
     window.clearTimeout(searchTimer);
   }
@@ -307,8 +433,9 @@ function confidenceText(confidence: number): string {
   return `${Math.round(Math.max(0, Math.min(confidence, 1)) * 100)}%`;
 }
 
-onMounted(() => {
-  void loadMemories();
+onMounted(async () => {
+  await refreshPage();
+  scheduleGenerationPoll();
 });
 </script>
 
@@ -343,6 +470,24 @@ onMounted(() => {
 
 .refresh-button {
   min-width: 106px;
+}
+
+.memory-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.retry-memory-button {
+  border-color: rgb(218 135 32 / 42%);
+  background: #fff8ec;
+  color: #9a5a00;
+}
+
+.retry-memory-button:hover:not(:disabled) {
+  border-color: rgb(218 135 32 / 70%);
+  background: #fff1d8;
 }
 
 .memory-summary {
@@ -453,6 +598,10 @@ onMounted(() => {
 .memory-empty span {
   color: var(--gray-500, #758195);
   font-weight: 700;
+}
+
+.memory-empty .retry-memory-button {
+  margin-top: 8px;
 }
 
 .memory-list {
@@ -627,6 +776,10 @@ onMounted(() => {
     align-items: start;
   }
 
+  .memory-header-actions {
+    justify-content: flex-start;
+  }
+
   .memory-summary,
   .memory-toolbar {
     grid-template-columns: 1fr 1fr;
@@ -649,6 +802,15 @@ onMounted(() => {
 
   .memory-actions {
     justify-content: stretch;
+    width: 100%;
+  }
+
+  .memory-header-actions {
+    display: grid;
+    width: 100%;
+  }
+
+  .memory-header-actions button {
     width: 100%;
   }
 

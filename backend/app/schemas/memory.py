@@ -69,6 +69,21 @@ class MemoryClearStatusResponse(BaseModel):
     error_message: str | None = None
 
 
+class MemoryGenerationStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pending_count: int = Field(default=0, ge=0)
+    processing_count: int = Field(default=0, ge=0)
+    retry_wait_count: int = Field(default=0, ge=0)
+    failed_count: int = Field(default=0, ge=0)
+
+
+class MemoryRetryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requeued_count: int = Field(ge=0)
+
+
 class ManagedMemoryItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -2860,6 +2860,104 @@
         }
       }
     },
+    "/api/memories/generation-status": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Get Generation Status",
+        "operationId": "get_generation_status_api_memories_generation_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryGenerationStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memories/retry-failed": {
+      "post": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Retry Failed Memories",
+        "operationId": "retry_failed_memories_api_memories_retry_failed_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryRetryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/memories/{memory_id}": {
       "delete": {
         "tags": [
@@ -6469,6 +6567,52 @@
           "status"
         ],
         "title": "MemoryClearStatusResponse"
+      },
+      "MemoryGenerationStatusResponse": {
+        "properties": {
+          "pending_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "default": 0
+          },
+          "processing_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Processing Count",
+            "default": 0
+          },
+          "retry_wait_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retry Wait Count",
+            "default": 0
+          },
+          "failed_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Count",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MemoryGenerationStatusResponse"
+      },
+      "MemoryRetryResponse": {
+        "properties": {
+          "requeued_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Requeued Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requeued_count"
+        ],
+        "title": "MemoryRetryResponse"
       },
       "MissingRequirement": {
         "properties": {

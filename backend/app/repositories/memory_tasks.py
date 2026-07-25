@@ -94,12 +94,41 @@ class MemoryTaskRepository:
                 FROM memory_tasks
                 WHERE user_id = %s
                   AND task_type = 'memory_summary'
+                  AND interview_id IS NOT NULL
+                  AND (
+                      status <> 'failed'
+                      OR COALESCE(error_message, '') <> 'cancelled_by_memory_clear'
+                  )
                 GROUP BY status
                 """,
                 (user_id,),
             )
             rows = cursor.fetchall()
         return {str(row["status"]): int(row.get("count") or 0) for row in rows}
+
+    def requeue_failed_summary_tasks(self, user_id: int) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE memory_tasks
+                SET status = 'pending',
+                    retry_count = 0,
+                    next_retry_at = NULL,
+                    error_message = NULL,
+                    result = NULL,
+                    started_at = NULL,
+                    completed_at = NULL,
+                    processing_token = NULL,
+                    heartbeat_at = NULL
+                WHERE user_id = %s
+                  AND task_type = 'memory_summary'
+                  AND status = 'failed'
+                  AND interview_id IS NOT NULL
+                  AND COALESCE(error_message, '') <> 'cancelled_by_memory_clear'
+                """,
+                (user_id,),
+            )
+            return int(cursor.rowcount)
 
     def cancel_summary_tasks_for_user(self, user_id: int) -> int:
         with self.connection.cursor() as cursor:

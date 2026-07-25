@@ -9,7 +9,12 @@ from app.repositories.memories import MemoryRepository
 from app.repositories.memory_tasks import MemoryTaskRecord, MemoryTaskRepository
 from app.repositories.preferences import PreferencesRepository
 from app.repositories.users import UserRecord
-from app.schemas.memory import ManagedMemoryListResponse, MemoryClearStatusResponse
+from app.schemas.memory import (
+    ManagedMemoryListResponse,
+    MemoryClearStatusResponse,
+    MemoryGenerationStatusResponse,
+    MemoryRetryResponse,
+)
 from app.services.memory_index import MemoryIndexService
 from app.services.memory_management import MemoryManagementService
 from app.services.memory_tasks import MemoryTaskService
@@ -72,6 +77,41 @@ def get_clear_status(current_user: UserRecord = CurrentUserDep) -> MemoryClearSt
     if task is None:
         return MemoryClearStatusResponse(task_id=None, status="idle")
     return _clear_status_response(task)
+
+
+@router.get("/generation-status", response_model=MemoryGenerationStatusResponse)
+def get_generation_status(
+    current_user: UserRecord = CurrentUserDep,
+) -> MemoryGenerationStatusResponse:
+    if not current_user.memory_enabled:
+        return MemoryGenerationStatusResponse()
+    with mysql_connection() as connection:
+        counts = MemoryTaskRepository(connection).count_summary_tasks_by_status(
+            current_user.id
+        )
+    return MemoryGenerationStatusResponse(
+        pending_count=counts.get("pending", 0),
+        processing_count=counts.get("processing", 0),
+        retry_wait_count=counts.get("retry_wait", 0),
+        failed_count=counts.get("failed", 0),
+    )
+
+
+@router.post("/retry-failed", response_model=MemoryRetryResponse)
+def retry_failed_memories(
+    current_user: UserRecord = CurrentUserDep,
+) -> MemoryRetryResponse:
+    with mysql_connection() as connection:
+        with memory_user_lock(connection, current_user.id):
+            service = MemoryTaskService(
+                MemoryTaskRepository(connection),
+                PreferencesRepository(connection),
+            )
+            requeued_count = service.retry_failed_summary_tasks_if_enabled(
+                user_id=current_user.id
+            )
+            connection.commit()
+    return MemoryRetryResponse(requeued_count=requeued_count)
 
 
 @router.delete("/{memory_id}", status_code=HTTP_204_NO_CONTENT)

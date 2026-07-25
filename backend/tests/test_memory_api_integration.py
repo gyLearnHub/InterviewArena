@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
@@ -125,6 +126,126 @@ def test_clear_status_is_user_scoped(monkeypatch) -> None:
     }
 
 
+def test_memory_generation_status_is_user_scoped(monkeypatch) -> None:
+    store = _Store()
+    store.users[1] = _user(1, memory_enabled=True)
+    store.users[2] = _user(2, memory_enabled=True)
+    store.tasks = [
+        _task(1, user_id=1, status="failed", task_type="memory_summary", interview_id=43),
+        _task(2, user_id=1, status="pending", task_type="memory_summary", interview_id=44),
+        _task(3, user_id=2, status="failed", task_type="memory_summary", interview_id=45),
+        _task(4, user_id=1, status="failed", task_type="memory_summary"),
+        _task(
+            5,
+            user_id=1,
+            status="failed",
+            task_type="memory_summary",
+            interview_id=46,
+            error_message="cancelled_by_memory_clear",
+        ),
+    ]
+    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
+    app = create_app()
+    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get("/api/memories/generation-status", headers=_auth_headers(1))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "pending_count": 1,
+        "processing_count": 0,
+        "retry_wait_count": 0,
+        "failed_count": 1,
+    }
+
+
+def test_memory_generation_status_is_hidden_when_memory_is_disabled() -> None:
+    store = _Store()
+    store.users[1] = _user(1, memory_enabled=False)
+    store.tasks = [
+        _task(1, user_id=1, status="failed", task_type="memory_summary", interview_id=43)
+    ]
+    app = create_app()
+    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get("/api/memories/generation-status", headers=_auth_headers(1))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "pending_count": 0,
+        "processing_count": 0,
+        "retry_wait_count": 0,
+        "failed_count": 0,
+    }
+
+
+def test_retry_failed_memories_requeues_only_current_user(monkeypatch) -> None:
+    store = _Store()
+    store.users[1] = _user(1, memory_enabled=True)
+    store.users[2] = _user(2, memory_enabled=True)
+    store.tasks = [
+        _task(
+            1,
+            user_id=1,
+            status="failed",
+            task_type="memory_summary",
+            interview_id=43,
+            retry_count=3,
+            error_message="processing_timeout",
+        ),
+        _task(
+            2,
+            user_id=2,
+            status="failed",
+            task_type="memory_summary",
+            interview_id=44,
+            retry_count=3,
+            error_message="processing_timeout",
+        ),
+    ]
+    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
+    app = create_app()
+    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post("/api/memories/retry-failed", headers=_auth_headers(1))
+
+    assert response.status_code == 200
+    assert response.json() == {"requeued_count": 1}
+    assert store.tasks[0].status == "pending"
+    assert store.tasks[0].retry_count == 0
+    assert store.tasks[0].error_message is None
+    assert store.tasks[1].status == "failed"
+
+
+def test_retry_failed_memories_does_nothing_when_memory_is_disabled(monkeypatch) -> None:
+    store = _Store()
+    store.users[1] = _user(1, memory_enabled=False)
+    store.tasks = [
+        _task(
+            1,
+            user_id=1,
+            status="failed",
+            task_type="memory_summary",
+            interview_id=43,
+            retry_count=3,
+        )
+    ]
+    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
+    app = create_app()
+    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post("/api/memories/retry-failed", headers=_auth_headers(1))
+
+    assert response.status_code == 200
+    assert response.json() == {"requeued_count": 0}
+    assert store.tasks[0].status == "failed"
+    assert store.tasks[0].retry_count == 3
+
+
 class _Store:
     def __init__(self) -> None:
         self.users: dict[int, UserRecord] = {}
@@ -207,6 +328,51 @@ class _Connection:
             normalized.startswith("update memory_tasks")
             and "cancelled_by_memory_clear" in normalized
         ):
+            if "set status = 'pending'" in normalized:
+                user_id = int(params[0])
+                updated_tasks: list[MemoryTaskRecord] = []
+                for task in self.store.tasks:
+                    if (
+                        task.user_id == user_id
+                        and task.task_type == "memory_summary"
+                        and task.status == "failed"
+                        and task.interview_id is not None
+                        and task.error_message != "cancelled_by_memory_clear"
+                    ):
+                        task = replace(
+                            task,
+                            status="pending",
+                            retry_count=0,
+                            next_retry_at=None,
+                            error_message=None,
+                            result=None,
+                            started_at=None,
+                            completed_at=None,
+                            processing_token=None,
+                            heartbeat_at=None,
+                        )
+                        self.rowcount += 1
+                    updated_tasks.append(task)
+                self.store.tasks = updated_tasks
+            return
+        if normalized.startswith("select status, count(*) as count from memory_tasks"):
+            user_id = int(params[0])
+            counts: dict[str, int] = {}
+            for task in self.store.tasks:
+                if (
+                    task.user_id == user_id
+                    and task.task_type == "memory_summary"
+                    and task.interview_id is not None
+                    and not (
+                        task.status == "failed"
+                        and task.error_message == "cancelled_by_memory_clear"
+                    )
+                ):
+                    counts[task.status] = counts.get(task.status, 0) + 1
+            self._result = [
+                {"status": status, "count": count}
+                for status, count in counts.items()
+            ]
             return
         if normalized.startswith("select * from memory_tasks where user_id"):
             user_id = int(params[0])
@@ -233,6 +399,9 @@ class _Connection:
 
     def fetchone(self) -> Any:
         return self._result
+
+    def fetchall(self) -> list[Any]:
+        return self._result if isinstance(self._result, list) else []
 
     def commit(self) -> None:
         self.committed = True
@@ -281,19 +450,23 @@ def _task(
     user_id: int,
     status: str,
     result: dict[str, Any] | None = None,
+    task_type: str = "memory_clear",
+    interview_id: int | None = None,
+    retry_count: int = 0,
+    error_message: str | None = None,
 ) -> MemoryTaskRecord:
     return MemoryTaskRecord(
         id=task_id,
-        task_type="memory_clear",
+        task_type=task_type,
         user_id=user_id,
-        interview_id=None,
+        interview_id=interview_id,
         memory_collection=None,
         memory_id=None,
         status=status,
-        retry_count=0,
+        retry_count=retry_count,
         max_retries=3,
         next_retry_at=None,
-        error_message=None,
+        error_message=error_message,
         result=result,
         created_at=datetime(2026, 6, 18, 9, 0, 0),
         started_at=None,

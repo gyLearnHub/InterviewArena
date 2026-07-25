@@ -123,6 +123,25 @@ def test_mark_failed_or_retry_fails_at_retry_limit() -> None:
     assert params == ("failed", 3, None, None, "still failing", "failed", 7, "lease-token")
 
 
+def test_requeue_failed_summary_tasks_is_user_scoped_and_resets_task_state() -> None:
+    connection = _FakeConnection()
+    repository = MemoryTaskRepository(connection)
+
+    requeued_count = repository.requeue_failed_summary_tasks(9)
+
+    sql, params = connection.cursor_obj.executions[-1]
+    normalized = " ".join(sql.lower().split())
+    assert requeued_count == 1
+    assert params == (9,)
+    assert "set status = 'pending'" in normalized
+    assert "retry_count = 0" in normalized
+    assert "user_id = %s" in normalized
+    assert "task_type = 'memory_summary'" in normalized
+    assert "status = 'failed'" in normalized
+    assert "interview_id is not null" in normalized
+    assert "cancelled_by_memory_clear" in normalized
+
+
 def test_memory_clear_vector_failure_is_recorded_for_retry(monkeypatch) -> None:
     task = _task(retry_count=0, max_retries=3, task_type="memory_clear")
     retry_calls: list[tuple[MemoryTaskRecord, str]] = []

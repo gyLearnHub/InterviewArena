@@ -61,6 +61,11 @@ class MemoryTaskService:
     def latest_clear_task(self, user_id: int) -> MemoryTaskRecord | None:
         return self.tasks.latest_clear_task(user_id)
 
+    def retry_failed_summary_tasks_if_enabled(self, *, user_id: int) -> int:
+        if self.preferences is not None and not self.preferences.get_memory_enabled(user_id):
+            return 0
+        return self.tasks.requeue_failed_summary_tasks(user_id)
+
 
 class MemoryTaskRunner:
     def run_once(self) -> bool:
