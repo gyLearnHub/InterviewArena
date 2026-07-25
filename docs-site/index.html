@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="InterviewArena 使用、配置与部署指南：从本地启动、登录安全到数据库升级和生产发布。"
+    />
+    <meta name="theme-color" content="#6d4aff" />
+    <title>InterviewArena · 使用、配置与部署指南</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">跳到正文</a>
+    <div class="scroll-progress" aria-hidden="true"><span></span></div>
+
+    <button
+      class="nav-toggle"
+      type="button"
+      aria-label="打开文档导航"
+      aria-expanded="false"
+      aria-controls="sidebar"
+    >
+      <span></span><span></span>
+    </button>
+
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="InterviewArena 文档首页">
+        <span class="pixel-mark" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </span>
+        <span>
+          <strong>InterviewArena</strong>
+          <small>Field guide</small>
+        </span>
+      </a>
+
+      <nav class="doc-nav" aria-label="文档章节">
+        <p>开始</p>
+        <a href="#overview" class="is-active"><span>00</span>概览</a>
+        <a href="#stack"><span>01</span>技术栈</a>
+        <a href="#quickstart"><span>02</span>快速开始</a>
+
+        <p>配置</p>
+        <a href="#configuration"><span>03</span>环境配置</a>
+        <a href="#security"><span>04</span>登录安全</a>
+        <a href="#database"><span>05</span>数据库</a>
+
+        <p>交付</p>
+        <a href="#health"><span>06</span>健康检查</a>
+        <a href="#quality"><span>07</span>质量保障</a>
+        <a href="#release"><span>08</span>生产发布</a>
+      </nav>
+
+      <div class="sidebar-note">
+        <span class="status-dot"></span>
+        <div>
+          <strong>文档来源</strong>
+          <a
+            href="https://github.com/gyLearnHub/InterviewArena"
+            target="_blank"
+            rel="noreferrer"
+            >gyLearnHub/InterviewArena</a
+          >
+        </div>
+      </div>
+    </aside>
+
+    <main id="content">
+      <header class="hero" id="overview">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-copy">
+          <p class="eyebrow">INTERVIEWARENA / OPERATOR MANUAL</p>
+          <h1>把项目跑起来，<br /><em>再稳稳地上线。</em></h1>
+          <p class="lede">
+            这份指南只回答三件事：本地怎样启动、问题怎样定位、生产环境怎样安全发布。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#quickstart">开始本地运行</a>
+            <a class="button button-ghost" href="#release">查看发布清单</a>
+          </div>
+        </div>
+
+        <div class="runway" aria-label="交付路径：本地运行、质量验证、生产发布">
+          <div class="runway-line"></div>
+          <article class="runway-stop is-current">
+            <span>01</span>
+            <div><strong>LOCAL</strong><small>本地运行</small></div>
+          </article>
+          <article class="runway-stop">
+            <span>02</span>
+            <div><strong>VERIFY</strong><small>质量验证</small></div>
+          </article>
+          <article class="runway-stop">
+            <span>03</span>
+            <div><strong>RELEASE</strong><small>生产发布</small></div>
+          </article>
+        </div>
+      </header>
+
+      <section class="route-picker" aria-labelledby="route-title">
+        <div class="section-label" id="route-title">按当前任务进入</div>
+        <div class="route-grid">
+          <a class="route-card route-start" href="#quickstart">
+            <span class="route-icon">↗</span>
+            <small>第一次运行</small>
+            <strong>从零启动前后端</strong>
+            <p>准备 Python、Node.js、MySQL 和模型 API。</p>
+          </a>
+          <a class="route-card route-auth" href="#security">
+            <span class="route-icon">◎</span>
+            <small>登录不生效</small>
+            <strong>检查 Cookie 与 CSRF</strong>
+            <p>定位 HTTP、跨域来源和请求头配置。</p>
+          </a>
+          <a class="route-card route-data" href="#database">
+            <span class="route-icon">⇅</span>
+            <small>已有数据库</small>
+            <strong>安全执行版本迁移</strong>
+            <p>使用迁移记录和数据库锁完成升级。</p>
+          </a>
+          <a class="route-card route-release" href="#release">
+            <span class="route-icon">✓</span>
+            <small>准备上线</small>
+            <strong>逐项完成发布检查</strong>
+            <p>核对 HTTPS、密钥、迁移和就绪状态。</p>
+          </a>
+        </div>
+      </section>
+
+      <section class="doc-section" id="stack">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">01 / SYSTEM MAP</p>
+            <h2>技术栈</h2>
+          </div>
+          <p>
+            先知道每一层由什么组成，遇到问题时才能快速找到对应目录和检查命令。
+          </p>
+        </div>
+
+        <div class="stack-board">
+          <article>
+            <span class="stack-number">FE</span>
+            <div><small>CLIENT</small><strong>Vue 3.5</strong></div>
+            <p>Vue Router 4 · TypeScript 6 · Vite 6</p>
+          </article>
+          <article>
+            <span class="stack-number">BE</span>
+            <div><small>API</small><strong>FastAPI</strong></div>
+            <p>Python 3.11 · Pydantic 2 · Uvicorn · HTTPX</p>
+          </article>
+          <article>
+            <span class="stack-number">DB</span>
+            <div><small>DATA</small><strong>MySQL 8+</strong></div>
+            <p>Redis · 本地文件 · 可选 Chroma / Reranker</p>
+          </article>
+          <article>
+            <span class="stack-number">QA</span>
+            <div>
+              <small>QUALITY</small><strong>pytest + Playwright</strong>
+            </div>
+            <p>Ruff · mypy · ESLint · Prettier · vue-tsc</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="doc-section" id="quickstart">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">02 / LOCAL RUNWAY</p>
+            <h2>快速开始</h2>
+          </div>
+          <p>
+            下面五步是有顺序的。第一次运行时不要跳过数据库初始化或本地 Cookie
+            配置。
+          </p>
+        </div>
+
+        <div class="requirements">
+          <div>
+            <small>必须准备</small>
+            <strong>Python 3.11+</strong>
+            <strong>Node.js 20+</strong>
+            <strong>MySQL 8+</strong>
+            <strong>DeepSeek 兼容 API</strong>
+          </div>
+          <div>
+            <small>按需安装</small>
+            <strong>Redis</strong>
+            <p>短期记忆缓存；不可用时从 MySQL 重建。</p>
+            <strong>LibreOffice</strong>
+            <p>仅解析旧版 <code>.doc</code> 文件时需要。</p>
+          </div>
+        </div>
+
+        <div class="steps">
+          <article class="step">
+            <div class="step-rail"><span>01</span></div>
+            <div class="step-content">
+              <p class="step-label">GET THE CODE</p>
+              <h3>获取项目</h3>
+              <div class="code-card">
+                <div class="code-head">
+                  <span>PowerShell</span><button type="button">复制</button>
+                </div>
+                <pre><code>git clone https://github.com/gyLearnHub/InterviewArena.git
+cd InterviewArena</code></pre>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <div class="step-rail"><span>02</span></div>
+            <div class="step-content">
+              <p class="step-label">PREPARE DATA</p>
+              <h3>创建 MySQL 数据库</h3>
+              <p>确保连接账户拥有建表、读写和变更权限。</p>
+              <div class="code-card">
+                <div class="code-head">
+                  <span>SQL</span><button type="button">复制</button>
+                </div>
+                <pre><code>CREATE DATABASE interview_arena
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;</code></pre>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <div class="step-rail"><span>03</span></div>
+            <div class="step-content">
+              <p class="step-label">BOOT THE API</p>
+              <h3>安装并启动后端</h3>
+              <div class="code-card">
+                <div class="code-head">
+                  <span>PowerShell</span><button type="button">复制</button>
+                </div>
+                <pre><code>python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r backend\requirements-dev.txt
+Copy-Item backend\.env.example backend\.env</code></pre>
+              </div>
+
+              <div class="callout callout-important">
+                <span>本地登录关键项</span>
+                <p>
+                  使用 HTTP 时必须设置
+                  <code>AUTH_COOKIE_SECURE=false</code>，否则浏览器不会发送登录
+                  Cookie。
+                </p>
+              </div>
+
+              <div class="code-card">
+                <div class="code-head">
+                  <span>backend/.env · 最小配置</span
+                  ><button type="button">复制</button>
+                </div>
+                <pre><code>APP_ENV=development
+DATABASE_URL=mysql+pymysql://USER:PASSWORD@127.0.0.1:3306/interview_arena?charset=utf8mb4
+JWT_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters
+DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=your_available_model
+AUTH_COOKIE_SECURE=false
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173</code></pre>
+              </div>
+
+              <div class="code-card">
+                <div class="code-head">
+                  <span>PowerShell</span><button type="button">复制</button>
+                </div>
+                <pre><code>python backend\scripts\init_db.py
+python backend\main.py</code></pre>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <div class="step-rail"><span>04</span></div>
+            <div class="step-content">
+              <p class="step-label">OPEN THE CLIENT</p>
+              <h3>启动前端</h3>
+              <div class="code-card">
+                <div class="code-head">
+                  <span>新终端 · PowerShell</span
+                  ><button type="button">复制</button>
+                </div>
+                <pre><code>cd frontend
+npm ci
+npm run dev</code></pre>
+              </div>
+              <p>
+                打开
+                <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a>。Vite
+                会把 <code>/api</code> 转发到
+                <code>http://127.0.0.1:8000</code>。
+              </p>
+            </div>
+          </article>
+
+          <article class="step">
+            <div class="step-rail"><span>05</span></div>
+            <div class="step-content">
+              <p class="step-label">CHECK THE SYSTEM</p>
+              <h3>确认服务可用</h3>
+              <div class="endpoint-grid">
+                <a href="http://127.0.0.1:8000/docs"
+                  ><small>API 文档</small><strong>/docs</strong></a
+                >
+                <a href="http://127.0.0.1:8000/api/health"
+                  ><small>存活检查</small><strong>/api/health</strong></a
+                >
+                <a href="http://127.0.0.1:8000/api/health/ready"
+                  ><small>就绪检查</small><strong>/api/health/ready</strong></a
+                >
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="doc-section" id="configuration">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">03 / CONTROL PANEL</p>
+            <h2>环境配置</h2>
+          </div>
+          <p>
+            完整模板位于
+            <a
+              href="https://github.com/gyLearnHub/InterviewArena/blob/master/backend/.env.example"
+              >backend/.env.example</a
+            >。下面只列最常改、最容易配错的项目。
+          </p>
+        </div>
+
+        <div class="env-switch">
+          <article>
+            <div class="env-title">
+              <span class="env-dot local"></span><strong>LOCAL</strong
+              ><small>本地 HTTP</small>
+            </div>
+            <dl>
+              <div>
+                <dt>APP_ENV</dt>
+                <dd>development</dd>
+              </div>
+              <div>
+                <dt>AUTH_COOKIE_SECURE</dt>
+                <dd>false</dd>
+              </div>
+              <div>
+                <dt>AUTH_COOKIE_SAMESITE</dt>
+                <dd>lax</dd>
+              </div>
+              <div>
+                <dt>AUTO_MIGRATE_ON_STARTUP</dt>
+                <dd>true</dd>
+              </div>
+              <div>
+                <dt>CORS</dt>
+                <dd>localhost / 127.0.0.1</dd>
+              </div>
+            </dl>
+          </article>
+          <article>
+            <div class="env-title">
+              <span class="env-dot production"></span><strong>PRODUCTION</strong
+              ><small>生产 HTTPS</small>
+            </div>
+            <dl>
+              <div>
+                <dt>APP_ENV</dt>
+                <dd>production</dd>
+              </div>
+              <div>
+                <dt>AUTH_COOKIE_SECURE</dt>
+                <dd>true</dd>
+              </div>
+              <div>
+                <dt>AUTH_COOKIE_SAMESITE</dt>
+                <dd>lax / none</dd>
+              </div>
+              <div>
+                <dt>AUTO_MIGRATE_ON_STARTUP</dt>
+                <dd>false</dd>
+              </div>
+              <div>
+                <dt>CORS</dt>
+                <dd>精确的前端 HTTPS 来源</dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+
+        <div class="config-groups">
+          <article>
+            <span>CORE</span>
+            <h3>应用核心</h3>
+            <dl>
+              <div>
+                <dt>DATABASE_URL</dt>
+                <dd>MySQL 连接地址</dd>
+              </div>
+              <div>
+                <dt>JWT_SECRET_KEY</dt>
+                <dd>至少 32 字符；环境之间不共用</dd>
+              </div>
+              <div>
+                <dt>JWT_EXPIRE_MINUTES</dt>
+                <dd>默认 1440 分钟</dd>
+              </div>
+            </dl>
+          </article>
+          <article>
+            <span>MODEL</span>
+            <h3>模型服务</h3>
+            <dl>
+              <div>
+                <dt>DEEPSEEK_API_KEY</dt>
+                <dd>面试与评估必须配置</dd>
+              </div>
+              <div>
+                <dt>DEEPSEEK_BASE_URL</dt>
+                <dd>默认 api.deepseek.com</dd>
+              </div>
+              <div>
+                <dt>DEEPSEEK_MODEL</dt>
+                <dd>填写账户可用模型</dd>
+              </div>
+            </dl>
+          </article>
+          <article>
+            <span>MEMORY</span>
+            <h3>记忆与缓存</h3>
+            <dl>
+              <div>
+                <dt>REDIS_URL</dt>
+                <dd>短期记忆缓存，可选</dd>
+              </div>
+              <div>
+                <dt>CHROMA_ENABLED</dt>
+                <dd>向量存储开关</dd>
+              </div>
+              <div>
+                <dt>EMBEDDING_MODEL_PATH</dt>
+                <dd>本地嵌入模型路径</dd>
+              </div>
+            </dl>
+          </article>
+          <article>
+            <span>BROWSER</span>
+            <h3>Cookie 与跨域</h3>
+            <dl>
+              <div>
+                <dt>CSRF_PROTECTION_ENABLED</dt>
+                <dd>保持 true</dd>
+              </div>
+              <div>
+                <dt>CSRF_HEADER_NAME</dt>
+                <dd>默认 X-CSRF-Token</dd>
+              </div>
+              <div>
+                <dt>CORS_ALLOWED_ORIGINS</dt>
+                <dd>禁止使用 *</dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+
+        <div class="callout">
+          <span>前端不使用 Vite 代理？</span>
+          <p>
+            设置
+            <code>VITE_API_BASE_URL=http://127.0.0.1:8000/api</code>，然后重启
+            Vite 开发服务器。
+          </p>
+        </div>
+      </section>
+
+      <section class="doc-section" id="security">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">04 / REQUEST CHAIN</p>
+            <h2>Cookie、CSRF 与跨域</h2>
+          </div>
+          <p>
+            登录态由两类 Cookie
+            协同完成；只配置其中一项，会导致登录失效或写请求被拒绝。
+          </p>
+        </div>
+
+        <div class="request-chain">
+          <article>
+            <span>1</span><small>LOGIN</small><strong>登录成功</strong>
+            <p>后端签发访问令牌。</p>
+          </article>
+          <i>→</i>
+          <article>
+            <span>2</span><small>COOKIES</small><strong>写入两类 Cookie</strong>
+            <p>访问令牌使用 HttpOnly；CSRF 值允许前端读取。</p>
+          </article>
+          <i>→</i>
+          <article>
+            <span>3</span><small>WRITE</small><strong>写请求回传 CSRF</strong>
+            <p>前端在指定请求头中发送 CSRF Cookie 值。</p>
+          </article>
+        </div>
+
+        <div class="diagnostic">
+          <div>
+            <p class="section-kicker">LOGIN DIAGNOSTIC</p>
+            <h3>登录状态保存不了？</h3>
+            <p>从上到下检查，通常无需修改代码。</p>
+          </div>
+          <ol>
+            <li>
+              <span>01</span>本地 HTTP 是否设置了
+              <code>AUTH_COOKIE_SECURE=false</code>
+            </li>
+            <li>
+              <span>02</span>浏览器来源是否与
+              <code>CORS_ALLOWED_ORIGINS</code> 完全一致
+            </li>
+            <li><span>03</span>前端请求是否允许携带 Cookie</li>
+            <li><span>04</span>写请求是否回传 <code>X-CSRF-Token</code></li>
+            <li><span>05</span>修改环境变量后是否已经重启对应进程</li>
+          </ol>
+        </div>
+
+        <div class="callout callout-warning">
+          <span>跨站部署</span>
+          <p>
+            前后端真正跨站时使用
+            <code>AUTH_COOKIE_SAMESITE=none</code>，并且必须同时启用
+            <code>AUTH_COOKIE_SECURE=true</code>。
+          </p>
+        </div>
+      </section>
+
+      <section class="doc-section" id="database">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">05 / DATA SAFETY</p>
+            <h2>数据库初始化与升级</h2>
+          </div>
+          <p>
+            迁移带版本记录和 MySQL
+            命名锁。重复执行会跳过已完成版本，多实例不会同时改表。
+          </p>
+        </div>
+
+        <div class="command-pair">
+          <article>
+            <span>NEW DATABASE</span>
+            <h3>新环境</h3>
+            <p>创建基础表，并执行全部版本化迁移。</p>
+            <div class="inline-command">
+              <code>python backend\scripts\init_db.py</code
+              ><button type="button">复制</button>
+            </div>
+          </article>
+          <article>
+            <span>EXISTING DATABASE</span>
+            <h3>已有数据库</h3>
+            <p>只执行尚未应用的版本化迁移。</p>
+            <div class="inline-command">
+              <code>python backend\scripts\migrate_v1.py</code
+              ><button type="button">复制</button>
+            </div>
+          </article>
+        </div>
+
+        <div class="release-sequence">
+          <p class="section-kicker">PRODUCTION MIGRATION</p>
+          <div>
+            <article>
+              <span>01</span><strong>备份数据库</strong
+              ><small>先确认备份可恢复</small>
+            </article>
+            <article>
+              <span>02</span><strong>执行迁移</strong
+              ><small>在发布阶段单独运行</small>
+            </article>
+            <article>
+              <span>03</span><strong>启动实例</strong
+              ><small>关闭启动时自动迁移</small>
+            </article>
+            <article>
+              <span>04</span><strong>检查就绪</strong
+              ><small>确认关键检查无失败</small>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="doc-section" id="health">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">06 / SYSTEM PULSE</p>
+            <h2>健康检查</h2>
+          </div>
+          <p>
+            存活检查回答“进程是否响应”，就绪检查回答“服务是否具备接收真实请求的条件”。
+          </p>
+        </div>
+
+        <div class="health-grid">
+          <article>
+            <div class="health-head">
+              <span class="pulse"></span><small>LIVENESS</small>
+            </div>
+            <h3>/api/health</h3>
+            <p>API 进程可响应时返回 HTTP 200。</p>
+            <code>{"status":"ok"}</code>
+          </article>
+          <article>
+            <div class="health-head">
+              <span class="pulse pulse-ready"></span><small>READINESS</small>
+            </div>
+            <h3>/api/health/ready</h3>
+            <p>检查配置、MySQL、目录和后台任务运行器。</p>
+            <div class="status-row">
+              <span class="status-ok">ok · 200</span
+              ><span class="status-warn">degraded · 200</span
+              ><span class="status-fail">failed · 503</span>
+            </div>
+          </article>
+        </div>
+
+        <div class="code-card">
+          <div class="code-head">
+            <span>PowerShell</span><button type="button">复制</button>
+          </div>
+          <pre><code>Invoke-RestMethod http://127.0.0.1:8000/api/health
+Invoke-RestMethod http://127.0.0.1:8000/api/health/ready</code></pre>
+        </div>
+      </section>
+
+      <section class="doc-section" id="quality">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">07 / QUALITY GATE</p>
+            <h2>质量保障</h2>
+          </div>
+          <p>根据改动范围选择检查级别。核心流程或发布前验证应包含 E2E。</p>
+        </div>
+
+        <div class="quality-levels">
+          <article>
+            <span>FAST</span>
+            <h3>快速检查</h3>
+            <p>日常开发和小范围修改。</p>
+            <code>scripts\quality.ps1</code>
+          </article>
+          <article>
+            <span>FULL</span>
+            <h3>全量检查</h3>
+            <p>合并前或同时涉及前后端。</p>
+            <code>scripts\quality.ps1 -Full</code>
+          </article>
+          <article>
+            <span>FLOW</span>
+            <h3>包含 E2E</h3>
+            <p>核心用户流程或发布前验证。</p>
+            <code>scripts\quality.ps1 -E2E</code>
+          </article>
+        </div>
+
+        <div class="callout">
+          <span>首次运行 E2E</span>
+          <p>
+            先在 <code>frontend</code> 目录执行
+            <code>npx playwright install chromium --only-shell</code>。
+          </p>
+        </div>
+      </section>
+
+      <section class="doc-section release-section" id="release">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">08 / RELEASE CLEARANCE</p>
+            <h2>生产部署检查清单</h2>
+          </div>
+          <p>
+            所有项目确认后再对外开放服务。浏览器会在本机保存勾选状态，刷新页面不会丢失。
+          </p>
+        </div>
+
+        <div class="checklist" data-checklist>
+          <label
+            ><input type="checkbox" /><span></span><strong>运行环境</strong
+            ><small><code>APP_ENV=production</code></small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>签名密钥</strong
+            ><small>使用独立且足够长的随机 JWT 密钥</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>数据库</strong
+            ><small>账户权限受限，迁移前已经完成备份</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>HTTPS</strong
+            ><small><code>AUTH_COOKIE_SECURE=true</code></small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>CSRF</strong
+            ><small>防护保持开启</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>CORS</strong
+            ><small>仅允许实际前端域名，没有使用通配符</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>迁移</strong
+            ><small>已在发布阶段显式执行数据库迁移</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>启动策略</strong
+            ><small><code>AUTO_MIGRATE_ON_STARTUP=false</code></small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>敏感文件</strong
+            ><small>.env、密钥、上传和缓存未进入仓库</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>成本</strong
+            ><small>已评估模型调用费用</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>就绪状态</strong
+            ><small>/api/health/ready 没有关键检查失败</small></label
+          >
+          <label
+            ><input type="checkbox" /><span></span><strong>质量门禁</strong
+            ><small>已运行与发布范围匹配的检查</small></label
+          >
+        </div>
+
+        <div class="release-meter" aria-live="polite">
+          <div><span></span></div>
+          <p><strong>0</strong> / 12 已确认</p>
+        </div>
+      </section>
+
+      <footer>
+        <div class="footer-mark pixel-mark" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div>
+          <strong>InterviewArena</strong>
+          <p>
+            多 Agent 协作、长短期记忆与可观测 Harness 驱动的 AI 面试训练系统。
+          </p>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/gyLearnHub/InterviewArena">GitHub</a>
+          <a href="https://github.com/gyLearnHub/InterviewArena/issues"
+            >Issues</a
+          >
+          <a href="#overview">回到顶部 ↑</a>
+        </div>
+      </footer>
+    </main>
+
+    <div class="nav-backdrop" aria-hidden="true"></div>
+  </body>
+</html>

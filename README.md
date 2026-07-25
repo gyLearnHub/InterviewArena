@@ -124,6 +124,8 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
 
 ## 使用、配置与部署
 
-技术栈、快速开始、环境变量、Cookie 与 CSRF、跨域访问、数据库升级、健康检查、质量保障和生产发布要求统一放在独立文档中：
+技术栈、快速开始、环境变量、Cookie 与 CSRF、跨域访问、数据库升级、健康检查、质量保障和生产发布要求统一放在独立文档站中：
 
-👉 [查看完整使用、配置与部署指南](docs/configuration-and-deployment.md)
+👉 [打开 InterviewArena 使用、配置与部署指南](https://gylearnhub.github.io/InterviewArena/)
+
+如果文档站暂时不可用，也可以查看[仓库内 Markdown 版本](docs/configuration-and-deployment.md)。
