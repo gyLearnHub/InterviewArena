@@ -14,15 +14,17 @@
 
 <p align="center">
   <a href="https://github.com/gyLearnHub/InterviewArena/actions/workflows/quality.yml"><img src="https://img.shields.io/github/actions/workflow/status/gyLearnHub/InterviewArena/quality.yml?branch=master&label=quality&style=flat-square" alt="Quality workflow" /></a>
-  <a href="https://github.com/gyLearnHub/InterviewArena/actions/workflows/e2e.yml"><img src="https://img.shields.io/github/actions/workflow/status/gyLearnHub/InterviewArena/e2e.yml?branch=master&label=e2e&style=flat-square" alt="E2E workflow" /></a>
+  <a href="https://github.com/gyLearnHub/InterviewArena/actions/workflows/e2e.yml"><img src="https://img.shields.io/github/actions/workflow/status/gyLearnHub/InterviewArena/e2e.yml?label=e2e&style=flat-square" alt="E2E workflow" /></a>
 </p>
 
 <p align="center">
   <a href="#核心优势">核心优势</a> ·
   <a href="#长短期记忆">长短期记忆</a> ·
   <a href="#训练闭环">训练闭环</a> ·
+  <a href="#隐私安全与可靠性">隐私、安全与可靠性</a> ·
   <a href="#产品预览">产品预览</a> ·
-  <a href="#系统架构">系统架构</a>
+  <a href="#系统架构">系统架构</a> ·
+  <a href="#持续集成ci">持续集成</a>
 </p>
 
 ## 核心优势
@@ -79,6 +81,16 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
 
 系统在单场面试中持续更新短期上下文，结束后再把评估结果沉淀为长期记忆和复盘任务，供下一次训练使用。
 
+## 隐私、安全与可靠性
+
+InterviewArena 会处理简历、岗位描述和面试记录，因此模型调用边界与个人数据生命周期也是系统能力的一部分：
+
+- **模型数据边界**：只有用户明确授权后，系统才会把脱敏后的简历、岗位描述和面试内容发送给第三方模型服务；授权可以在设置中撤回。
+- **个人数据控制**：设置页支持导出账户数据副本、清除长期记忆和注销账户；删除简历或历史记录时会同步处理相关引用，避免残留可识别内容。
+- **可靠执行与排障**：登录和注册接口包含限流保护，后台任务使用持久化状态、租约、幂等键和重试机制；就绪检查、请求编号和指标接口用于发现数据库、存储与任务运行器异常。
+
+具体的数据保留规则、部署约束和生产检查项见[模型数据与个人数据生命周期](docs/configuration-and-deployment.md#模型数据与个人数据生命周期)。
+
 ## 产品预览
 
 <table>
@@ -115,6 +127,17 @@ InterviewArena 的重点不是“接入一个模型然后连续出题”，而�
 <p align="center">
   <img src=".github/assets/readme-architecture.png" width="100%" alt="InterviewArena 分层系统架构：Vue 3、FastAPI、面试编排器、四类 Agent、评估、技能、Memory RAG、Harness、安全进化以及数据与模型基础设施" />
 </p>
+
+## 持续集成（CI）
+
+CI 是 **Continuous Integration（持续集成）** 的缩写。README 顶部的徽章显示 GitHub Actions 自动检查的最近结果：
+
+| 徽章      | 覆盖范围                                                                                                              | 状态来源                                        |
+| --------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `quality` | 生成的 API 契约一致性、后端 Ruff/Mypy/Pytest，以及前端 ESLint/Prettier、类型检查和生产构建                            | `master` 分支最近一次 Quality 工作流            |
+| `e2e`     | Playwright 前端端到端测试，以及连接真实 FastAPI、MySQL 和 Redis 的全栈 smoke 测试，覆盖就绪检查、注册登录和工作台加载 | 最近一次由 Pull Request 或手动触发的 E2E 工作流 |
+
+绿色 `passing` 表示对应工作流最近一次运行全部通过；红色 `failing` 表示至少有一项检查失败。点击徽章可以查看运行记录和失败日志。徽章通过不代表项目绝对没有缺陷，但说明当前代码已经通过仓库定义的自动化质量门槛。
 
 ## 从一次真实练习开始
 
