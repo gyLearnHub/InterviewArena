@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import Iterator
 from datetime import datetime
 from threading import Event, Thread
 from typing import Any, Literal, TypeVar, cast
@@ -14,7 +13,7 @@ from app.autonomous_evolution.runtime import prepare_interview_evolution_context
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
 from app.repositories.evaluations import EvaluationRepository
 from app.repositories.harness import HarnessRepository
 from app.repositories.history import HistoryRepository
@@ -66,11 +65,18 @@ from app.schemas.interview import (
 from app.schemas.short_term_memory import ShortTermMemoryStatus
 from app.services.evaluations import EvaluationSchedulerService
 from app.services.history import HistoryService
-from app.services.interview_mutation_lock import interview_mutation_lock
+from app.services.interview_mutation_lock import (
+    interview_mutation_lock,
+    user_history_mutation_lock,
+)
 from app.services.interviews import InterviewService
 from app.services.llm import LLMClient, get_llm_client
 from app.services.memory_retrieval import MemoryRetrievalService
 from app.services.memory_tasks import MemoryTaskService
+from app.services.privacy import (
+    ensure_external_model_consent,
+    require_external_model_consent_value,
+)
 from app.services.runner_health import record_runner_failure, record_runner_success
 from app.services.short_term_memory import ShortTermMemoryService
 from app.services.short_term_memory_store import get_short_term_memory_store
@@ -84,24 +90,22 @@ OptionalInterviewFinishBody = Body(default=None)
 T = TypeVar("T")
 
 
-def get_interview_repository() -> Iterator[InterviewRepository]:
-    with mysql_connection() as connection:
-        yield InterviewRepository(connection)
+def get_interview_repository(connection: Any = DatabaseConnectionDep) -> InterviewRepository:
+    return InterviewRepository(connection)
 
 
-def get_history_repository() -> Iterator[HistoryRepository]:
-    with mysql_connection() as connection:
-        yield HistoryRepository(connection)
+def get_history_repository(connection: Any = DatabaseConnectionDep) -> HistoryRepository:
+    return HistoryRepository(connection)
 
 
-def get_harness_repository() -> Iterator[HarnessRepository]:
-    with mysql_connection() as connection:
-        yield HarnessRepository(connection)
+def get_harness_repository(connection: Any = DatabaseConnectionDep) -> HarnessRepository:
+    return HarnessRepository(connection)
 
 
-def get_interview_operation_task_repository() -> Iterator[InterviewOperationTaskRepository]:
-    with mysql_connection() as connection:
-        yield InterviewOperationTaskRepository(connection)
+def get_interview_operation_task_repository(
+    connection: Any = DatabaseConnectionDep,
+) -> InterviewOperationTaskRepository:
+    return InterviewOperationTaskRepository(connection)
 
 
 InterviewRepositoryDep = Depends(get_interview_repository)
@@ -161,17 +165,25 @@ def create_interview(
     current_user: UserRecord = CurrentUserDep,
     service: InterviewService = InterviewServiceDep,
 ) -> InterviewCreateResponse:
-    interview = service.create_interview(
-        user_id=current_user.id,
-        resume_id=request.resume_id,
-        target_position=request.target_position,
-        job_description=request.job_description,
-        selected_rounds=request.selected_rounds,
-        interview_goal=request.interview_goal,
-        difficulty=request.difficulty,
-        experience_mode=request.experience_mode,
-        time_limit_minutes=request.time_limit_minutes,
+    require_external_model_consent_value(current_user.external_model_consent)
+    connection = getattr(service.repository, "connection", None)
+    history_lock = (
+        user_history_mutation_lock(connection, current_user.id)
+        if connection is not None
+        else contextlib.nullcontext()
     )
+    with history_lock:
+        interview = service.create_interview(
+            user_id=current_user.id,
+            resume_id=request.resume_id,
+            target_position=request.target_position,
+            job_description=request.job_description,
+            selected_rounds=request.selected_rounds,
+            interview_goal=request.interview_goal,
+            difficulty=request.difficulty,
+            experience_mode=request.experience_mode,
+            time_limit_minutes=request.time_limit_minutes,
+        )
     background_tasks.add_task(
         prepare_interview_evolution_context_task,
         user_id=current_user.id,
@@ -208,6 +220,7 @@ def create_weakness_practice(
     current_user: UserRecord = CurrentUserDep,
     service: InterviewService = InterviewServiceDep,
 ) -> WeaknessPracticeResponse:
+    require_external_model_consent_value(current_user.external_model_consent)
     interview = service.create_weakness_practice(
         user_id=current_user.id,
         source_interview_id=interview_id,
@@ -328,27 +341,6 @@ def get_interview_state(
 
 
 @router.post(
-    "/{interview_id}/questions/{question_id}/reanswers",
-    response_model=AnswerReanswerResponse,
-)
-def create_question_reanswer(
-    interview_id: int,
-    question_id: int,
-    request: AnswerReanswerRequest,
-    current_user: UserRecord = CurrentUserDep,
-    service: InterviewService = InterviewServiceDep,
-) -> AnswerReanswerResponse:
-    with usage_limiter.guard(current_user.id, "interview_answer"):
-        with _interview_service_mutation_lock(service, interview_id):
-            return service.create_reanswer(
-                current_user.id,
-                interview_id,
-                question_id,
-                request.answer,
-            )
-
-
-@router.post(
     "/{interview_id}/questions/{question_id}/reanswers-task",
     response_model=InterviewOperationTaskResponse,
     status_code=202,
@@ -367,6 +359,7 @@ def create_question_reanswer_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=None,
         operation="question_reanswer",
@@ -464,6 +457,7 @@ def start_round_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=round_id,
         operation="start_round",
@@ -545,6 +539,7 @@ def answer_round_question_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=round_id,
         operation="answer_round_question",
@@ -577,6 +572,7 @@ def regenerate_round_question_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=round_id,
         operation="regenerate_round_question",
@@ -604,6 +600,7 @@ def skip_round_question_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=round_id,
         operation="skip_round_question",
@@ -632,6 +629,7 @@ def finish_round_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=round_id,
         operation="finish_round",
@@ -659,6 +657,7 @@ def finish_interview_task(
         task_repository,
         background_tasks,
         user_id=current_user.id,
+        external_model_consent=current_user.external_model_consent,
         interview_id=interview_id,
         round_id=None,
         operation="finish_interview",
@@ -673,11 +672,13 @@ def _enqueue_interview_operation(
     background_tasks: BackgroundTasks,
     *,
     user_id: int,
+    external_model_consent: bool,
     interview_id: int,
     round_id: int | None,
     operation: str,
     payload: dict[str, Any],
 ) -> InterviewOperationTaskRecord:
+    require_external_model_consent_value(external_model_consent)
     active_operations = _conflicting_operations_for_operation(operation)
     _ensure_owned_interview_scope(
         interview_repository,
@@ -746,6 +747,34 @@ def _ensure_owned_interview_scope(
         raise AppError(ErrorCode.NOT_FOUND, 404)
 
 
+class InterviewTaskLeaseLostError(RuntimeError):
+    pass
+
+
+class _LeaseGuardedConnection:
+    def __init__(
+        self,
+        connection: Any,
+        *,
+        task_id: int,
+        processing_token: str,
+    ) -> None:
+        self._connection = connection
+        self._task_id = task_id
+        self._processing_token = processing_token
+
+    def commit(self) -> None:
+        repository = InterviewOperationTaskRepository(self._connection)
+        if not repository.lock_active_lease(self._task_id, self._processing_token):
+            raise InterviewTaskLeaseLostError(
+                f"interview task {self._task_id} lost its processing lease"
+            )
+        self._connection.commit()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
+
+
 def run_interview_operation_task(task_id: int, *, already_claimed: bool = False) -> None:
     task: InterviewOperationTaskRecord | None = None
     lease = None
@@ -762,8 +791,16 @@ def run_interview_operation_task(task_id: int, *, already_claimed: bool = False)
                 message="面试任务缺少可恢复的 payload。",
             )
         heartbeat = _start_interview_task_heartbeat(task)
+        with mysql_connection() as connection:
+            ensure_external_model_consent(connection, task.user_id)
         lease = usage_limiter.acquire(task.user_id, _operation_usage_scope(task.operation))
-        result = _run_interview_operation(task, payload)
+        _run_and_complete_interview_operation(task, payload)
+    except InterviewTaskLeaseLostError:
+        LOGGER.warning(
+            "interview operation task stopped after losing its lease",
+            extra={"task_id": task_id},
+        )
+        return
     except AppError as exc:
         _mark_interview_task_failed(
             task_id,
@@ -789,94 +826,132 @@ def run_interview_operation_task(task_id: int, *, already_claimed: bool = False)
         if lease is not None:
             usage_limiter.release(lease)
         _stop_interview_task_heartbeat(heartbeat)
-    with mysql_connection() as connection:
-        repository = InterviewOperationTaskRepository(connection)
-        if task.processing_token is None:
-            completed = repository.mark_completed(task_id, result)
-        else:
-            completed = repository.mark_completed(
-                task_id,
-                result,
-                processing_token=task.processing_token,
-            )
-            if not completed:
-                completed = repository.mark_completed_after_processing_timeout(task_id, result)
-        if not completed:
-            raise RuntimeError(
-                f"interview task {task_id} committed business data but could not be completed"
-            )
 
 
 def _run_interview_operation(
     task: InterviewOperationTaskRecord,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    result_payload: dict[str, Any]
     with mysql_connection() as connection:
-        with interview_mutation_lock(connection, task.interview_id, wait_seconds=1):
-            service = _build_interview_service(connection)
-            result: RoundAnswerResponse | FeedbackReportResponse | AnswerReanswerResponse
-            if task.operation == "start_round":
-                question = service.start_round(
-                    task.user_id,
-                    task.interview_id,
-                    int(payload["round_id"]),
-                    difficulty=payload.get("difficulty"),
-                    time_limit_minutes=payload.get("time_limit_minutes"),
-                    started_at=(
-                        datetime.fromisoformat(str(payload["round_started_at"]))
-                        if payload.get("round_started_at")
-                        else None
-                    ),
-                )
-                result = RoundAnswerResponse(action="next_question", question=question)
-            elif task.operation == "answer_round_question":
-                result = service.answer_round_question(
-                    user_id=task.user_id,
-                    interview_id=task.interview_id,
-                    round_id=int(payload["round_id"]),
-                    question_id=int(payload["question_id"]),
-                    answer=str(payload["answer"]),
-                    finish_after_answer=bool(payload.get("finish_after_answer", False)),
-                )
-            elif task.operation == "regenerate_round_question":
-                result = service.regenerate_round_question(
-                    task.user_id,
-                    task.interview_id,
-                    int(payload["round_id"]),
-                    int(payload["question_id"]),
-                )
-            elif task.operation == "skip_round_question":
-                result = service.skip_round_question(
-                    task.user_id,
-                    task.interview_id,
-                    int(payload["round_id"]),
-                    int(payload["question_id"]),
-                )
-            elif task.operation == "finish_round":
-                result = service.finish_round(
-                    task.user_id,
-                    task.interview_id,
-                    int(payload["round_id"]),
-                    str(payload.get("finish_type", "normal")),
-                )
-            elif task.operation == "finish_interview":
-                result = service.finish_interview(
-                    task.user_id,
-                    task.interview_id,
-                    str(payload.get("finish_type", "normal")),
-                )
-            elif task.operation == "question_reanswer":
-                result = service.create_reanswer(
-                    task.user_id,
-                    task.interview_id,
-                    int(payload["question_id"]),
-                    str(payload["answer"]),
-                )
-            else:
-                raise AppError(ErrorCode.VALIDATION_ERROR, 422, message="未知面试任务。")
-            result_payload = result.model_dump(mode="json")
+        result_payload = _execute_interview_operation(connection, task, payload)
+    return _attach_short_term_memory(task, result_payload)
 
+
+def _run_and_complete_interview_operation(
+    task: InterviewOperationTaskRecord,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if not task.processing_token:
+        raise InterviewTaskLeaseLostError(
+            f"interview task {task.id} has no processing token"
+        )
+    with mysql_connection() as connection:
+        guarded_connection = _LeaseGuardedConnection(
+            connection,
+            task_id=task.id,
+            processing_token=task.processing_token,
+        )
+        result_payload = _execute_interview_operation(guarded_connection, task, payload)
+        completed = InterviewOperationTaskRepository(connection).mark_completed(
+            task.id,
+            result_payload,
+            processing_token=task.processing_token,
+        )
+        if not completed:
+            raise InterviewTaskLeaseLostError(
+                f"interview task {task.id} lost its processing lease before commit"
+            )
+
+    enriched_result = _attach_short_term_memory(task, dict(result_payload))
+    if enriched_result != result_payload:
+        try:
+            with mysql_connection() as connection:
+                InterviewOperationTaskRepository(connection).update_completed_result(
+                    task.id,
+                    enriched_result,
+                )
+        except Exception:
+            LOGGER.exception(
+                "failed to attach short-term memory status to completed interview task",
+                extra={"task_id": task.id},
+            )
+    return enriched_result
+
+
+def _execute_interview_operation(
+    connection: Any,
+    task: InterviewOperationTaskRecord,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    with interview_mutation_lock(connection, task.interview_id, wait_seconds=1):
+        service = _build_interview_service(connection)
+        result: RoundAnswerResponse | FeedbackReportResponse | AnswerReanswerResponse
+        if task.operation == "start_round":
+            question = service.start_round(
+                task.user_id,
+                task.interview_id,
+                int(payload["round_id"]),
+                difficulty=payload.get("difficulty"),
+                time_limit_minutes=payload.get("time_limit_minutes"),
+                started_at=(
+                    datetime.fromisoformat(str(payload["round_started_at"]))
+                    if payload.get("round_started_at")
+                    else None
+                ),
+            )
+            result = RoundAnswerResponse(action="next_question", question=question)
+        elif task.operation == "answer_round_question":
+            result = service.answer_round_question(
+                user_id=task.user_id,
+                interview_id=task.interview_id,
+                round_id=int(payload["round_id"]),
+                question_id=int(payload["question_id"]),
+                answer=str(payload["answer"]),
+                finish_after_answer=bool(payload.get("finish_after_answer", False)),
+            )
+        elif task.operation == "regenerate_round_question":
+            result = service.regenerate_round_question(
+                task.user_id,
+                task.interview_id,
+                int(payload["round_id"]),
+                int(payload["question_id"]),
+            )
+        elif task.operation == "skip_round_question":
+            result = service.skip_round_question(
+                task.user_id,
+                task.interview_id,
+                int(payload["round_id"]),
+                int(payload["question_id"]),
+            )
+        elif task.operation == "finish_round":
+            result = service.finish_round(
+                task.user_id,
+                task.interview_id,
+                int(payload["round_id"]),
+                str(payload.get("finish_type", "normal")),
+            )
+        elif task.operation == "finish_interview":
+            result = service.finish_interview(
+                task.user_id,
+                task.interview_id,
+                str(payload.get("finish_type", "normal")),
+            )
+        elif task.operation == "question_reanswer":
+            result = service.create_reanswer(
+                task.user_id,
+                task.interview_id,
+                int(payload["question_id"]),
+                str(payload["answer"]),
+            )
+        else:
+            raise AppError(ErrorCode.VALIDATION_ERROR, 422, message="未知面试任务。")
+        return result.model_dump(mode="json")
+
+
+def _attach_short_term_memory(
+    task: InterviewOperationTaskRecord,
+    result_payload: dict[str, Any],
+) -> dict[str, Any]:
     if task.operation == "question_reanswer":
         return result_payload
     short_memory_status = _sync_short_term_memory_after_operation(task)

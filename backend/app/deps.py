@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from secrets import compare_digest
+from typing import Any
 
 from fastapi import Depends, Header, Request, status
 
@@ -11,9 +12,16 @@ from app.db.mysql import mysql_connection
 from app.repositories.users import UserRecord, UserRepository
 
 
-def get_user_repository() -> Iterator[UserRepository]:
+def get_database_connection() -> Iterator[Any]:
     with mysql_connection() as connection:
-        yield UserRepository(connection)
+        yield connection
+
+
+DatabaseConnectionDep = Depends(get_database_connection)
+
+
+def get_user_repository(connection: Any = DatabaseConnectionDep) -> UserRepository:
+    return UserRepository(connection)
 
 
 UserRepositoryDep = Depends(get_user_repository)

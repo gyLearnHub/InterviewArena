@@ -427,6 +427,7 @@ def resume_client(tmp_path: Path) -> tuple[TestClient, FakeResumeRepository, Fak
         id=42,
         username="alice",
         password_hash="hash",
+        external_model_consent=True,
     )
     app.dependency_overrides[get_resume_repository] = lambda: repository
     app.dependency_overrides[get_resume_parser] = lambda: parser
@@ -947,12 +948,12 @@ def test_resume_repository_active_dependency_checks_status_and_overall_status() 
 
     assert repository.has_active_interview_dependency_for_resume(7, 42) is True
 
-    sql = " ".join(cursor.sql.lower().split())
+    sql = " ".join(cursor.executed[0][0].lower().split())
     assert "coalesce" not in sql
     assert "status in" in sql
     assert "overall_status in" in sql
     assert "pending" not in cursor.params
-    assert cursor.params == (
+    assert cursor.executed[0][1] == (
         7,
         42,
         *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
@@ -966,17 +967,20 @@ def test_resume_repository_soft_delete_is_guarded_by_active_interview_dependency
 
     assert repository.soft_delete_for_user(7, 42) is True
 
-    sql = " ".join(cursor.sql.lower().split())
+    sql = " ".join(cursor.executed[0][0].lower().split())
     assert "not exists" in sql
     assert "from interviews i" in sql
     assert "i.status in" in sql
     assert "i.overall_status in" in sql
-    assert cursor.params == (
+    assert cursor.executed[0][1] == (
         7,
         42,
         *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
         *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
     )
+    snapshot_sql = " ".join(cursor.executed[1][0].lower().split())
+    assert "set resume_snapshot = json_object()" in snapshot_sql
+    assert cursor.executed[1][1] == (7, 42)
 
 
 def test_upload_does_not_scan_historical_files_without_matching_hash(
@@ -1092,7 +1096,12 @@ def test_upload_removes_file_when_parse_fails(tmp_path: Path) -> None:
     )
     repository.parser = parser
     app = create_app()
-    app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
+    app.dependency_overrides[get_current_user] = lambda: UserRecord(
+        1,
+        "alice",
+        "hash",
+        external_model_consent=True,
+    )
     app.dependency_overrides[get_resume_repository] = lambda: repository
     app.dependency_overrides[get_resume_parser] = lambda: parser
     client = TestClient(app, raise_server_exceptions=False)
@@ -1119,7 +1128,12 @@ def test_upload_removes_file_when_database_create_fails(tmp_path: Path) -> None:
     )
     repository.parser = parser
     app = create_app()
-    app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
+    app.dependency_overrides[get_current_user] = lambda: UserRecord(
+        1,
+        "alice",
+        "hash",
+        external_model_consent=True,
+    )
     app.dependency_overrides[get_resume_repository] = lambda: repository
     app.dependency_overrides[get_resume_parser] = lambda: parser
     client = TestClient(app, raise_server_exceptions=False)
@@ -1158,7 +1172,12 @@ def test_upload_doc_conversion_uses_isolated_temp_output(tmp_path: Path) -> None
     )
     repository.parser = parser
     app = create_app()
-    app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
+    app.dependency_overrides[get_current_user] = lambda: UserRecord(
+        1,
+        "alice",
+        "hash",
+        external_model_consent=True,
+    )
     app.dependency_overrides[get_resume_repository] = lambda: repository
     app.dependency_overrides[get_resume_parser] = lambda: parser
     client = TestClient(app)
@@ -1191,7 +1210,12 @@ def test_upload_propagates_deepseek_failure(tmp_path: Path) -> None:
     )
     repository.parser = parser
     app = create_app()
-    app.dependency_overrides[get_current_user] = lambda: UserRecord(1, "alice", "hash")
+    app.dependency_overrides[get_current_user] = lambda: UserRecord(
+        1,
+        "alice",
+        "hash",
+        external_model_consent=True,
+    )
     app.dependency_overrides[get_resume_repository] = lambda: repository
     app.dependency_overrides[get_resume_parser] = lambda: parser
     client = TestClient(app)

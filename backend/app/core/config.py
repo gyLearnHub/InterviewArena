@@ -11,6 +11,14 @@ DEFAULT_CHROMA_PERSIST_DIR = str(PROJECT_ROOT / "chromadb")
 class Settings:
     app_env: str = "development"
     database_url: str = "mysql+pymysql://interview_arena:change_me@127.0.0.1:3306/interview_arena?charset=utf8mb4"
+    mysql_pool_size: int = 10
+    mysql_pool_acquire_timeout_seconds: int = 5
+    mysql_connect_timeout_seconds: int = 5
+    mysql_read_timeout_seconds: int = 30
+    mysql_write_timeout_seconds: int = 30
+    storage_backend: str = "local"
+    deployment_replica_count: int = 1
+    shared_storage_root: str = ""
     jwt_secret_key: str = "change_me_to_a_long_random_secret"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
@@ -109,6 +117,8 @@ def _file_env() -> dict[str, str]:
 def _get_env(name: str, default: str) -> str:
     value = os.getenv(name)
     if value is None or value == "":
+        if name != "APP_ENV" and os.getenv("APP_ENV", "").strip().lower() == "test":
+            return default
         return _file_env().get(name, default)
     return value
 
@@ -118,6 +128,32 @@ def get_settings() -> Settings:
     settings = Settings(
         app_env=_get_env("APP_ENV", Settings.app_env),
         database_url=_get_env("DATABASE_URL", Settings.database_url),
+        mysql_pool_size=_read_int("MYSQL_POOL_SIZE", Settings.mysql_pool_size),
+        mysql_pool_acquire_timeout_seconds=_read_int(
+            "MYSQL_POOL_ACQUIRE_TIMEOUT_SECONDS",
+            Settings.mysql_pool_acquire_timeout_seconds,
+        ),
+        mysql_connect_timeout_seconds=_read_int(
+            "MYSQL_CONNECT_TIMEOUT_SECONDS",
+            Settings.mysql_connect_timeout_seconds,
+        ),
+        mysql_read_timeout_seconds=_read_int(
+            "MYSQL_READ_TIMEOUT_SECONDS",
+            Settings.mysql_read_timeout_seconds,
+        ),
+        mysql_write_timeout_seconds=_read_int(
+            "MYSQL_WRITE_TIMEOUT_SECONDS",
+            Settings.mysql_write_timeout_seconds,
+        ),
+        storage_backend=_get_env("STORAGE_BACKEND", Settings.storage_backend),
+        deployment_replica_count=_read_int(
+            "DEPLOYMENT_REPLICA_COUNT",
+            Settings.deployment_replica_count,
+        ),
+        shared_storage_root=_get_env(
+            "SHARED_STORAGE_ROOT",
+            Settings.shared_storage_root,
+        ),
         jwt_secret_key=_get_env("JWT_SECRET_KEY", Settings.jwt_secret_key),
         jwt_algorithm=_get_env("JWT_ALGORITHM", Settings.jwt_algorithm),
         jwt_expire_minutes=_read_int("JWT_EXPIRE_MINUTES", Settings.jwt_expire_minutes),
@@ -268,6 +304,44 @@ def get_settings() -> Settings:
 
 
 def _validate_settings(settings: Settings) -> None:
+    if settings.mysql_pool_size < 1:
+        raise RuntimeError("MYSQL_POOL_SIZE must be at least 1")
+    if settings.mysql_pool_acquire_timeout_seconds < 1:
+        raise RuntimeError("MYSQL_POOL_ACQUIRE_TIMEOUT_SECONDS must be at least 1")
+    if settings.mysql_connect_timeout_seconds < 1:
+        raise RuntimeError("MYSQL_CONNECT_TIMEOUT_SECONDS must be at least 1")
+    if settings.mysql_read_timeout_seconds < 1:
+        raise RuntimeError("MYSQL_READ_TIMEOUT_SECONDS must be at least 1")
+    if settings.mysql_write_timeout_seconds < 1:
+        raise RuntimeError("MYSQL_WRITE_TIMEOUT_SECONDS must be at least 1")
+    storage_backend = settings.storage_backend.strip().lower()
+    if storage_backend not in {"local", "shared_filesystem"}:
+        raise RuntimeError("STORAGE_BACKEND must be local or shared_filesystem")
+    if settings.deployment_replica_count < 1:
+        raise RuntimeError("DEPLOYMENT_REPLICA_COUNT must be at least 1")
+    if settings.deployment_replica_count > 1 and storage_backend != "shared_filesystem":
+        raise RuntimeError(
+            "Multiple replicas require STORAGE_BACKEND=shared_filesystem"
+        )
+    if storage_backend == "shared_filesystem":
+        shared_root = Path(settings.shared_storage_root)
+        if not shared_root.is_absolute():
+            raise RuntimeError(
+                "SHARED_STORAGE_ROOT must be an absolute path for shared_filesystem"
+            )
+        for name, configured_path in (
+            ("UPLOAD_DIR", settings.upload_dir),
+            ("AVATAR_UPLOAD_DIR", settings.avatar_upload_dir),
+        ):
+            path = Path(configured_path)
+            if not path.is_absolute() or not path.is_relative_to(shared_root):
+                raise RuntimeError(
+                    f"{name} must be an absolute path inside SHARED_STORAGE_ROOT"
+                )
+    if settings.deployment_replica_count > 1 and settings.chroma_enabled:
+        raise RuntimeError(
+            "CHROMA_ENABLED must be false when DEPLOYMENT_REPLICA_COUNT is greater than 1"
+        )
     is_test = settings.app_env.strip().lower() in {"test", "testing", "pytest"}
     normalized_jwt_secret = settings.jwt_secret_key.strip().lower()
     weak_secret_markers = {

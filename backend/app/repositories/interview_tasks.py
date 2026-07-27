@@ -252,6 +252,22 @@ class InterviewOperationTaskRepository:
             )
             return int(cursor.rowcount) > 0
 
+    def lock_active_lease(self, task_id: int, processing_token: str) -> bool:
+        """Lock the task row so lease validation and the following commit are atomic."""
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id
+                FROM interview_operation_tasks
+                WHERE id = %s
+                  AND status = 'processing'
+                  AND processing_token = %s
+                FOR UPDATE
+                """,
+                (task_id, processing_token),
+            )
+            return cursor.fetchone() is not None
+
     def mark_completed(
         self,
         task_id: int,
@@ -282,26 +298,18 @@ class InterviewOperationTaskRepository:
             )
             return int(cursor.rowcount) > 0
 
-    def mark_completed_after_processing_timeout(
+    def update_completed_result(
         self,
         task_id: int,
         result: dict[str, Any],
     ) -> bool:
-        """Restore consistency when business data committed after the task lease expired."""
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE interview_operation_tasks
-                SET status = 'completed',
-                    result_json = %s,
-                    error_code = NULL,
-                    error_message = NULL,
-                    processing_token = NULL,
-                    heartbeat_at = NULL,
-                    completed_at = UTC_TIMESTAMP()
+                SET result_json = %s
                 WHERE id = %s
-                  AND status = 'failed'
-                  AND error_message = 'processing_timeout'
+                  AND status = 'completed'
                 """,
                 (json.dumps(result, ensure_ascii=False), task_id),
             )

@@ -323,6 +323,10 @@ def test_chroma_index_upserts_required_metadata_and_deletes_user_vectors(monkeyp
 
     assert collection.deletes[-1]["where"] == {"user_id": 7}
 
+    assert index.delete_unscoped_memories() is None
+    for scoped_collection in index.collections.values():
+        assert scoped_collection.deletes[-1]["where"] == {"user_id": 0}
+
 
 def test_chroma_import_failure_returns_vector_fallback(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "chromadb", None)

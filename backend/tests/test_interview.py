@@ -998,6 +998,7 @@ def _interview_api_client(
         id=1,
         username="alice",
         password_hash="hash",
+        external_model_consent=True,
     )
     app.dependency_overrides[get_interview_service] = lambda: service
     return TestClient(app, raise_server_exceptions=False)
@@ -1133,6 +1134,7 @@ def test_create_interview_endpoint_queues_evolution_binding_task(
         id=1,
         username="alice",
         password_hash="hash",
+        external_model_consent=True,
     )
     app.dependency_overrides[get_interview_service] = lambda: service
     client = TestClient(app, raise_server_exceptions=False)
@@ -2030,7 +2032,12 @@ def test_harness_status_summary_never_exposes_trace_output_snapshot() -> None:
 
     payload = get_interview_harness_status(
         interview.id,
-        UserRecord(id=1, username="alice", password_hash="hash"),
+        UserRecord(
+            id=1,
+            username="alice",
+            password_hash="hash",
+            external_model_consent=True,
+        ),
         repository,  # type: ignore[arg-type]
         FakeHarnessRepository(),  # type: ignore[arg-type]
     ).model_dump()
@@ -2092,7 +2099,7 @@ def test_completed_interview_reanswer_preserves_original_and_compares_attempts()
     assert [item.id for item in listed.attempts] == [1, 2]
 
 
-def test_reanswer_post_and_get_endpoints_return_comparison_contract() -> None:
+def test_reanswer_sync_post_is_removed_and_get_returns_comparison_contract() -> None:
     evaluation_service = FakeQuestionEvaluationService()
     service, repository = make_service(evaluation_service=evaluation_service)
     repository.add_resume(resume_id=1, user_id=1)
@@ -2114,9 +2121,15 @@ def test_reanswer_post_and_get_endpoints_return_comparison_contract() -> None:
         datetime.utcnow(),
     )
     repository.mark_multi_finished(interview.id, datetime.utcnow(), 120)
+    created = service.create_reanswer(
+        1,
+        interview.id,
+        question.id,
+        "我主导接口改造，对比方案后灰度上线，将耗时降低 30%。",
+    )
     client = _interview_api_client(service)  # type: ignore[arg-type]
 
-    created = client.post(
+    sync_response = client.post(
         f"/api/interviews/{interview.id}/questions/{question.id}/reanswers",
         json={"answer": "我主导接口改造，对比方案后灰度上线，将耗时降低 30%。"},
     )
@@ -2124,11 +2137,11 @@ def test_reanswer_post_and_get_endpoints_return_comparison_contract() -> None:
         f"/api/interviews/{interview.id}/questions/{question.id}/reanswers"
     )
 
-    assert created.status_code == 200
-    assert created.json()["original_evaluation"]["total_score"] == 74
-    assert created.json()["attempt"]["score_delta"] == 12
+    assert sync_response.status_code == 405
+    assert created.original_evaluation["total_score"] == 74
+    assert created.attempt.score_delta == 12
     assert listed.status_code == 200
-    assert listed.json()["attempts"][0]["id"] == created.json()["attempt"]["id"]
+    assert listed.json()["attempts"][0]["id"] == created.attempt.id
 
 
 def test_reanswer_requires_owned_finished_interview_and_answered_question() -> None:

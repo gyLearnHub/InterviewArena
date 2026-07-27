@@ -1,20 +1,20 @@
-from collections.abc import Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
 from app.autonomous_evolution.repository import AutonomousEvolutionRepository
 from app.core.config import get_settings
-from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
 from app.repositories.users import UserRecord
 from app.schemas.autonomous_evolution import AutonomousEvolutionStatusResponse
 
 router = APIRouter(prefix="/harness/evolution", tags=["harness"])
 
 
-def get_evolution_repository() -> Iterator[AutonomousEvolutionRepository]:
-    with mysql_connection() as connection:
-        yield AutonomousEvolutionRepository(connection)
+def get_evolution_repository(
+    connection: Any = DatabaseConnectionDep,
+) -> AutonomousEvolutionRepository:
+    return AutonomousEvolutionRepository(connection)
 
 
 EvolutionRepositoryDep = Depends(get_evolution_repository)

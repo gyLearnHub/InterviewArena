@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.autonomous_evolution.anonymization import anonymize_payload
 from app.autonomous_evolution.catalog import ArtifactSeed
+from app.repositories.users import CURRENT_PRIVACY_VERSION
 
 JSONDict = dict[str, Any]
 
@@ -451,12 +452,16 @@ class AutonomousEvolutionRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, user_id, target_position, job_description
-                FROM interviews
-                WHERE job_family_key IS NULL OR harness_bundle_id IS NULL
-                ORDER BY created_at ASC, id ASC
+                SELECT i.id, i.user_id, i.target_position, i.job_description
+                FROM interviews i
+                JOIN users u ON u.id = i.user_id
+                WHERE (i.job_family_key IS NULL OR i.harness_bundle_id IS NULL)
+                  AND u.external_model_consent_at IS NOT NULL
+                  AND u.external_model_consent_version = %s
+                ORDER BY i.created_at ASC, i.id ASC
                 LIMIT 1
-                """
+                """,
+                (CURRENT_PRIVACY_VERSION,),
             )
             row = cursor.fetchone()
         return _json_safe_row(row) if row is not None else None
@@ -680,14 +685,18 @@ class AutonomousEvolutionRepository:
             )
             cursor.execute(
                 """
-                SELECT id
-                FROM harness_evolution_runs
-                WHERE status IN ('pending', 'retry_wait')
-                  AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP)
-                ORDER BY created_at, id
+                SELECT r.id
+                FROM harness_evolution_runs r
+                JOIN users u ON u.id = r.user_id
+                WHERE r.status IN ('pending', 'retry_wait')
+                  AND (r.next_retry_at IS NULL OR r.next_retry_at <= CURRENT_TIMESTAMP)
+                  AND u.external_model_consent_at IS NOT NULL
+                  AND u.external_model_consent_version = %s
+                ORDER BY r.created_at, r.id
                 LIMIT 1
                 FOR UPDATE
-                """
+                """,
+                (CURRENT_PRIVACY_VERSION,),
             )
             row = cursor.fetchone()
             if row is None:

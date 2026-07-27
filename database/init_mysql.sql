@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     memory_enabled TINYINT(1) NOT NULL DEFAULT 1,
     memory_updated_at DATETIME NULL,
+    external_model_consent_at DATETIME NULL,
+    external_model_consent_version VARCHAR(32) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_users_username (username)
@@ -90,6 +92,37 @@ CREATE TABLE IF NOT EXISTS resume_parse_tasks (
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS job_match_analysis_tasks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    resume_id BIGINT UNSIGNED NOT NULL,
+    target_position VARCHAR(128) NOT NULL,
+    job_description TEXT NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    result_json JSON NULL,
+    error_code VARCHAR(64) NULL,
+    error_message VARCHAR(1000) NULL,
+    processing_token CHAR(32) NULL,
+    heartbeat_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    PRIMARY KEY (id),
+    KEY idx_job_match_tasks_user_created (user_id, created_at, id),
+    KEY idx_job_match_tasks_resume_created (resume_id, created_at, id),
+    KEY idx_job_match_tasks_status_created (status, created_at, id),
+    KEY idx_job_match_tasks_active_request (
+        user_id, resume_id, request_hash, status
+    ),
+    CONSTRAINT fk_job_match_tasks_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_job_match_tasks_resume_id
+        FOREIGN KEY (resume_id) REFERENCES resumes (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS file_cleanup_tasks (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     original_file_path VARCHAR(512) NOT NULL,
@@ -105,6 +138,27 @@ CREATE TABLE IF NOT EXISTS file_cleanup_tasks (
     PRIMARY KEY (id),
     UNIQUE KEY uk_file_cleanup_tasks_path (original_file_path),
     KEY idx_file_cleanup_tasks_claim (status, next_retry_at, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS cache_cleanup_tasks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    interview_ids_json JSON NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
+    max_retries INT UNSIGNED NOT NULL DEFAULT 20,
+    next_retry_at DATETIME NULL,
+    processing_token CHAR(32) NULL,
+    error_message VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    PRIMARY KEY (id),
+    KEY idx_cache_cleanup_tasks_claim (status, next_retry_at, created_at),
+    KEY idx_cache_cleanup_tasks_user (user_id, created_at),
+    CONSTRAINT fk_cache_cleanup_tasks_user_id
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS interviews (

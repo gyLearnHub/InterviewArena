@@ -8,6 +8,7 @@ from typing import Any, Literal, Protocol
 from fastapi import status
 
 from app.core.errors import AppError, ErrorCode
+from app.repositories.cache_cleanup_tasks import CacheCleanupTaskRepository
 from app.repositories.history import (
     FeedbackReportRecord,
     HistoryInterviewRecord,
@@ -29,7 +30,10 @@ from app.schemas.history import (
     ReportRoundScoreSource,
     ResumeSummary,
 )
-from app.services.interview_mutation_lock import interview_mutation_lock
+from app.services.interview_mutation_lock import (
+    interview_mutation_lock,
+    user_history_mutation_lock,
+)
 from app.services.interview_strategy import round_label as _round_label
 from app.services.short_term_memory_store import ShortTermMemoryStoreError
 
@@ -168,6 +172,7 @@ class HistoryService:
         return _to_detail(record)
 
     def delete_history_item(self, interview_id: int, current_user: UserRecord) -> None:
+        cleanup_task_id: int | None = None
         with _lock_interviews(self.history_repository, [interview_id]):
             deleted = self.history_repository.delete_by_id_for_user(
                 interview_id,
@@ -175,35 +180,57 @@ class HistoryService:
             )
             if not deleted:
                 raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+            cleanup_task_id = _enqueue_cache_cleanup(
+                self.history_repository,
+                current_user.id,
+                [interview_id],
+                enabled=self.short_term_memory_store is not None,
+            )
             _commit_repository(self.history_repository)
         if self.short_term_memory_store is not None:
-            try:
-                self.short_term_memory_store.delete(current_user.id, interview_id)
-            except ShortTermMemoryStoreError:
-                LOGGER.warning(
-                    "short-term memory cleanup deferred after history deletion",
-                    exc_info=True,
-                    extra={"user_id": current_user.id, "interview_id": interview_id},
-                )
+            _try_cache_cleanup(
+                self.history_repository,
+                self.short_term_memory_store,
+                current_user.id,
+                [interview_id],
+                cleanup_task_id,
+            )
 
     def clear_history(self, current_user: UserRecord) -> None:
-        interview_ids = self.history_repository.list_interview_ids_by_user(current_user.id)
-        with _lock_interviews(self.history_repository, interview_ids):
-            delete_ids = getattr(self.history_repository, "delete_ids_by_user", None)
-            if callable(delete_ids):
-                delete_ids(interview_ids, current_user.id)
-            else:
-                self.history_repository.delete_all_by_user(current_user.id)
-            _commit_repository(self.history_repository)
-        if self.short_term_memory_store is not None and interview_ids:
-            try:
-                self.short_term_memory_store.delete_many(current_user.id, interview_ids)
-            except ShortTermMemoryStoreError:
-                LOGGER.warning(
-                    "short-term memory cleanup deferred after clearing history",
-                    exc_info=True,
-                    extra={"user_id": current_user.id, "interview_ids": interview_ids},
+        connection = getattr(self.history_repository, "connection", None)
+        user_lock = (
+            user_history_mutation_lock(connection, current_user.id)
+            if connection is not None
+            else contextlib.nullcontext()
+        )
+        cleanup_task_id: int | None = None
+        with user_lock:
+            interview_ids = self.history_repository.list_interview_ids_by_user(
+                current_user.id
+            )
+            with _lock_interviews(self.history_repository, interview_ids):
+                cleanup_task_id = _enqueue_cache_cleanup(
+                    self.history_repository,
+                    current_user.id,
+                    interview_ids,
+                    enabled=self.short_term_memory_store is not None,
                 )
+                if connection is not None:
+                    self.history_repository.delete_all_by_user(current_user.id)
+                else:
+                    self.history_repository.delete_ids_by_user(
+                        interview_ids,
+                        current_user.id,
+                    )
+                _commit_repository(self.history_repository)
+        if self.short_term_memory_store is not None and interview_ids:
+            _try_cache_cleanup(
+                self.history_repository,
+                self.short_term_memory_store,
+                current_user.id,
+                interview_ids,
+                cleanup_task_id,
+            )
 
 
 def _lock_interviews(
@@ -229,6 +256,53 @@ def _commit_repository(repository: HistoryRepositoryProtocol) -> None:
     commit = getattr(repository, "commit", None)
     if callable(commit):
         commit()
+
+
+def _enqueue_cache_cleanup(
+    repository: HistoryRepositoryProtocol,
+    user_id: int,
+    interview_ids: list[int],
+    *,
+    enabled: bool,
+) -> int | None:
+    connection = getattr(repository, "connection", None)
+    if not enabled or connection is None or not interview_ids:
+        return None
+    return CacheCleanupTaskRepository(connection).enqueue(
+        user_id=user_id,
+        interview_ids=interview_ids,
+    )
+
+
+def _try_cache_cleanup(
+    repository: HistoryRepositoryProtocol,
+    store: ShortTermMemoryStoreProtocol,
+    user_id: int,
+    interview_ids: list[int],
+    task_id: int | None,
+) -> None:
+    try:
+        store.delete_many(user_id, interview_ids)
+    except ShortTermMemoryStoreError:
+        LOGGER.warning(
+            "short-term memory cleanup deferred to durable retry task",
+            exc_info=True,
+            extra={"user_id": user_id, "interview_ids": interview_ids},
+        )
+        return
+    if task_id is None:
+        return
+    try:
+        connection = getattr(repository, "connection", None)
+        if connection is not None:
+            CacheCleanupTaskRepository(connection).complete_pending(task_id)
+            _commit_repository(repository)
+    except Exception:
+        LOGGER.warning(
+            "cache cleanup succeeded but task completion will be retried",
+            exc_info=True,
+            extra={"task_id": task_id, "user_id": user_id},
+        )
 
 
 def _to_list_item(record: HistoryInterviewRecord) -> HistoryListItem:

@@ -15,10 +15,11 @@ from app.repositories.memories import MemoryRepository
 from app.repositories.memory_tasks import MemoryTaskRecord, MemoryTaskRepository
 from app.repositories.preferences import PreferencesRepository
 from app.services.llm import get_llm_client
-from app.services.memory_index import MemoryIndexService
+from app.services.memory_index import ChromaMemoryIndex, MemoryIndexService
 from app.services.memory_lifecycle import MemoryLifecycleService
 from app.services.memory_summary import MemorySummaryService
 from app.services.memory_user_lock import memory_user_lock
+from app.services.privacy import ensure_external_model_consent
 from app.services.runner_health import record_runner_failure, record_runner_success
 
 LOGGER = logging.getLogger(__name__)
@@ -158,6 +159,7 @@ class MemoryTaskRunner:
                 raise ValueError("memory_summary requires user_id and interview_id")
             if not PreferencesRepository(connection).get_memory_enabled(task.user_id):
                 return {"skipped": "memory_disabled"}
+            ensure_external_model_consent(connection, task.user_id)
             summary = MemorySummaryService(
                 interview_repository=InterviewRepository(connection),
                 evaluation_repository=EvaluationRepository(connection),
@@ -168,6 +170,27 @@ class MemoryTaskRunner:
                 user_id=task.user_id,
                 interview_id=task.interview_id,
             )
+        if task.task_type == "memory_vector_scope_cleanup":
+            cleanup_error = ChromaMemoryIndex().delete_unscoped_memories()
+            if cleanup_error not in {None, "chroma_disabled"}:
+                raise RuntimeError(cleanup_error)
+            return {"deleted_legacy_scope": True}
+        if task.task_type == "memory_reindex":
+            if task.memory_collection is None or task.memory_id is None:
+                raise ValueError("memory_reindex requires memory collection and id")
+            memory = memories.get(task.memory_collection, task.memory_id)
+            if memory is None or memory.status != "active":
+                return {"skipped": "memory_missing_or_inactive"}
+            index_error = ChromaMemoryIndex().upsert(memory)
+            if index_error not in {None, "chroma_disabled"}:
+                memories.mark_index_failed(memory.collection, memory.id)
+                raise RuntimeError(index_error)
+            memories.mark_indexed(memory.collection, memory.id)
+            return {
+                "collection": memory.collection,
+                "memory_id": memory.id,
+                "indexed": True,
+            }
         raise ValueError(f"unsupported memory task type: {task.task_type}")
 
 

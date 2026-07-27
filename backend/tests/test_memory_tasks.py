@@ -202,6 +202,18 @@ def test_memory_clear_and_summary_runner_share_user_lock_and_lease_check() -> No
     assert "owns_processing_lease" in runner_source
 
 
+def test_memory_runner_supports_scope_cleanup_and_reindex_tasks() -> None:
+    source = inspect.getsource(MemoryTaskRunner._handle_task)
+
+    assert "memory_vector_scope_cleanup" in source
+    assert "delete_unscoped_memories" in source
+    assert "memory_reindex" in source
+    assert "memory_collection" in source
+    assert "memory_id" in source
+    assert "mark_indexed" in source
+    assert "mark_index_failed" in source
+
+
 def _task(
     *,
     retry_count: int,

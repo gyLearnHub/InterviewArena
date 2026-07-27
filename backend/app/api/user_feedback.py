@@ -1,9 +1,8 @@
-from collections.abc import Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, status
 
-from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
 from app.repositories.user_feedback import UserFeedbackRepository
 from app.repositories.users import UserRecord
 from app.schemas.user_feedback import (
@@ -15,9 +14,10 @@ from app.services.user_feedback import UserFeedbackService
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
-def get_user_feedback_repository() -> Iterator[UserFeedbackRepository]:
-    with mysql_connection() as connection:
-        yield UserFeedbackRepository(connection)
+def get_user_feedback_repository(
+    connection: Any = DatabaseConnectionDep,
+) -> UserFeedbackRepository:
+    return UserFeedbackRepository(connection)
 
 
 UserFeedbackRepositoryDep = Depends(get_user_feedback_repository)

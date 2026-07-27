@@ -1,10 +1,10 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import Iterator
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Thread
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
@@ -16,7 +16,11 @@ from app.core.http_status import (
     HTTP_422_UNPROCESSABLE_CONTENT,
 )
 from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
+from app.repositories.job_match_tasks import (
+    JobMatchAnalysisTaskRecord,
+    JobMatchAnalysisTaskRepository,
+)
 from app.repositories.resumes import (
     FileCleanupTaskRecord,
     ResumeDetailRecord,
@@ -28,6 +32,7 @@ from app.repositories.users import UserRecord
 from app.schemas.resume import (
     JobMatchAnalysisRequest,
     JobMatchAnalysisResponse,
+    JobMatchAnalysisTaskResponse,
     ResumeDetailResponse,
     ResumeListItem,
     ResumeParseTaskResponse,
@@ -36,6 +41,10 @@ from app.schemas.resume import (
 )
 from app.services.job_match_analysis import JobMatchAnalysisService
 from app.services.llm import LLMClient, get_llm_client
+from app.services.privacy import (
+    ensure_external_model_consent,
+    require_external_model_consent,
+)
 from app.services.resume_parser import (
     MAX_RESUME_BYTES,
     ResumeParserService,
@@ -54,9 +63,14 @@ ResumeFile = File(...)
 CurrentUserDep = Depends(get_current_user)
 
 
-def get_resume_repository() -> Iterator[ResumeRepository]:
-    with mysql_connection() as connection:
-        yield ResumeRepository(connection)
+def get_resume_repository(connection: Any = DatabaseConnectionDep) -> ResumeRepository:
+    return ResumeRepository(connection)
+
+
+def get_job_match_task_repository(
+    connection: Any = DatabaseConnectionDep,
+) -> JobMatchAnalysisTaskRepository:
+    return JobMatchAnalysisTaskRepository(connection)
 
 
 def get_resume_parser() -> ResumeParserService:
@@ -64,6 +78,7 @@ def get_resume_parser() -> ResumeParserService:
 
 
 ResumeRepositoryDep = Depends(get_resume_repository)
+JobMatchTaskRepositoryDep = Depends(get_job_match_task_repository)
 ResumeParserDep = Depends(get_resume_parser)
 
 
@@ -124,6 +139,7 @@ def upload_resume_async(
     resumes: ResumeRepository = ResumeRepositoryDep,
     parser: ResumeParserService = ResumeParserDep,
 ) -> ResumeParseTaskResponse:
+    require_external_model_consent(current_user)
     validate_resume_extension(file.filename or "")
     content = file.file.read(MAX_RESUME_BYTES + 1)
     if len(content) > MAX_RESUME_BYTES:
@@ -185,6 +201,21 @@ def get_resume_upload_task(
     return _parse_task_response(task, resumes)
 
 
+@router.get(
+    "/job-match-tasks/{task_id}",
+    response_model=JobMatchAnalysisTaskResponse,
+)
+def get_job_match_analysis_task(
+    task_id: int,
+    current_user: UserRecord = CurrentUserDep,
+    tasks: JobMatchAnalysisTaskRepository = JobMatchTaskRepositoryDep,
+) -> JobMatchAnalysisTaskResponse:
+    task = tasks.get_task_for_user(task_id, current_user.id)
+    if task is None:
+        raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return _job_match_task_response(task)
+
+
 @router.get("/{resume_id}", response_model=ResumeDetailResponse)
 def get_resume_detail(
     resume_id: int,
@@ -199,20 +230,41 @@ def get_resume_detail(
 
 @router.post(
     "/{resume_id}/job-match-analysis",
-    response_model=JobMatchAnalysisResponse,
+    response_model=JobMatchAnalysisTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
-def analyze_resume_job_match(
+def enqueue_resume_job_match_analysis(
     resume_id: int,
+    background_tasks: BackgroundTasks,
     request: JobMatchAnalysisRequest,
     current_user: UserRecord = CurrentUserDep,
-    service: JobMatchAnalysisService = JobMatchAnalysisServiceDep,
-) -> JobMatchAnalysisResponse:
-    return service.analyze(
-        resume_id=resume_id,
-        user_id=current_user.id,
-        target_position=request.target_position,
-        job_description=request.job_description,
-    )
+    resumes: ResumeRepository = ResumeRepositoryDep,
+    tasks: JobMatchAnalysisTaskRepository = JobMatchTaskRepositoryDep,
+) -> JobMatchAnalysisTaskResponse:
+    require_external_model_consent(current_user)
+    resume = resumes.get_detail_for_user(resume_id, current_user.id)
+    if resume is None:
+        raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if resume.parse_status != "parsed":
+        raise AppError(ErrorCode.CONFLICT, status.HTTP_409_CONFLICT)
+    request_hash = sha256(
+        (
+            f"{resume_id}\0{request.target_position}\0{request.job_description}"
+        ).encode()
+    ).hexdigest()
+    with usage_limiter.guard(current_user.id, "job_match_analysis_enqueue"):
+        task = tasks.create_or_get_active_task(
+            user_id=current_user.id,
+            resume_id=resume_id,
+            target_position=request.target_position,
+            job_description=request.job_description,
+            request_hash=request_hash,
+        )
+        tasks.connection.commit()
+    if task is None:
+        raise AppError(ErrorCode.NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    background_tasks.add_task(run_job_match_analysis_task, task.id)
+    return _job_match_task_response(task)
 
 
 @router.patch("/{resume_id}", response_model=ResumeDetailResponse)
@@ -297,6 +349,8 @@ def parse_resume_upload_task(
         heartbeat = _start_resume_parse_task_heartbeat(task)
         try:
             with usage_limiter.guard(task.user_id, "resume_upload"):
+                with mysql_connection() as connection:
+                    ensure_external_model_consent(connection, task.user_id)
                 parser = ResumeParserService(llm_client=get_llm_client())
                 parse_path = Path(task.original_file_path)
                 if resume_content_hash(parse_path.read_bytes()) != task.content_hash:
@@ -376,6 +430,151 @@ def _remove_resume_upload(path: Path) -> bool:
     return delete_resume_file(str(path), resolve_upload_dir())
 
 
+def run_job_match_analysis_task(
+    task_id: int,
+    *,
+    already_claimed: bool = False,
+) -> None:
+    task: JobMatchAnalysisTaskRecord | None = None
+    heartbeat: tuple[Event, Thread] | None = None
+    try:
+        with mysql_connection() as connection:
+            repository = JobMatchAnalysisTaskRepository(connection)
+            task = repository.get_task(task_id)
+            if task is None:
+                return
+            if task.status == "pending":
+                if not repository.mark_processing(task_id):
+                    return
+                connection.commit()
+                task = repository.get_task(task_id)
+            elif task.status != "processing" or not already_claimed:
+                return
+        if task is None or task.processing_token is None:
+            return
+
+        heartbeat = _start_job_match_task_heartbeat(task)
+        with mysql_connection() as connection:
+            ensure_external_model_consent(connection, task.user_id)
+            result = JobMatchAnalysisService(
+                ResumeRepository(connection),
+                get_llm_client(),
+            ).analyze(
+                resume_id=task.resume_id,
+                user_id=task.user_id,
+                target_position=task.target_position,
+                job_description=task.job_description,
+            )
+        with mysql_connection() as connection:
+            completed = JobMatchAnalysisTaskRepository(connection).mark_completed(
+                task.id,
+                task.processing_token,
+                result.model_dump(mode="json"),
+            )
+        if not completed:
+            raise RuntimeError(f"job match task {task.id} lost its processing lease")
+    except AppError as exc:
+        _mark_job_match_task_failed(task, exc.code.value, exc.message)
+    except Exception:
+        error_id = uuid4().hex[:12]
+        LOGGER.exception(
+            "job match analysis task failed",
+            extra={"task_id": task_id, "error_id": error_id},
+        )
+        _mark_job_match_task_failed(
+            task,
+            ErrorCode.INTERNAL_ERROR.value,
+            f"岗位匹配分析失败，请稍后重试。（错误编号：{error_id}）",
+        )
+    finally:
+        _stop_resume_parse_task_heartbeat(heartbeat)
+
+
+def _mark_job_match_task_failed(
+    task: JobMatchAnalysisTaskRecord | None,
+    error_code: str,
+    error_message: str,
+) -> None:
+    if task is None or task.processing_token is None:
+        return
+    with mysql_connection() as connection:
+        JobMatchAnalysisTaskRepository(connection).mark_failed(
+            task.id,
+            task.processing_token,
+            error_code=error_code,
+            error_message=error_message,
+        )
+
+
+def _start_job_match_task_heartbeat(
+    task: JobMatchAnalysisTaskRecord,
+) -> tuple[Event, Thread]:
+    stop_event = Event()
+    timeout_seconds = max(1, get_settings().interview_task_processing_timeout_seconds)
+    interval = max(1, min(30, timeout_seconds // 3))
+
+    def _heartbeat_loop() -> None:
+        while not stop_event.wait(interval):
+            try:
+                with mysql_connection() as connection:
+                    alive = JobMatchAnalysisTaskRepository(connection).heartbeat(
+                        task.id,
+                        task.processing_token or "",
+                    )
+                if not alive:
+                    return
+            except Exception:
+                LOGGER.warning(
+                    "job match task heartbeat failed",
+                    extra={"task_id": task.id},
+                    exc_info=True,
+                )
+
+    thread = Thread(
+        target=_heartbeat_loop,
+        name=f"job-match-task-heartbeat-{task.id}",
+        daemon=True,
+    )
+    thread.start()
+    return stop_event, thread
+
+
+class JobMatchAnalysisTaskRunner:
+    def run_once(self) -> bool:
+        settings = get_settings()
+        with mysql_connection() as connection:
+            task = JobMatchAnalysisTaskRepository(connection).claim_due_task(
+                settings.interview_task_processing_timeout_seconds
+            )
+        if task is None:
+            return False
+        run_job_match_analysis_task(task.id, already_claimed=True)
+        return True
+
+
+def start_job_match_analysis_task_runner() -> asyncio.Task[None]:
+    settings = get_settings()
+
+    async def _loop() -> None:
+        runner = JobMatchAnalysisTaskRunner()
+        while True:
+            try:
+                await asyncio.to_thread(runner.run_once)
+                record_runner_success("job_match_analysis")
+            except Exception as exc:
+                record_runner_failure("job_match_analysis", exc)
+                LOGGER.exception("job match analysis task runner iteration failed")
+            await asyncio.sleep(max(1, settings.memory_task_poll_seconds))
+
+    return asyncio.create_task(_loop())
+
+
+async def stop_job_match_analysis_task_runner(task: asyncio.Task[None]) -> None:
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
 class ResumeParseTaskRunner:
     def run_once(self) -> bool:
         settings = get_settings()
@@ -451,6 +650,23 @@ def _parse_task_response(
         status=task.status,
         resume_id=task.resume_id,
         structured_data=structured_data,
+        error_message=task.error_message,
+    )
+
+
+def _job_match_task_response(
+    task: JobMatchAnalysisTaskRecord,
+) -> JobMatchAnalysisTaskResponse:
+    result = (
+        JobMatchAnalysisResponse.model_validate(task.result)
+        if task.status == "completed" and task.result is not None
+        else None
+    )
+    return JobMatchAnalysisTaskResponse(
+        task_id=task.id,
+        status=task.status,
+        result=result,
+        error_code=task.error_code,
         error_message=task.error_message,
     )
 

@@ -11,8 +11,10 @@ from scripts.migrate_v1 import (
     INIT_SQL_TABLES_TO_CREATE,
     INTERVIEW_EXPERIENCE_REANSWER_MIGRATION_VERSION,
     INTERVIEW_TASK_LEASE_MIGRATION_VERSION,
+    JOB_MATCH_TASK_MIGRATION_VERSION,
     MEMORY_TASK_LEASE_MIGRATION_VERSION,
     MIGRATION_VERSION,
+    PRIVACY_CONSENT_MIGRATION_VERSION,
     RESUME_TASK_LEASE_MIGRATION_VERSION,
 )
 
@@ -178,6 +180,23 @@ def test_resume_parse_tasks_define_recoverable_processing_lease() -> None:
     assert RESUME_TASK_LEASE_MIGRATION_VERSION == "2026_07_13_resume_task_lease"
 
 
+def test_job_match_tasks_are_persistent_and_lease_protected() -> None:
+    ddl = _ddl()
+    table_ddl = ddl.split(
+        "create table if not exists job_match_analysis_tasks",
+        1,
+    )[1].split(") engine=innodb", 1)[0]
+
+    assert "request_hash char(64) not null" in table_ddl
+    assert "result_json json null" in table_ddl
+    assert "processing_token char(32) null" in table_ddl
+    assert "heartbeat_at datetime null" in table_ddl
+    assert "foreign key (user_id) references users (id)" in table_ddl
+    assert "foreign key (resume_id) references resumes (id)" in table_ddl
+    assert "job_match_analysis_tasks" in INIT_SQL_TABLES_TO_CREATE
+    assert JOB_MATCH_TASK_MIGRATION_VERSION == "2026_07_26_job_match_analysis_tasks"
+
+
 def test_memory_tasks_define_recoverable_processing_lease() -> None:
     ddl = _ddl()
     table_ddl = ddl.split("create table if not exists memory_tasks", 1)[1].split(
@@ -193,6 +212,18 @@ def test_memory_tasks_define_recoverable_processing_lease() -> None:
 def test_published_baseline_version_remains_stable() -> None:
     assert MIGRATION_VERSION == "2026_07_06_v1"
     assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION == "2026_07_07_async_task_schema"
+
+
+def test_external_model_consent_is_explicit_and_versioned() -> None:
+    ddl = _ddl()
+    users_ddl = ddl.split("create table if not exists users", 1)[1].split(
+        ") engine=innodb",
+        1,
+    )[0]
+
+    assert "external_model_consent_at datetime null" in users_ddl
+    assert "external_model_consent_version varchar(32) null" in users_ddl
+    assert PRIVACY_CONSENT_MIGRATION_VERSION == "2026_07_26_external_model_consent"
 
 
 def test_interview_experience_and_reanswer_schema_contract() -> None:
@@ -294,6 +325,11 @@ def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         migrate_v1,
+        "_apply_memory_user_scope_hardening",
+        lambda _connection: calls.append("memory_user_scope_hardening"),
+    )
+    monkeypatch.setattr(
+        migrate_v1,
         "_apply_interview_resume_snapshot",
         lambda _connection, _database: calls.append("interview_resume_snapshot"),
     )
@@ -308,6 +344,7 @@ def test_old_baseline_skips_v1_and_runs_later_migrations(monkeypatch) -> None:
     assert "harness_evolution_hardening" in calls
     assert "harness_replay_removal" in calls
     assert "review_bookmark_history_detach" in calls
+    assert "memory_user_scope_hardening" in calls
     assert ASYNC_TASK_SCHEMA_MIGRATION_VERSION in applied_versions
     assert MEMORY_TASK_LEASE_MIGRATION_VERSION in applied_versions
 
@@ -368,6 +405,31 @@ def test_resume_snapshot_migration_backfills_and_enforces_not_null() -> None:
     assert (
         "alter table interviews modify column resume_snapshot json not null"
         in statements
+    )
+
+
+def test_memory_scope_hardening_reindexes_and_enforces_not_null() -> None:
+    from scripts import migrate_v1
+
+    connection = _RecordingConnection()
+
+    migrate_v1._apply_memory_user_scope_hardening(connection)
+
+    statements = [" ".join(sql.lower().split()) for sql, _params in connection.executed]
+    for table_name in ("interviewer_memories", "agent_memories"):
+        assert f"delete from {table_name} where user_id is null" in statements
+        assert (
+            f"alter table {table_name} modify column user_id bigint unsigned not null"
+            in statements
+        )
+        assert any(
+            f"from {table_name} where status = 'active'" in statement
+            and "'memory_reindex'" in statement
+            for statement in statements
+        )
+    assert any(
+        "'memory_vector_scope_cleanup'" in statement
+        for statement in statements
     )
 
 
