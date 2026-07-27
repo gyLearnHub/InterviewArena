@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -24,6 +24,16 @@ test.beforeEach(async ({ page }) => {
       json: { task_id: null, status: "idle", deleted_count: 0, error_message: null }
     });
   });
+  await page.route("**/api/memories/generation-status", async (route) => {
+    await route.fulfill({
+      json: {
+        pending_count: 0,
+        processing_count: 0,
+        retry_wait_count: 0,
+        failed_count: 0
+      }
+    });
+  });
   await page.route("**/api/dashboard/summary", async (route) => {
     await route.fulfill({
       json: {
@@ -33,7 +43,10 @@ test.beforeEach(async ({ page }) => {
         memory_status: "accumulating",
         candidate_memory_count: 0,
         latest_interview: null,
-        latest_report: null
+        latest_report: null,
+        score_trend: [],
+        abilities: [],
+        weak_points: []
       }
     });
   });

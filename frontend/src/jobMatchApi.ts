@@ -1,6 +1,7 @@
-import { request } from "./httpClient";
+import { ApiError, request } from "./httpClient";
 
-const REQUEST_TIMEOUT_MS = 120000;
+const ENQUEUE_TIMEOUT_MS = 15000;
+const POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const JOB_MATCH_STATUS_MESSAGES: Record<number, string> = {
   400: "请求参数不正确。",
   401: "登录已失效，请重新登录。",
@@ -51,14 +52,46 @@ export type JobMatchAnalysisRequest = {
   job_description: string;
 };
 
+export type JobMatchAnalysisTask = {
+  task_id: number;
+  status: "pending" | "processing" | "completed" | "failed";
+  result: JobMatchAnalysis | null;
+  error_code: string | null;
+  error_message: string | null;
+};
+
 export async function analyzeResumeJobMatch(
   resumeId: number,
   payload: JobMatchAnalysisRequest
 ): Promise<JobMatchAnalysis> {
-  return request<JobMatchAnalysis>(`/resumes/${resumeId}/job-match-analysis`, {
+  let task = await request<JobMatchAnalysisTask>(`/resumes/${resumeId}/job-match-analysis`, {
     method: "POST",
     body: payload,
-    timeoutMs: REQUEST_TIMEOUT_MS,
+    timeoutMs: ENQUEUE_TIMEOUT_MS,
     statusMessages: JOB_MATCH_STATUS_MESSAGES
   });
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let delayMs = 1200;
+  while (task.status === "pending" || task.status === "processing") {
+    if (Date.now() >= deadline) {
+      throw new ApiError("匹配分析等待超时，请稍后重试。", "NETWORK_TIMEOUT");
+    }
+    await delay(delayMs);
+    task = await request<JobMatchAnalysisTask>(`/resumes/job-match-tasks/${task.task_id}`, {
+      timeoutMs: ENQUEUE_TIMEOUT_MS,
+      statusMessages: JOB_MATCH_STATUS_MESSAGES
+    });
+    delayMs = Math.min(5000, Math.round(delayMs * 1.5));
+  }
+  if (task.status === "completed" && task.result) {
+    return task.result;
+  }
+  throw new ApiError(
+    task.error_message || "匹配分析失败，请稍后重试。",
+    task.error_code || "BUSINESS_ERROR"
+  );
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }

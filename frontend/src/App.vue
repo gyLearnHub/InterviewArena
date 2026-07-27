@@ -328,6 +328,63 @@
                 记忆用于生成个性化面试体验。关闭后，系统不会使用历史表现进行个性化。
               </p>
             </section>
+
+            <section class="settings-section">
+              <div class="section-title-row">
+                <h2>模型与个人数据</h2>
+                <span class="help-dot" title="管理第三方模型授权和账户数据">?</span>
+              </div>
+
+              <div class="settings-row">
+                <div>
+                  <strong>第三方模型数据授权</strong>
+                  <p>
+                    允许发送脱敏后的简历、岗位描述和面试内容，用于解析、提问和反馈。
+                    撤回后新的模型任务将被拒绝。
+                  </p>
+                </div>
+                <button
+                  class="memory-toggle-button"
+                  :class="{ active: externalModelConsent }"
+                  type="button"
+                  :aria-pressed="externalModelConsent"
+                  :disabled="settingsLoading || savingModelConsent"
+                  @click="toggleExternalModelConsent"
+                >
+                  {{ externalModelConsent ? "已同意" : "未同意" }}
+                </button>
+              </div>
+
+              <div class="settings-row">
+                <div>
+                  <strong>导出个人数据</strong>
+                  <p>下载账户、简历、面试、记忆和相关训练记录的 JSON 副本。</p>
+                </div>
+                <button
+                  class="pill-button"
+                  type="button"
+                  :disabled="exportingAccountData"
+                  @click="downloadAccountData"
+                >
+                  {{ exportingAccountData ? "导出中..." : "导出数据" }}
+                </button>
+              </div>
+
+              <div class="settings-row">
+                <div>
+                  <strong>注销账户</strong>
+                  <p>永久删除账户及关联数据。该操作不可撤销，需要再次输入密码。</p>
+                </div>
+                <button
+                  class="pill-button clear-memory-button"
+                  type="button"
+                  :disabled="deletingAccount"
+                  @click="confirmDeleteAccount"
+                >
+                  {{ deletingAccount ? "注销中..." : "注销账户" }}
+                </button>
+              </div>
+            </section>
           </div>
 
           <div v-else :id="`${activeDialog}-dialog-title`" class="settings-empty">设置暂无内容</div>
@@ -522,33 +579,26 @@ import {
   AUTH_EXPIRED_EVENT,
   ApiError,
   clearMemories,
-  getNotificationDetail,
+  deleteAccount,
+  exportAccountData,
   getCurrentUser,
   getMemoryClearStatus,
-  getUnreadNotificationCount,
   getUserPreferences,
-  listNotifications,
   logoutCurrentUser,
-  markAllNotificationsRead,
-  markNotificationRead,
   uploadCurrentUserAvatar,
   updateCurrentUser,
+  updateExternalModelConsent,
   updateUserPreferences,
   type MemoryClearStatus,
-  type NotificationDetail,
-  type NotificationFilter,
-  type NotificationItem,
   type UserPreferences
 } from "./api";
-import { getUser, isLoggedIn, saveAuth } from "./auth";
-import { parseApiDate } from "./formatters";
+import { clearAuth, getUser, isLoggedIn, saveAuth } from "./auth";
+import { useNotifications } from "./composables/useNotifications";
 import { markSessionUnverified } from "./session";
 
 const router = useRouter();
 const route = useRoute();
 const NAV_COLLAPSED_STORAGE_KEY = "interviewarena.navCollapsed";
-const NOTIFICATION_PAGE_SIZE = 10;
-const NOTIFICATION_POLL_INTERVAL_MS = 60000;
 const authVersion = ref(0);
 const navCollapsed = ref(readNavCollapsedPreference());
 const mobileNavOpen = ref(false);
@@ -570,28 +620,19 @@ const profileForm = reactive({
 });
 const preferences = ref<UserPreferences | null>(null);
 const memoryEnabled = ref(true);
+const externalModelConsent = ref(false);
 const activeSettingsPanel = ref<"personalization" | "">("");
 const settingsLoading = ref(false);
 const savingPreference = ref(false);
+const savingModelConsent = ref(false);
+const exportingAccountData = ref(false);
+const deletingAccount = ref(false);
 const clearingMemories = ref(false);
 const clearStatus = ref<MemoryClearStatus | null>(null);
 const settingsMessage = ref("");
 const settingsHasError = ref(false);
-const unreadNotificationCount = ref(0);
-const notificationFilter = ref<NotificationFilter>("all");
-const notificationItems = ref<NotificationItem[]>([]);
-const notificationNextCursor = ref<string | null>(null);
-const notificationsLoading = ref(false);
-const notificationsLoadingMore = ref(false);
-const notificationDetailLoading = ref(false);
-const notificationDetail = ref<NotificationDetail | null>(null);
-const markingAllNotificationsRead = ref(false);
-const notificationMessage = ref("");
-const notificationHasError = ref(false);
 let settingsMessageTimer: number | null = null;
 let clearMemoryPollTimer: ReturnType<typeof window.setInterval> | null = null;
-let notificationPollTimer: ReturnType<typeof window.setInterval> | null = null;
-let notificationRequestSequence = 0;
 
 const activeClearStatuses = new Set(["pending", "processing", "retry_wait"]);
 
@@ -609,6 +650,39 @@ watch(
   () => closeMobileNav()
 );
 const showWorkspaceShell = computed(() => loggedIn.value && route.name !== "login");
+const {
+  unreadNotificationCount,
+  notificationFilter,
+  notificationItems,
+  notificationNextCursor,
+  notificationsLoading,
+  notificationsLoadingMore,
+  notificationDetailLoading,
+  notificationDetail,
+  markingAllNotificationsRead,
+  notificationMessage,
+  notificationHasError,
+  unreadNotificationBadge,
+  refreshUnreadNotificationCount,
+  startNotificationPolling,
+  stopNotificationPolling,
+  handleVisibilityChange,
+  handleWindowFocus,
+  loadNotifications,
+  loadMoreNotifications,
+  changeNotificationFilter,
+  openNotificationItem,
+  markAllNotificationsAsRead,
+  backToNotificationList,
+  notificationTypeLabel,
+  formatNotificationTime,
+  clearNotificationMessage
+} = useNotifications({
+  enabled: showWorkspaceShell,
+  isDialogOpen: () => activeDialog.value === "notifications",
+  closeDialog,
+  navigate: (path) => router.push(path)
+});
 const isDashboardShell = computed(() => route.name === "dashboard");
 const isInterviewRoute = computed(() =>
   ["interview-entry", "multi-round-interview"].includes(String(route.name))
@@ -655,9 +729,6 @@ const profileInitial = computed(() =>
 const accountAvatarUrl = computed(() => currentUser.value?.avatar_url || "");
 const profileAvatarUrl = computed(
   () => profileForm.avatarUrl || currentUser.value?.avatar_url || ""
-);
-const unreadNotificationBadge = computed(() =>
-  unreadNotificationCount.value > 99 ? "99+" : String(unreadNotificationCount.value)
 );
 const dialogTitle = computed(() => {
   const titles = {
@@ -954,10 +1025,70 @@ async function loadSettings() {
   try {
     preferences.value = await getUserPreferences();
     memoryEnabled.value = preferences.value.memory_enabled;
+    externalModelConsent.value = preferences.value.external_model_consent;
   } catch (error) {
     showSettingsError(error instanceof ApiError ? error.message : "设置加载失败。");
   } finally {
     settingsLoading.value = false;
+  }
+}
+
+async function toggleExternalModelConsent() {
+  const nextValue = !externalModelConsent.value;
+  if (
+    nextValue &&
+    !window.confirm("确认允许将脱敏后的简历、岗位描述和面试内容发送给第三方模型服务吗？")
+  ) {
+    return;
+  }
+  savingModelConsent.value = true;
+  try {
+    preferences.value = await updateExternalModelConsent(nextValue);
+    externalModelConsent.value = preferences.value.external_model_consent;
+    showSettingsMessage(nextValue ? "第三方模型授权已开启。" : "第三方模型授权已撤回。");
+  } catch (error) {
+    showSettingsError(error instanceof ApiError ? error.message : "模型授权保存失败。");
+  } finally {
+    savingModelConsent.value = false;
+  }
+}
+
+async function downloadAccountData() {
+  exportingAccountData.value = true;
+  try {
+    const data = await exportAccountData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `interviewarena-data-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showSettingsMessage("个人数据已导出。");
+  } catch (error) {
+    showSettingsError(error instanceof ApiError ? error.message : "个人数据导出失败。");
+  } finally {
+    exportingAccountData.value = false;
+  }
+}
+
+async function confirmDeleteAccount() {
+  const password = window.prompt("请输入当前账户密码以确认注销：");
+  if (!password || !window.confirm("账户及关联数据将被永久删除，且无法恢复。确认继续吗？")) {
+    return;
+  }
+  deletingAccount.value = true;
+  try {
+    await deleteAccount(password);
+    clearAuth();
+    activeDialog.value = "";
+    await router.push("/login");
+  } catch (error) {
+    showSettingsError(error instanceof ApiError ? error.message : "账户注销失败。");
+  } finally {
+    deletingAccount.value = false;
   }
 }
 
@@ -1026,256 +1157,6 @@ function stopClearMemoryPolling() {
   }
   window.clearInterval(clearMemoryPollTimer);
   clearMemoryPollTimer = null;
-}
-
-async function refreshUnreadNotificationCount() {
-  if (!showWorkspaceShell.value || document.hidden) {
-    return;
-  }
-  try {
-    const response = await getUnreadNotificationCount();
-    unreadNotificationCount.value = response.count;
-  } catch {
-    // A transient polling failure must not disable future refresh attempts.
-  }
-}
-
-function startNotificationPolling() {
-  if (notificationPollTimer || document.hidden) {
-    return;
-  }
-  notificationPollTimer = window.setInterval(() => {
-    void pollNotifications();
-  }, NOTIFICATION_POLL_INTERVAL_MS);
-}
-
-function stopNotificationPolling() {
-  if (!notificationPollTimer) {
-    return;
-  }
-  window.clearInterval(notificationPollTimer);
-  notificationPollTimer = null;
-}
-
-async function pollNotifications() {
-  if (!showWorkspaceShell.value || document.hidden) {
-    return;
-  }
-  await refreshUnreadNotificationCount();
-  if (
-    activeDialog.value === "notifications" &&
-    !notificationDetail.value &&
-    !notificationsLoading.value &&
-    !notificationsLoadingMore.value
-  ) {
-    await loadNotifications({ reset: true, silent: true });
-  }
-}
-
-function handleVisibilityChange() {
-  if (document.hidden) {
-    stopNotificationPolling();
-    return;
-  }
-  if (showWorkspaceShell.value) {
-    void pollNotifications();
-    startNotificationPolling();
-  }
-}
-
-function handleWindowFocus() {
-  if (!document.hidden && showWorkspaceShell.value) {
-    void pollNotifications();
-    startNotificationPolling();
-  }
-}
-
-async function loadNotifications(options: { reset?: boolean; silent?: boolean } = {}) {
-  const requestSequence = ++notificationRequestSequence;
-  const reset = options.reset ?? false;
-  if (reset) {
-    notificationNextCursor.value = null;
-  }
-  if (!options.silent) {
-    notificationsLoading.value = reset;
-  }
-  try {
-    const response = await listNotifications({
-      filter: notificationFilter.value,
-      cursor: reset ? null : notificationNextCursor.value,
-      limit: NOTIFICATION_PAGE_SIZE
-    });
-    if (requestSequence !== notificationRequestSequence) {
-      return;
-    }
-    unreadNotificationCount.value = response.unread_count;
-    notificationNextCursor.value = response.next_cursor;
-    notificationItems.value = reset
-      ? response.items
-      : [
-          ...notificationItems.value,
-          ...response.items.filter(
-            (item) => !notificationItems.value.some((existing) => existing.id === item.id)
-          )
-        ];
-    if (!options.silent) {
-      clearNotificationMessage();
-    }
-  } catch (error) {
-    if (requestSequence !== notificationRequestSequence) {
-      return;
-    }
-    if (!options.silent) {
-      showNotificationMessage(
-        error instanceof ApiError ? error.message : "通知加载失败，请稍后重试。",
-        true
-      );
-    }
-  } finally {
-    if (requestSequence === notificationRequestSequence) {
-      notificationsLoading.value = false;
-    }
-  }
-}
-
-async function loadMoreNotifications() {
-  if (!notificationNextCursor.value || notificationsLoadingMore.value) {
-    return;
-  }
-  notificationsLoadingMore.value = true;
-  await loadNotifications({ reset: false });
-  notificationsLoadingMore.value = false;
-}
-
-function changeNotificationFilter(filter: NotificationFilter) {
-  if (notificationFilter.value === filter) {
-    return;
-  }
-  notificationFilter.value = filter;
-  notificationDetail.value = null;
-  void loadNotifications({ reset: true });
-}
-
-async function openNotificationItem(item: NotificationItem) {
-  const wasRead = item.is_read;
-  applyNotificationReadState(item.id, true);
-  notificationDetailLoading.value = true;
-  clearNotificationMessage();
-  try {
-    if (!wasRead) {
-      await markNotificationRead(item.id);
-    }
-    const detail = await getNotificationDetail(item.id);
-    if (detail.target.exists === false) {
-      notificationDetail.value = detail;
-      showNotificationMessage(detail.target.message || "关联内容不存在或已被删除。", true);
-      return;
-    }
-    if (detail.target.path) {
-      closeDialog();
-      await router.push(detail.target.path);
-      return;
-    }
-    notificationDetail.value = detail;
-  } catch (error) {
-    applyNotificationReadState(item.id, wasRead);
-    showNotificationMessage(
-      notificationErrorMessage(error, "通知处理失败。", "关联内容不存在或已被删除。"),
-      true
-    );
-  } finally {
-    notificationDetailLoading.value = false;
-  }
-}
-
-async function markAllNotificationsAsRead() {
-  if (unreadNotificationCount.value === 0 || markingAllNotificationsRead.value) {
-    return;
-  }
-  const previousCount = unreadNotificationCount.value;
-  const previousItems = notificationItems.value.map((item) => ({ ...item }));
-  markingAllNotificationsRead.value = true;
-  notificationItems.value = notificationItems.value.map((item) => ({ ...item, is_read: true }));
-  unreadNotificationCount.value = 0;
-  clearNotificationMessage();
-  try {
-    await markAllNotificationsRead();
-    if (notificationFilter.value === "unread") {
-      notificationItems.value = [];
-      notificationNextCursor.value = null;
-    }
-  } catch (error) {
-    unreadNotificationCount.value = previousCount;
-    notificationItems.value = previousItems;
-    showNotificationMessage(notificationErrorMessage(error, "全部已读失败。"), true);
-  } finally {
-    markingAllNotificationsRead.value = false;
-  }
-}
-
-function applyNotificationReadState(notificationId: number, isRead: boolean) {
-  const target = notificationItems.value.find((item) => item.id === notificationId);
-  if (!target || target.is_read === isRead) {
-    return;
-  }
-  target.is_read = isRead;
-  unreadNotificationCount.value = Math.max(0, unreadNotificationCount.value + (isRead ? -1 : 1));
-}
-
-function backToNotificationList() {
-  notificationDetail.value = null;
-  clearNotificationMessage();
-}
-
-function notificationTypeLabel(type: string) {
-  const map: Record<string, string> = {
-    interview_flow: "面试流程",
-    interview: "面试流程",
-    score_report: "评分报告",
-    scoring_report: "评分报告",
-    report: "评分报告",
-    memory_system: "记忆系统",
-    memory: "记忆系统",
-    harness_exception: "面试运行异常",
-    harness_error: "面试运行异常",
-    harness: "面试运行异常",
-    system: "系统通知",
-    system_notice: "系统通知"
-  };
-  return map[type] || type;
-}
-
-function formatNotificationTime(value: string) {
-  const date = parseApiDate(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
-function showNotificationMessage(text: string, hasError = false) {
-  notificationMessage.value = text;
-  notificationHasError.value = hasError;
-}
-
-function clearNotificationMessage() {
-  notificationMessage.value = "";
-  notificationHasError.value = false;
-}
-
-function notificationErrorMessage(error: unknown, fallback: string, notFoundFallback = fallback) {
-  if (!(error instanceof ApiError)) {
-    return fallback;
-  }
-  if (error.status === 404 || error.message.trim().toLowerCase() === "not found") {
-    return notFoundFallback;
-  }
-  return error.message || fallback;
 }
 
 function showProfileError(text: string) {

@@ -560,10 +560,7 @@ import {
   type HistoryDetail,
   type InterviewRound,
   type MultiRoundQaEntry,
-  type ProblemDiagnosis,
-  type QuestionEvaluation,
   type ReportQualitySummary,
-  type RoundReview,
   type RoundScore,
   type RoundType
 } from "../api";
@@ -573,7 +570,35 @@ import managerInterviewer from "../assets/interviewers/manager-interviewer.webp"
 import resumeInterviewer from "../assets/interviewers/resume-interviewer.webp";
 import technicalInterviewer from "../assets/interviewers/technical-interviewer.webp";
 import QuestionReanswerPanel from "../components/QuestionReanswerPanel.vue";
-import { parseApiDate } from "../formatters";
+import {
+  answerText,
+  answeredText,
+  confidenceText,
+  dedupePracticeItems,
+  firstNumber,
+  formatDateTime,
+  formatDuration,
+  formatScore,
+  normalizeScore,
+  orderedRoundTypes,
+  pointString,
+  priorityText,
+  problemDiagnosisPracticeItem,
+  questionEvaluationText,
+  questionScoreText,
+  radarGuide,
+  radarPoints,
+  ratingText,
+  roundLabel,
+  roundOrdinal,
+  roundReviewPracticeItems,
+  scoreFromRoundSummary,
+  scoreSourceText,
+  severityText,
+  statusText,
+  questionText,
+  type WeaknessPracticeItem
+} from "./historyDetailUtils";
 
 const route = useRoute();
 const router = useRouter();
@@ -588,7 +613,6 @@ const practiceError = ref(false);
 const isCreatingReportBookmarks = ref(false);
 const reportBookmarkMessage = ref("");
 const reportBookmarkError = ref(false);
-const orderedRoundTypes: RoundType[] = ["resume", "technical", "manager", "hr"];
 const roundMeta: Record<RoundType, { image: string; interviewer: string; icon: string }> = {
   resume: { image: resumeInterviewer, interviewer: "简历官小A", icon: "▤" },
   technical: { image: technicalInterviewer, interviewer: "技术官小T", icon: "</>" },
@@ -671,15 +695,6 @@ const qualityMetrics = computed(() => {
     }
   ];
 });
-type WeaknessPracticeItem = {
-  key: string;
-  title: string;
-  weakness: string;
-  suggestion?: string;
-  roundType?: RoundType;
-  sourceLabel: string;
-};
-
 const isCreatingPractice = computed(() => activePracticeKey.value !== null);
 const reportBookmarkCandidateCount = computed(() => {
   const diagnosis = detailedFeedback.value?.problem_diagnosis || [];
@@ -860,187 +875,16 @@ function toggleRound(type: RoundType) {
   expandedRoundType.value = expandedRoundType.value === type ? null : type;
 }
 
-function problemDiagnosisPracticeItem(item: ProblemDiagnosis): WeaknessPracticeItem {
-  return {
-    key: `diagnosis-${item.title}`,
-    title: item.title,
-    weakness: item.title,
-    suggestion: item.suggestion,
-    sourceLabel: severityText(item.severity)
-  };
-}
-
-function roundReviewPracticeItems(review: RoundReview): WeaknessPracticeItem[] {
-  const roundType = asRoundType(review.round_type);
-  return (review.issues || []).slice(0, 2).map((issue, index) => ({
-    key: `round-${review.round_type}-${index}-${issue}`,
-    title: `${roundLabel(review.round_type)}：${issue}`,
-    weakness: issue,
-    suggestion: review.suggestions?.[index] || review.suggestions?.[0],
-    roundType: roundType || undefined,
-    sourceLabel: roundLabel(review.round_type)
-  }));
-}
-
-function dedupePracticeItems(items: WeaknessPracticeItem[]): WeaknessPracticeItem[] {
-  const seen = new Set<string>();
-  const result: WeaknessPracticeItem[] = [];
-  for (const item of items) {
-    const key = `${item.roundType || "all"}:${item.weakness.trim()}`;
-    if (!item.weakness.trim() || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(item);
-  }
-  return result;
-}
-
-function asRoundType(value: string): RoundType | null {
-  return orderedRoundTypes.includes(value as RoundType) ? (value as RoundType) : null;
-}
-
-function statusText(status: string): string {
-  return (
-    (
-      {
-        created: "已创建",
-        in_progress: "进行中",
-        finished: "已结束",
-        completed: "已结束"
-      } as Record<string, string>
-    )[status] || status
-  );
-}
-function roundLabel(type: string): string {
-  return (
-    (
-      { resume: "简历面", technical: "技术面", manager: "主管面", hr: "HR 面" } as Record<
-        string,
-        string
-      >
-    )[type] || "未分组"
-  );
-}
-function roundOrdinal(index: number): string {
-  return ["第一轮", "第二轮", "第三轮", "第四轮"][index] || `第 ${index + 1} 轮`;
-}
-function scoreFromRoundSummary(round: InterviewRound | null): number | null {
-  return typeof round?.summary?.score === "number" ? round.summary.score : null;
-}
 function scoreFromFinalReport(type: RoundType): number | null {
   const item = detail.value?.feedback_report?.round_scores?.find(
     (score: RoundScore) => score.round_type === type
   );
   return typeof item?.score === "number" ? item.score : null;
 }
-function firstNumber(values: Array<number | null | undefined>): number | null {
-  const value = values.find((item) => typeof item === "number");
-  return typeof value === "number" ? value : null;
-}
-function normalizeScore(score: number | null): number | null {
-  if (typeof score !== "number") return null;
-  return Math.max(0, Math.min(100, score));
-}
-function formatScore(score: number): string {
-  return Number.isInteger(score) ? String(score) : score.toFixed(1);
-}
-function ratingText(score: number | null): string {
-  if (score === null) return "待评";
-  if (score >= 85) return "优秀";
-  if (score >= 70) return "良好";
-  if (score >= 60) return "合格";
-  return "待提升";
-}
-function confidenceText(value: string): string {
-  return (
-    ({ high: "高置信度", medium: "中等置信度", low: "低置信度" } as Record<string, string>)[
-      value
-    ] || value
-  );
-}
-function severityText(value: string): string {
-  return (
-    ({ high: "高风险", medium: "中风险", low: "低风险" } as Record<string, string>)[value] || value
-  );
-}
-function priorityText(value: string): string {
-  return (
-    ({ high: "高优先级", medium: "中优先级", low: "低优先级" } as Record<string, string>)[value] ||
-    value
-  );
-}
-function scoreSourceText(value: string): string {
-  return (
-    (
-      { final_report: "总评报告", round_summary: "轮次评分", none: "暂无评分" } as Record<
-        string,
-        string
-      >
-    )[value] || value
-  );
-}
-
-function radarPoints(values: number[]) {
-  return values.map((value, index) => {
-    const angle = -Math.PI / 2 + (index * Math.PI * 2) / values.length;
-    const radius = (82 * Math.max(0, Math.min(100, value))) / 100;
-    return {
-      x: Number((180 + Math.cos(angle) * radius).toFixed(1)),
-      y: Number((126 + Math.sin(angle) * radius).toFixed(1))
-    };
-  });
-}
-function radarGuide(level: number): string {
-  return pointString(
-    radarPoints([100 * level, 100 * level, 100 * level, 100 * level, 100 * level])
-  );
-}
-function pointString(points: Array<{ x: number; y: number }>): string {
-  return points.map((point) => `${point.x},${point.y}`).join(" ");
-}
-
-function questionScoreText(entry: MultiRoundQaEntry): string {
-  const score =
-    typeof entry.question_evaluation?.total_score === "number"
-      ? entry.question_evaluation.total_score
-      : null;
-  return score === null ? "本题暂未评分" : `本题评分：${formatScore(score)} / 100`;
-}
-function questionEvaluationText(entry: MultiRoundQaEntry): string {
-  const evaluation = entry.question_evaluation;
-  if (!evaluation) return "";
-  return evaluationText(evaluation);
-}
-function evaluationText(evaluation: QuestionEvaluation): string {
-  return (
-    evaluation.strengths?.find(Boolean) ||
-    evaluation.issues?.find(Boolean) ||
-    evaluation.follow_up_direction ||
-    ""
-  );
-}
 function entryRoundType(entry: MultiRoundQaEntry): RoundType | null {
   return (
     entry.round_type || rounds.value.find((item) => item.id === entry.round_id)?.round_type || null
   );
-}
-function questionText(entry: MultiRoundQaEntry): string {
-  return entry.question || entry.question_text || entry.prompt || "暂无问题内容";
-}
-function answerText(entry: MultiRoundQaEntry): string {
-  return answeredText(entry) || "暂无回答";
-}
-function answeredText(entry: MultiRoundQaEntry): string {
-  return entry.answer || entry.answer_text || entry.user_answer || "";
-}
-function formatDateTime(value: string | null): string {
-  return value ? parseApiDate(value).toLocaleString("zh-CN", { hour12: false }) : "暂无";
-}
-function formatDuration(seconds: number): string {
-  if (!seconds) return "-";
-  const minutes = Math.max(1, Math.round(seconds / 60));
-  return `${minutes} 分钟`;
 }
 </script>
 

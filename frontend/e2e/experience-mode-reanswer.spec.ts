@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const simulationInterviewId = 93;
 const historyInterviewId = 94;

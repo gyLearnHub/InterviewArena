@@ -9,6 +9,7 @@ export type AuthUser = {
   username: string;
   display_name?: string;
   avatar_url?: string | null;
+  external_model_consent?: boolean;
 };
 
 export function getUser(): AuthUser | null {

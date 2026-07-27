@@ -1,10 +1,16 @@
 import { clearAuth, saveAuth } from "./auth";
+import type {
+  ApiOperationRequestBody,
+  ApiOperationResponse,
+  ApiSchemas
+} from "./generated/api-contract";
 import { ApiError, ERROR_MESSAGES, request } from "./httpClient";
 
 export { ApiError, AUTH_EXPIRED_EVENT, request } from "./httpClient";
 
 const RESUME_UPLOAD_TIMEOUT_MS = 220000;
 const RESUME_PARSE_POLL_INTERVAL_MS = 1500;
+const MAX_TASK_POLL_INTERVAL_MS = 5000;
 const configuredInterviewOperationTimeout = Number(
   import.meta.env.VITE_INTERVIEW_OPERATION_TIMEOUT_MS
 );
@@ -14,18 +20,13 @@ const INTERVIEW_OPERATION_TIMEOUT_MS =
     : 1200000;
 const INTERVIEW_OPERATION_POLL_INTERVAL_MS = 1200;
 
-export type LoginResponse = {
-  id: number;
-  username: string;
-  display_name: string;
-  avatar_url?: string | null;
+type GeneratedLoginResponse = ApiOperationResponse<"login_api_auth_login_post">;
+export type LoginResponse = GeneratedLoginResponse & {
+  external_model_consent: boolean;
 };
 
-export type UserProfile = {
-  id: number;
-  username: string;
-  display_name: string;
-  avatar_url?: string | null;
+export type UserProfile = ApiSchemas["UserPublic"] & {
+  external_model_consent: boolean;
 };
 
 export type ResumeUploadResponse = {
@@ -33,13 +34,8 @@ export type ResumeUploadResponse = {
   structured_data: Record<string, unknown>;
 };
 
-export type ResumeParseTaskResponse = {
-  task_id: number;
-  status: "pending" | "processing" | "completed" | "failed" | string;
-  resume_id?: number | null;
-  structured_data?: Record<string, unknown> | null;
-  error_message?: string | null;
-};
+export type ResumeParseTaskResponse =
+  ApiOperationResponse<"get_resume_upload_task_api_resumes_upload_tasks__task_id__get">;
 
 export type InterviewOperationTaskResponse<T = unknown> = {
   task_id: number;
@@ -52,18 +48,12 @@ export type InterviewOperationTaskResponse<T = unknown> = {
   error_message?: string | null;
 };
 
-export type ResumeListItem = {
-  id: number;
-  name: string;
-  uploaded_at: string;
+export type ResumeListItem = ApiSchemas["ResumeListItem"] & {
   last_used_at: string | null;
-  parse_status: string;
   is_default: boolean;
 };
 
-export type ResumeDetail = ResumeListItem & {
-  structured_data: Record<string, unknown>;
-};
+export type ResumeDetail = ApiSchemas["ResumeDetailResponse"] & ResumeListItem;
 
 export type InterviewCreateResponse = {
   id: number;
@@ -145,28 +135,17 @@ export type DetailedFeedback = {
   follow_up_questions: string[];
 };
 
-export type UserPreferences = {
-  memory_enabled: boolean;
-  memory_updated_at?: string | null;
-};
+export type UserPreferences = ApiOperationResponse<"get_preferences_api_user_preferences_get">;
 
-export type MemoryClearStatus = {
-  task_id?: number | null;
-  status: "idle" | "pending" | "processing" | "completed" | "failed" | "retry_wait" | string;
-  deleted_count?: number;
-  error_message?: string | null;
-};
+export type MemoryClearStatus =
+  ApiOperationResponse<"get_clear_status_api_memories_clear_status_get">;
 
-export type MemoryGenerationStatus = {
-  pending_count: number;
-  processing_count: number;
-  retry_wait_count: number;
-  failed_count: number;
-};
+type GeneratedMemoryGenerationStatus =
+  ApiOperationResponse<"get_generation_status_api_memories_generation_status_get">;
+export type MemoryGenerationStatus = Required<GeneratedMemoryGenerationStatus>;
 
-export type MemoryRetryResponse = {
-  requeued_count: number;
-};
+export type MemoryRetryResponse =
+  ApiOperationResponse<"retry_failed_memories_api_memories_retry_failed_post">;
 
 export type ManagedMemoryStatus =
   "active" | "pending_review" | "superseded" | "archived" | "deleted" | string;
@@ -733,15 +712,14 @@ export type QuestionReanswerCreateResponse = QuestionReanswerBase & {
   attempt: ReanswerAttempt;
 };
 
-export type InterviewCreateRequest = {
-  resume_id: number;
-  target_position: string;
+type GeneratedInterviewCreateRequest =
+  ApiOperationRequestBody<"create_interview_api_interviews_post">;
+export type InterviewCreateRequest = Omit<
+  GeneratedInterviewCreateRequest,
+  "experience_mode" | "selected_rounds"
+> & {
   experience_mode: ExperienceMode;
-  job_description?: string;
   selected_rounds?: RoundType[];
-  interview_goal?: InterviewGoal;
-  difficulty?: InterviewDifficulty;
-  time_limit_minutes?: TimeLimitMinutes;
 };
 
 export type AnswerDraftResponse = {
@@ -750,23 +728,37 @@ export type AnswerDraftResponse = {
   updated_at?: string | null;
 };
 
-export async function register(username: string, password: string): Promise<void> {
+export async function register(
+  username: string,
+  password: string,
+  externalModelConsent: boolean
+): Promise<void> {
+  const body: ApiOperationRequestBody<"register_api_auth_register_post"> = {
+    username,
+    password,
+    external_model_consent: externalModelConsent
+  };
   await request("/auth/register", {
     method: "POST",
-    body: { username, password }
+    body
   });
 }
 
 export async function login(username: string, password: string): Promise<LoginResponse> {
+  const body: ApiOperationRequestBody<"login_api_auth_login_post"> = {
+    username,
+    password
+  };
   const data = await request<LoginResponse>("/auth/login", {
     method: "POST",
-    body: { username, password }
+    body
   });
   saveAuth({
     id: data.id,
     username: data.username,
     display_name: data.display_name,
-    avatar_url: data.avatar_url
+    avatar_url: data.avatar_url,
+    external_model_consent: data.external_model_consent
   });
   return data;
 }
@@ -1091,9 +1083,33 @@ export function getUserPreferences(): Promise<UserPreferences> {
 }
 
 export function updateUserPreferences(memoryEnabled: boolean): Promise<UserPreferences> {
+  const body: ApiOperationRequestBody<"update_preferences_api_user_preferences_patch"> = {
+    memory_enabled: memoryEnabled
+  };
   return request("/user/preferences", {
     method: "PATCH",
-    body: { memory_enabled: memoryEnabled }
+    body
+  });
+}
+
+export function updateExternalModelConsent(consent: boolean): Promise<UserPreferences> {
+  const body: ApiOperationRequestBody<"update_preferences_api_user_preferences_patch"> = {
+    external_model_consent: consent
+  };
+  return request("/user/preferences", {
+    method: "PATCH",
+    body
+  });
+}
+
+export function exportAccountData(): Promise<Record<string, unknown>> {
+  return request("/auth/me/data-export");
+}
+
+export function deleteAccount(password: string): Promise<void> {
+  return request("/auth/me", {
+    method: "DELETE",
+    body: { password, confirmation: "DELETE" }
   });
 }
 
@@ -1246,6 +1262,7 @@ async function waitForResumeParse(
 ): Promise<ResumeUploadResponse> {
   const startedAt = Date.now();
   let task = initialTask;
+  let pollIntervalMs = RESUME_PARSE_POLL_INTERVAL_MS;
   while (true) {
     if (task.status === "completed" && task.resume_id && task.structured_data) {
       return {
@@ -1262,8 +1279,9 @@ async function waitForResumeParse(
     if (Date.now() - startedAt > RESUME_UPLOAD_TIMEOUT_MS) {
       throw new ApiError(ERROR_MESSAGES.NETWORK_TIMEOUT, "NETWORK_TIMEOUT");
     }
-    await delay(RESUME_PARSE_POLL_INTERVAL_MS);
+    await delay(pollIntervalMs);
     task = await getResumeParseTask(task.task_id);
+    pollIntervalMs = Math.min(MAX_TASK_POLL_INTERVAL_MS, Math.round(pollIntervalMs * 1.5));
   }
 }
 
@@ -1282,6 +1300,7 @@ async function waitForInterviewOperation<T>(
 ): Promise<T> {
   const startedAt = Date.now();
   let task = initialTask;
+  let pollIntervalMs = INTERVIEW_OPERATION_POLL_INTERVAL_MS;
   while (true) {
     if (task.status === "completed" && task.result) {
       return task.result;
@@ -1295,7 +1314,8 @@ async function waitForInterviewOperation<T>(
     if (Date.now() - startedAt > INTERVIEW_OPERATION_TIMEOUT_MS) {
       throw new ApiError(ERROR_MESSAGES.NETWORK_TIMEOUT, "NETWORK_TIMEOUT");
     }
-    await delay(INTERVIEW_OPERATION_POLL_INTERVAL_MS);
+    await delay(pollIntervalMs);
     task = await getInterviewOperationTask<T>(task.task_id);
+    pollIntervalMs = Math.min(MAX_TASK_POLL_INTERVAL_MS, Math.round(pollIntervalMs * 1.5));
   }
 }
