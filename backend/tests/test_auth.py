@@ -1,5 +1,6 @@
 
 import asyncio
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
@@ -130,6 +131,13 @@ def request_from_ip(source_ip: str = "127.0.0.1") -> Request:
             "scheme": "http",
         }
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_login_failure_store() -> Iterator[None]:
+    auth_module._login_failures.clear()
+    yield
+    auth_module._login_failures.clear()
 
 
 def test_register_success() -> None:

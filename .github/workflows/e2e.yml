@@ -105,6 +105,11 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -r backend/requirements.txt
 
+      - name: Initialize MySQL schema
+        run: >-
+          docker exec -i "${{ job.services.mysql.id }}"
+          mysql -uroot -proot interview_arena < database/init_mysql.sql
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
