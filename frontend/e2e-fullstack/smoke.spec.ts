@@ -12,7 +12,7 @@ test("real backend supports readiness, authentication, and dashboard loading", a
 
   const ready = await page.request.get("/api/health/ready");
   expect(ready.status()).toBe(200);
-  await expect(ready.json()).resolves.toMatchObject({ status: "ready" });
+  await expect(ready.json()).resolves.toMatchObject({ status: "ok" });
 
   const username = `smoke${Date.now()}`;
   const password = "Smoke-test-password-2026";
