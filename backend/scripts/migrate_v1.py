@@ -693,15 +693,18 @@ def _apply_memory_user_scope_hardening(connection: Any) -> None:
                 )
                 SELECT
                     'memory_reindex',
-                    user_id,
+                    memory_to_reindex.user_id,
                     %s,
-                    id,
+                    memory_to_reindex.id,
                     'pending',
                     10,
-                    CONCAT('memory-reindex:v1:{table_name}:', id)
-                FROM {table_name}
-                WHERE status = 'active'
-                ON DUPLICATE KEY UPDATE id = id
+                    CONCAT(
+                        'memory-reindex:v1:{table_name}:',
+                        memory_to_reindex.id
+                    )
+                FROM {table_name} AS memory_to_reindex
+                WHERE memory_to_reindex.status = 'active'
+                ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key
                 """,
                 (table_name,),
             )

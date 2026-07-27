@@ -423,7 +423,11 @@ def test_memory_scope_hardening_reindexes_and_enforces_not_null() -> None:
             in statements
         )
         assert any(
-            f"from {table_name} where status = 'active'" in statement
+            f"from {table_name} as memory_to_reindex" in statement
+            and "memory_to_reindex.user_id" in statement
+            and "memory_to_reindex.id" in statement
+            and "where memory_to_reindex.status = 'active'" in statement
+            and "on duplicate key update dedupe_key = dedupe_key" in statement
             and "'memory_reindex'" in statement
             for statement in statements
         )
