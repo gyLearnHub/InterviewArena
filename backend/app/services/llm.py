@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
 from app.schemas.llm import FeedbackResult, QuestionResult, StructuredResume
+from app.services.privacy import redact_model_payload, redact_text
 
 JSONDict = dict[str, Any]
 TModel = TypeVar("TModel", bound=BaseModel)
@@ -73,7 +74,7 @@ class DeepSeekLLMClient:
                         "不得补写原文没有的项目事实。"
                     ),
                 },
-                {"role": "user", "content": resume_text},
+                {"role": "user", "content": redact_text(resume_text)},
             ]
         )
         return self._validate_payload(payload, StructuredResume).model_dump()
@@ -99,7 +100,13 @@ class DeepSeekLLMClient:
         payload = self._complete_json(
             [
                 {"role": "system", "content": question_system_prompt},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        redact_model_payload(user_payload),
+                        ensure_ascii=False,
+                    ),
+                },
             ]
         )
         return self._validate_payload(payload, QuestionResult).model_dump()
@@ -125,7 +132,13 @@ class DeepSeekLLMClient:
                         "suggestions 必须是字符串数组。"
                     ),
                 },
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        redact_model_payload(user_payload),
+                        ensure_ascii=False,
+                    ),
+                },
             ]
         )
         return self._validate_payload(payload, FeedbackResult).model_dump()
@@ -134,7 +147,13 @@ class DeepSeekLLMClient:
         return self._complete_json(
             [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        redact_model_payload(user_payload),
+                        ensure_ascii=False,
+                    ),
+                },
             ]
         )
 

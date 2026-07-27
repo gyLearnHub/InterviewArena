@@ -1,11 +1,14 @@
 
 import asyncio
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import app.api.auth as auth_module
 import app.deps as deps_module
 import pytest
 from app.api.auth import (
+    delete_current_user_account,
     login,
     read_current_user,
     register,
@@ -17,8 +20,13 @@ from app.core.errors import AppError, ErrorCode
 from app.core.security import create_access_token, hash_password
 from app.deps import get_current_user, get_user_repository
 from app.repositories.users import DuplicateUsernameError, UserRecord
-from app.schemas.auth import AuthRequest, UserProfileUpdate
-from fastapi import UploadFile
+from app.schemas.auth import (
+    AccountDeleteRequest,
+    AuthRequest,
+    RegisterRequest,
+    UserProfileUpdate,
+)
+from fastapi import Response, UploadFile
 from fastapi.testclient import TestClient
 from main import create_app
 from pydantic import ValidationError
@@ -49,6 +57,7 @@ class FakeUserRepository:
             username=username,
             display_name=username,
             password_hash=password_hash,
+            external_model_consent=False,
         )
         self.next_id += 1
         self.users_by_id[user.id] = user
@@ -67,6 +76,7 @@ class FakeUserRepository:
             password_hash=user.password_hash,
             memory_enabled=user.memory_enabled,
             memory_updated_at=user.memory_updated_at,
+            external_model_consent=user.external_model_consent,
         )
         self.users_by_id[user_id] = updated
         self.users_by_username[updated.username] = updated
@@ -84,6 +94,25 @@ class FakeUserRepository:
             password_hash=user.password_hash,
             memory_enabled=user.memory_enabled,
             memory_updated_at=user.memory_updated_at,
+            external_model_consent=user.external_model_consent,
+        )
+        self.users_by_id[user_id] = updated
+        self.users_by_username[updated.username] = updated
+        return updated
+
+    def update_external_model_consent(
+        self,
+        user_id: int,
+        consent: bool,
+    ) -> UserRecord | None:
+        user = self.users_by_id.get(user_id)
+        if user is None:
+            return None
+        updated = UserRecord(
+            **{
+                **user.__dict__,
+                "external_model_consent": consent,
+            }
         )
         self.users_by_id[user_id] = updated
         self.users_by_username[updated.username] = updated
@@ -104,6 +133,13 @@ def request_from_ip(source_ip: str = "127.0.0.1") -> Request:
     )
 
 
+@pytest.fixture(autouse=True)
+def reset_login_failure_store() -> Iterator[None]:
+    auth_module._login_failures.clear()
+    yield
+    auth_module._login_failures.clear()
+
+
 def test_register_success() -> None:
     repository = FakeUserRepository()
 
@@ -117,10 +153,27 @@ def test_register_success() -> None:
         "username": "alice",
         "display_name": "alice",
         "avatar_url": None,
+        "external_model_consent": False,
     }
     user = repository.get_by_username("alice")
     assert user is not None
     assert user.password_hash != "secret"
+
+
+def test_register_can_record_explicit_external_model_consent() -> None:
+    repository = FakeUserRepository()
+
+    response = register(
+        RegisterRequest(
+            username="alice",
+            password="secret",
+            external_model_consent=True,
+        ),
+        users=repository,  # type: ignore[arg-type]
+    )
+
+    assert response.external_model_consent is True
+    assert repository.get_by_username("alice").external_model_consent is True  # type: ignore[union-attr]
 
 
 def test_auth_request_rejects_short_password() -> None:
@@ -268,6 +321,7 @@ def test_login_success_clears_previous_failures(
 def test_login_failure_store_prunes_expired_entries_and_caps_capacity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    repository = FakeUserRepository()
     now = 10_000.0
     monkeypatch.setattr(auth_module, "_now", lambda: now)
     monkeypatch.setattr(auth_module, "LOGIN_FAILURE_MAX_ENTRIES", 3)
@@ -278,10 +332,40 @@ def test_login_failure_store_prunes_expired_entries_and_caps_capacity(
     )
 
     for index in range(6):
-        auth_module._record_login_failure(f"random-{index}", f"10.0.0.{index}")
+        auth_module._reserve_login_attempt(
+            f"random-{index}",
+            f"10.0.0.{index}",
+            repository,  # type: ignore[arg-type]
+        )
 
     assert "expired|10.0.0.1" not in auth_module._login_failures
     assert len(auth_module._login_failures) <= 3
+
+
+def test_login_attempt_reservation_is_atomic_for_concurrent_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = FakeUserRepository()
+    repository.create("alice", hash_password("secret"))
+    monkeypatch.setattr(auth_module, "_now", lambda: 12_000.0)
+    auth_module._login_failures.clear()
+
+    def attempt() -> int:
+        try:
+            login(
+                AuthRequest(username="alice", password="wrong-password"),
+                request_from_ip(),
+                users=repository,  # type: ignore[arg-type]
+            )
+        except AppError as exc:
+            return exc.status_code
+        raise AssertionError("wrong password unexpectedly authenticated")
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        statuses = list(executor.map(lambda _: attempt(), range(12)))
+
+    assert statuses.count(401) == auth_module.LOGIN_FAILURE_LIMIT
+    assert statuses.count(429) == 12 - auth_module.LOGIN_FAILURE_LIMIT
 
 
 def test_current_user_requires_login() -> None:
@@ -477,6 +561,7 @@ def test_current_user_accepts_legacy_bearer_token() -> None:
         "username": "alice",
         "display_name": "alice",
         "avatar_url": None,
+        "external_model_consent": False,
     }
 
 
@@ -519,8 +604,28 @@ def test_update_current_user_display_name() -> None:
         "username": "alice",
         "display_name": "Alice Chen",
         "avatar_url": None,
+        "external_model_consent": False,
     }
     assert repository.get_by_id(1).display_name == "Alice Chen"  # type: ignore[union-attr]
+    assert repository.get_by_id(1).display_name == "Alice Chen"  # type: ignore[union-attr]
+
+
+def test_account_deletion_requires_current_password() -> None:
+    current_user = UserRecord(
+        id=1,
+        username="alice",
+        password_hash=hash_password("correct-password"),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        delete_current_user_account(
+            AccountDeleteRequest(password="wrong-password", confirmation="DELETE"),
+            Response(),
+            current_user=current_user,
+            connection=object(),
+        )
+
+    assert exc_info.value.code == ErrorCode.UNAUTHORIZED
 
 
 def test_upload_current_user_avatar_updates_profile(

@@ -2,9 +2,15 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from app.api.resumes import get_job_match_llm_client, get_resume_repository
+from app.api import resumes as resumes_api
+from app.api.resumes import (
+    get_job_match_llm_client,
+    get_job_match_task_repository,
+    get_resume_repository,
+)
 from app.core.errors import AppError, ErrorCode
 from app.deps import get_current_user
+from app.repositories.job_match_tasks import JobMatchAnalysisTaskRecord
 from app.repositories.resumes import ResumeDetailRecord
 from app.repositories.users import UserRecord
 from app.schemas.interview import JOB_DESCRIPTION_MAX_LENGTH
@@ -78,6 +84,54 @@ class StubLLMClient:
         if isinstance(self.result, AppError):
             raise self.result
         return self.result
+
+
+class _StubTaskConnection:
+    def __init__(self) -> None:
+        self.commits = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
+class StubJobMatchTaskRepository:
+    def __init__(self) -> None:
+        self.connection = _StubTaskConnection()
+        self.tasks: dict[int, JobMatchAnalysisTaskRecord] = {}
+        self.created: list[dict[str, Any]] = []
+
+    def create_or_get_active_task(
+        self,
+        **values: Any,
+    ) -> JobMatchAnalysisTaskRecord:
+        self.created.append(values)
+        task = JobMatchAnalysisTaskRecord(
+            id=91,
+            user_id=int(values["user_id"]),
+            resume_id=int(values["resume_id"]),
+            target_position=str(values["target_position"]),
+            job_description=str(values["job_description"]),
+            request_hash=str(values["request_hash"]),
+            status="pending",
+        )
+        self.tasks[task.id] = task
+        return task
+
+    def get_task_for_user(
+        self,
+        task_id: int,
+        user_id: int,
+    ) -> JobMatchAnalysisTaskRecord | None:
+        task = self.tasks.get(task_id)
+        return task if task is not None and task.user_id == user_id else None
+
+
+ApiClientFixture = tuple[
+    TestClient,
+    StubResumeRepository,
+    StubLLMClient,
+    StubJobMatchTaskRepository,
+]
 
 
 def resume_detail(
@@ -223,24 +277,40 @@ def test_service_propagates_llm_failure_without_making_up_analysis() -> None:
 
 
 @pytest.fixture()
-def api_client() -> tuple[TestClient, StubResumeRepository, StubLLMClient]:
+def api_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    TestClient,
+    StubResumeRepository,
+    StubLLMClient,
+    StubJobMatchTaskRepository,
+]:
     repository = StubResumeRepository(resume_detail())
     llm_client = StubLLMClient(valid_analysis())
+    task_repository = StubJobMatchTaskRepository()
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: UserRecord(
         id=42,
         username="alice",
         password_hash="hash",
+        external_model_consent=True,
     )
     app.dependency_overrides[get_resume_repository] = lambda: repository
+    app.dependency_overrides[get_job_match_task_repository] = lambda: task_repository
     app.dependency_overrides[get_job_match_llm_client] = lambda: llm_client
-    return TestClient(app), repository, llm_client
+    monkeypatch.setattr(resumes_api, "run_job_match_analysis_task", lambda _task_id: None)
+    return TestClient(app), repository, llm_client, task_repository
 
 
 def test_job_match_analysis_api_returns_validated_contract(
-    api_client: tuple[TestClient, StubResumeRepository, StubLLMClient],
+    api_client: tuple[
+        TestClient,
+        StubResumeRepository,
+        StubLLMClient,
+        StubJobMatchTaskRepository,
+    ],
 ) -> None:
-    client, repository, llm_client = api_client
+    client, repository, llm_client, tasks = api_client
 
     response = client.post(
         "/api/resumes/7/job-match-analysis",
@@ -250,15 +320,17 @@ def test_job_match_analysis_api_returns_validated_contract(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert repository.calls == [(7, 42)]
-    assert llm_client.calls[0][1]["target_position"] == "后端开发工程师"
-    assert llm_client.calls[0][1]["job_description"] == "要求掌握 Python、FastAPI 和 MySQL。"
+    assert llm_client.calls == []
+    assert tasks.created[0]["target_position"] == "后端开发工程师"
+    assert tasks.created[0]["job_description"] == "要求掌握 Python、FastAPI 和 MySQL。"
     assert response.json() == {
-        "resume_id": 7,
-        "target_position": "后端开发工程师",
-        **valid_analysis(),
-        "analysis_basis": JOB_MATCH_ANALYSIS_BASIS,
+        "task_id": 91,
+        "status": "pending",
+        "result": None,
+        "error_code": None,
+        "error_message": None,
     }
 
 
@@ -274,10 +346,10 @@ def test_job_match_analysis_api_returns_validated_contract(
     ],
 )
 def test_job_match_analysis_api_validates_request_before_llm(
-    api_client: tuple[TestClient, StubResumeRepository, StubLLMClient],
+    api_client: ApiClientFixture,
     payload: dict[str, str],
 ) -> None:
-    client, repository, llm_client = api_client
+    client, repository, llm_client, tasks = api_client
 
     response = client.post("/api/resumes/7/job-match-analysis", json=payload)
 
@@ -285,12 +357,13 @@ def test_job_match_analysis_api_validates_request_before_llm(
     assert response.json()["error"]["code"] == ErrorCode.VALIDATION_ERROR
     assert repository.calls == []
     assert llm_client.calls == []
+    assert tasks.created == []
 
 
 def test_job_match_analysis_api_hides_unowned_resume(
-    api_client: tuple[TestClient, StubResumeRepository, StubLLMClient],
+    api_client: ApiClientFixture,
 ) -> None:
-    client, repository, llm_client = api_client
+    client, repository, llm_client, tasks = api_client
     repository.resume = None
 
     response = client.post(
@@ -305,13 +378,63 @@ def test_job_match_analysis_api_hides_unowned_resume(
     assert response.json()["error"]["code"] == ErrorCode.NOT_FOUND
     assert repository.calls == [(99, 42)]
     assert llm_client.calls == []
+    assert tasks.created == []
 
 
-def test_job_match_analysis_api_returns_llm_error(
-    api_client: tuple[TestClient, StubResumeRepository, StubLLMClient],
+def test_job_match_analysis_task_api_returns_persisted_failure(
+    api_client: ApiClientFixture,
 ) -> None:
-    client, _repository, llm_client = api_client
-    llm_client.result = AppError(ErrorCode.NETWORK_TIMEOUT, 504)
+    client, _repository, llm_client, tasks = api_client
+    tasks.tasks[91] = JobMatchAnalysisTaskRecord(
+        id=91,
+        user_id=42,
+        resume_id=7,
+        target_position="后端开发工程师",
+        job_description="要求掌握 Python。",
+        request_hash="a" * 64,
+        status="failed",
+        error_code=ErrorCode.NETWORK_TIMEOUT.value,
+        error_message="当前网络环境不好，请稍后重试。",
+    )
+
+    response = client.get("/api/resumes/job-match-tasks/91")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["error_code"] == ErrorCode.NETWORK_TIMEOUT
+    assert response.json()["result"] is None
+    assert llm_client.calls == []
+
+
+def test_job_match_analysis_api_rate_limits_repeated_llm_calls(
+    api_client: ApiClientFixture,
+) -> None:
+    client, _repository, llm_client, tasks = api_client
+    payload = {
+        "target_position": "后端开发工程师",
+        "job_description": "要求掌握 Python。",
+    }
+
+    first_response = client.post("/api/resumes/7/job-match-analysis", json=payload)
+    second_response = client.post("/api/resumes/7/job-match-analysis", json=payload)
+
+    assert first_response.status_code == 202
+    assert second_response.status_code == 429
+    assert second_response.json()["error"]["code"] == ErrorCode.TOO_MANY_REQUESTS
+    assert llm_client.calls == []
+    assert len(tasks.created) == 1
+
+
+def test_job_match_analysis_api_requires_external_model_consent(
+    api_client: ApiClientFixture,
+) -> None:
+    client, repository, llm_client, tasks = api_client
+    client.app.dependency_overrides[get_current_user] = lambda: UserRecord(
+        id=42,
+        username="alice",
+        password_hash="hash",
+        external_model_consent=False,
+    )
 
     response = client.post(
         "/api/resumes/7/job-match-analysis",
@@ -321,23 +444,7 @@ def test_job_match_analysis_api_returns_llm_error(
         },
     )
 
-    assert response.status_code == 504
-    assert response.json()["error"]["code"] == ErrorCode.NETWORK_TIMEOUT
-
-
-def test_job_match_analysis_api_rate_limits_repeated_llm_calls(
-    api_client: tuple[TestClient, StubResumeRepository, StubLLMClient],
-) -> None:
-    client, _repository, llm_client = api_client
-    payload = {
-        "target_position": "后端开发工程师",
-        "job_description": "要求掌握 Python。",
-    }
-
-    first_response = client.post("/api/resumes/7/job-match-analysis", json=payload)
-    second_response = client.post("/api/resumes/7/job-match-analysis", json=payload)
-
-    assert first_response.status_code == 200
-    assert second_response.status_code == 429
-    assert second_response.json()["error"]["code"] == ErrorCode.TOO_MANY_REQUESTS
-    assert len(llm_client.calls) == 1
+    assert response.status_code == 403
+    assert repository.calls == []
+    assert llm_client.calls == []
+    assert tasks.created == []

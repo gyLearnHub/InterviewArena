@@ -32,6 +32,20 @@ from fastapi.testclient import TestClient
 from main import create_app
 
 
+@pytest.fixture(autouse=True)
+def allow_external_model_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        interviews_api,
+        "ensure_external_model_consent",
+        lambda _connection, _user_id: None,
+    )
+    monkeypatch.setattr(
+        resumes_api,
+        "ensure_external_model_consent",
+        lambda _connection, _user_id: None,
+    )
+
+
 class _FakeConnection:
     def __init__(self) -> None:
         self.commit_count = 0
@@ -264,6 +278,7 @@ def _interview_task_api_client(
         id=1,
         username="alice",
         password_hash="hash",
+        external_model_consent=True,
     )
     app.dependency_overrides[interviews_api.get_interview_repository] = lambda: interview_repository
     app.dependency_overrides[interviews_api.get_interview_operation_task_repository] = lambda: (
@@ -282,7 +297,12 @@ def test_interview_task_endpoint_rejects_foreign_interview_before_enqueue() -> N
             interview_id=200,
             round_id=300,
             background_tasks=background_tasks,
-            current_user=UserRecord(id=1, username="alice", password_hash="hash"),
+            current_user=UserRecord(
+                id=1,
+                username="alice",
+                password_hash="hash",
+                external_model_consent=True,
+            ),
             interview_repository=interview_repository,  # type: ignore[arg-type]
             task_repository=repository,  # type: ignore[arg-type]
         )
@@ -316,7 +336,12 @@ def test_interview_task_endpoint_persists_payload_before_background_work() -> No
         round_id=20,
         background_tasks=background_tasks,
         request=RoundStartRequest(difficulty="pressure", time_limit_minutes=60),
-        current_user=UserRecord(id=1, username="alice", password_hash="hash"),
+        current_user=UserRecord(
+            id=1,
+            username="alice",
+            password_hash="hash",
+            external_model_consent=True,
+        ),
         interview_repository=interview_repository,  # type: ignore[arg-type]
         task_repository=repository,  # type: ignore[arg-type]
     )
@@ -484,7 +509,12 @@ def test_interview_task_endpoint_rejects_enqueue_limit_before_task_create(
             interview_id=10,
             round_id=20,
             background_tasks=background_tasks,
-            current_user=UserRecord(id=1, username="alice", password_hash="hash"),
+            current_user=UserRecord(
+                id=1,
+                username="alice",
+                password_hash="hash",
+                external_model_consent=True,
+            ),
             interview_repository=interview_repository,  # type: ignore[arg-type]
             task_repository=repository,  # type: ignore[arg-type]
         )
@@ -523,7 +553,12 @@ def test_interview_task_handlers_reject_active_scope_before_task_create(
     )
     repository = _FakeInterviewTaskRepository(active_task_exists=True)
     background_tasks = BackgroundTasks()
-    current_user = UserRecord(id=1, username="alice", password_hash="hash")
+    current_user = UserRecord(
+        id=1,
+        username="alice",
+        password_hash="hash",
+        external_model_consent=True,
+    )
 
     with pytest.raises(AppError) as exc_info:
         if call_name == "answer_round_question_task":
@@ -591,7 +626,12 @@ def test_interview_task_endpoint_rejects_active_scope_task_before_create() -> No
             interview_id=10,
             round_id=20,
             background_tasks=background_tasks,
-            current_user=UserRecord(id=1, username="alice", password_hash="hash"),
+            current_user=UserRecord(
+                id=1,
+                username="alice",
+                password_hash="hash",
+                external_model_consent=True,
+            ),
             interview_repository=interview_repository,  # type: ignore[arg-type]
             task_repository=repository,  # type: ignore[arg-type]
         )
@@ -669,6 +709,7 @@ def test_interview_background_task_holds_usage_lease(monkeypatch: pytest.MonkeyP
         operation="start_round",
         status="processing",
         payload={"round_id": 22},
+        processing_token="task-token",
     )
 
     class FakeLimiter:
@@ -678,16 +719,6 @@ def test_interview_background_task_holds_usage_lease(monkeypatch: pytest.MonkeyP
 
         def release(self, lease: str) -> None:
             events.append(f"release:{lease}")
-
-    class FakeTaskRepository:
-        completed: list[tuple[int, dict[str, Any]]] = []
-
-        def __init__(self, _connection: Any) -> None:
-            pass
-
-        def mark_completed(self, task_id: int, result: dict[str, Any]) -> bool:
-            self.completed.append((task_id, result))
-            return True
 
     @contextmanager
     def fake_mysql_connection() -> Any:
@@ -703,14 +734,12 @@ def test_interview_background_task_holds_usage_lease(monkeypatch: pytest.MonkeyP
         lambda _task_id, **_kwargs: task,
     )
     monkeypatch.setattr(interviews_api, "usage_limiter", FakeLimiter())
-    monkeypatch.setattr(interviews_api, "_run_interview_operation", fake_run)
+    monkeypatch.setattr(interviews_api, "_run_and_complete_interview_operation", fake_run)
     monkeypatch.setattr(interviews_api, "mysql_connection", fake_mysql_connection)
-    monkeypatch.setattr(interviews_api, "InterviewOperationTaskRepository", FakeTaskRepository)
 
     interviews_api.run_interview_operation_task(task.id)
 
     assert events == ["acquire:3:interview_question", "run", "release:lease-token"]
-    assert FakeTaskRepository.completed == [(7, {"ok": True})]
 
 
 def test_short_memory_sync_failure_after_operation_is_degraded(
@@ -738,7 +767,7 @@ def test_short_memory_sync_failure_after_operation_is_degraded(
     assert result.fallback_used is True
 
 
-def test_interview_background_task_recovers_completion_after_processing_timeout(
+def test_interview_background_task_stops_after_processing_lease_is_lost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task = InterviewOperationTaskRecord(
@@ -751,31 +780,6 @@ def test_interview_background_task_recovers_completion_after_processing_timeout(
         payload={"round_id": 22},
         processing_token="expired-token",
     )
-
-    class FakeTaskRepository:
-        calls: list[tuple[str, int, dict[str, Any]]] = []
-
-        def __init__(self, _connection: Any) -> None:
-            pass
-
-        def mark_completed(
-            self,
-            task_id: int,
-            result: dict[str, Any],
-            *,
-            processing_token: str | None = None,
-        ) -> bool:
-            assert processing_token == "expired-token"
-            self.calls.append(("lease", task_id, result))
-            return False
-
-        def mark_completed_after_processing_timeout(
-            self,
-            task_id: int,
-            result: dict[str, Any],
-        ) -> bool:
-            self.calls.append(("timeout", task_id, result))
-            return True
 
     class FakeLimiter:
         def acquire(self, _user_id: int, _scope: str) -> str:
@@ -795,20 +799,26 @@ def test_interview_background_task_recovers_completion_after_processing_timeout(
     )
     monkeypatch.setattr(interviews_api, "_start_interview_task_heartbeat", lambda _task: None)
     monkeypatch.setattr(interviews_api, "usage_limiter", FakeLimiter())
+
+    calls: list[int] = []
+
+    def fail_after_lost_lease(
+        current_task: InterviewOperationTaskRecord,
+        _payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        calls.append(current_task.id)
+        raise interviews_api.InterviewTaskLeaseLostError("expired")
+
     monkeypatch.setattr(
         interviews_api,
-        "_run_interview_operation",
-        lambda _task, _payload: {"ok": True},
+        "_run_and_complete_interview_operation",
+        fail_after_lost_lease,
     )
     monkeypatch.setattr(interviews_api, "mysql_connection", fake_mysql_connection)
-    monkeypatch.setattr(interviews_api, "InterviewOperationTaskRepository", FakeTaskRepository)
 
     interviews_api.run_interview_operation_task(task.id)
 
-    assert FakeTaskRepository.calls == [
-        ("lease", 8, {"ok": True}),
-        ("timeout", 8, {"ok": True}),
-    ]
+    assert calls == [8]
 
 
 def test_interview_task_repository_claims_recoverable_tasks() -> None:
@@ -830,6 +840,33 @@ def test_interview_task_terminal_updates_are_scoped_to_processing_lease() -> Non
     for source in (completed_source, failed_source, heartbeat_source):
         assert "status = 'processing'" in source
         assert "processing_token" in source
+    lease_source = __import__("inspect").getsource(
+        InterviewOperationTaskRepository.lock_active_lease
+    )
+    assert "status = 'processing'" in lease_source
+    assert "processing_token" in lease_source
+    assert "FOR UPDATE" in lease_source
+
+
+def test_interview_business_commit_is_blocked_after_lease_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = _FakeConnection()
+    monkeypatch.setattr(
+        InterviewOperationTaskRepository,
+        "lock_active_lease",
+        lambda _repository, _task_id, _token: False,
+    )
+    guarded = interviews_api._LeaseGuardedConnection(
+        connection,
+        task_id=17,
+        processing_token="stale-token",
+    )
+
+    with pytest.raises(interviews_api.InterviewTaskLeaseLostError):
+        guarded.commit()
+
+    assert connection.commit_count == 0
 
 
 @pytest.mark.parametrize(
@@ -837,7 +874,6 @@ def test_interview_task_terminal_updates_are_scoped_to_processing_lease() -> Non
     [
         (InterviewOperationTaskRepository, "mark_processing"),
         (InterviewOperationTaskRepository, "mark_completed"),
-        (InterviewOperationTaskRepository, "mark_completed_after_processing_timeout"),
         (InterviewOperationTaskRepository, "mark_failed"),
         (ResumeRepository, "mark_parse_task_processing"),
         (ResumeRepository, "mark_parse_task_completed"),

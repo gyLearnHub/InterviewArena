@@ -1,9 +1,8 @@
-from collections.abc import Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
 from app.repositories.history import HistoryRepository
 from app.repositories.memories import MemoryRepository
 from app.repositories.memory_tasks import MemoryTaskRepository
@@ -14,9 +13,8 @@ from app.services.dashboard import DashboardService
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-def get_history_repository() -> Iterator[HistoryRepository]:
-    with mysql_connection() as connection:
-        yield HistoryRepository(connection)
+def get_history_repository(connection: Any = DatabaseConnectionDep) -> HistoryRepository:
+    return HistoryRepository(connection)
 
 
 HistoryRepositoryDep = Depends(get_history_repository)

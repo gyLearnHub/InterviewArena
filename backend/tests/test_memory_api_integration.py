@@ -5,24 +5,24 @@ from datetime import datetime
 from typing import Any
 
 from app.core.security import create_access_token
-from app.deps import get_user_repository
+from app.deps import get_database_connection, get_user_repository
 from app.repositories.memory_tasks import MemoryTaskRecord
 from app.repositories.users import UserRecord
 from fastapi.testclient import TestClient
 from main import create_app
 
 
-def test_memory_preference_api_persists_across_requests(monkeypatch) -> None:
+def test_memory_preference_api_persists_across_requests() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=True)
-    monkeypatch.setattr("app.api.preferences.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
     headers = _auth_headers(1)
 
     assert client.get("/api/user/preferences", headers=headers).json() == {
-        "memory_enabled": True
+        "memory_enabled": True,
+        "external_model_consent": True,
+        "privacy_version": "2026-07-26",
     }
 
     response = client.patch(
@@ -32,11 +32,17 @@ def test_memory_preference_api_persists_across_requests(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == {"memory_enabled": False}
+    assert response.json() == {
+        "memory_enabled": False,
+        "external_model_consent": True,
+        "privacy_version": "2026-07-26",
+    }
     assert store.users[1].memory_enabled is False
     assert store.users[1].memory_updated_at is not None
     assert client.get("/api/user/preferences", headers=headers).json() == {
-        "memory_enabled": False
+        "memory_enabled": False,
+        "external_model_consent": True,
+        "privacy_version": "2026-07-26",
     }
 
 
@@ -60,13 +66,11 @@ def test_memory_preference_api_requires_valid_login() -> None:
     assert repository_calls == 0
 
 
-def test_memory_preference_update_failure_does_not_change_stored_state(monkeypatch) -> None:
+def test_memory_preference_update_failure_does_not_change_stored_state() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=True)
     store.fail_updates = True
-    monkeypatch.setattr("app.api.preferences.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.patch(
@@ -79,7 +83,7 @@ def test_memory_preference_update_failure_does_not_change_stored_state(monkeypat
     assert store.users[1].memory_enabled is True
 
 
-def test_clear_memory_api_marks_only_current_user_and_keeps_history(monkeypatch) -> None:
+def test_clear_memory_api_marks_only_current_user_and_keeps_history() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=True)
     store.users[2] = _user(2, memory_enabled=True)
@@ -87,9 +91,7 @@ def test_clear_memory_api_marks_only_current_user_and_keeps_history(monkeypatch)
         {"id": 1, "user_id": 1, "status": "active", "index_status": "indexed"},
         {"id": 2, "user_id": 2, "status": "active", "index_status": "indexed"},
     ]
-    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.delete("/api/memories", headers=_auth_headers(1))
@@ -102,7 +104,7 @@ def test_clear_memory_api_marks_only_current_user_and_keeps_history(monkeypatch)
     assert store.history_deleted is False
 
 
-def test_clear_status_is_user_scoped(monkeypatch) -> None:
+def test_clear_status_is_user_scoped() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=True)
     store.users[2] = _user(2, memory_enabled=True)
@@ -110,9 +112,7 @@ def test_clear_status_is_user_scoped(monkeypatch) -> None:
         _task(1, user_id=1, status="completed", result={"deleted_count": 3}),
         _task(2, user_id=2, status="failed", result={"deleted_count": 9}),
     ]
-    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.get("/api/memories/clear-status", headers=_auth_headers(1))
@@ -126,7 +126,7 @@ def test_clear_status_is_user_scoped(monkeypatch) -> None:
     }
 
 
-def test_memory_generation_status_is_user_scoped(monkeypatch) -> None:
+def test_memory_generation_status_is_user_scoped() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=True)
     store.users[2] = _user(2, memory_enabled=True)
@@ -144,9 +144,7 @@ def test_memory_generation_status_is_user_scoped(monkeypatch) -> None:
             error_message="cancelled_by_memory_clear",
         ),
     ]
-    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.get("/api/memories/generation-status", headers=_auth_headers(1))
@@ -168,6 +166,7 @@ def test_memory_generation_status_is_hidden_when_memory_is_disabled() -> None:
     ]
     app = create_app()
     app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app.dependency_overrides[get_database_connection] = _database_dependency(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.get("/api/memories/generation-status", headers=_auth_headers(1))
@@ -181,7 +180,7 @@ def test_memory_generation_status_is_hidden_when_memory_is_disabled() -> None:
     }
 
 
-def test_retry_failed_memories_requeues_only_current_user(monkeypatch) -> None:
+def test_retry_failed_memories_requeues_only_current_user() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=True)
     store.users[2] = _user(2, memory_enabled=True)
@@ -205,9 +204,7 @@ def test_retry_failed_memories_requeues_only_current_user(monkeypatch) -> None:
             error_message="processing_timeout",
         ),
     ]
-    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post("/api/memories/retry-failed", headers=_auth_headers(1))
@@ -220,7 +217,7 @@ def test_retry_failed_memories_requeues_only_current_user(monkeypatch) -> None:
     assert store.tasks[1].status == "failed"
 
 
-def test_retry_failed_memories_does_nothing_when_memory_is_disabled(monkeypatch) -> None:
+def test_retry_failed_memories_does_nothing_when_memory_is_disabled() -> None:
     store = _Store()
     store.users[1] = _user(1, memory_enabled=False)
     store.tasks = [
@@ -233,9 +230,7 @@ def test_retry_failed_memories_does_nothing_when_memory_is_disabled(monkeypatch)
             retry_count=3,
         )
     ]
-    monkeypatch.setattr("app.api.memories.mysql_connection", _connection_factory(store))
-    app = create_app()
-    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app = _create_test_app(store)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post("/api/memories/retry-failed", headers=_auth_headers(1))
@@ -309,6 +304,7 @@ class _Connection:
                 display_name=user.display_name,
                 memory_enabled=bool(memory_enabled),
                 memory_updated_at=updated_at,
+                external_model_consent=user.external_model_consent,
             )
             self.rowcount = 1
             return
@@ -429,6 +425,21 @@ def _connection_factory(store: _Store) -> Any:
     return _factory
 
 
+def _database_dependency(store: _Store) -> Any:
+    def _dependency() -> Iterator[_Connection]:
+        with _connection_factory(store)() as connection:
+            yield connection
+
+    return _dependency
+
+
+def _create_test_app(store: _Store) -> Any:
+    app = create_app()
+    app.dependency_overrides[get_user_repository] = lambda: _UserRepository(store)
+    app.dependency_overrides[get_database_connection] = _database_dependency(store)
+    return app
+
+
 def _auth_headers(user_id: int) -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token(user_id)}"}
 
@@ -441,6 +452,7 @@ def _user(user_id: int, *, memory_enabled: bool) -> UserRecord:
         password_hash="hash",
         memory_enabled=memory_enabled,
         memory_updated_at=None,
+        external_model_consent=True,
     )
 
 

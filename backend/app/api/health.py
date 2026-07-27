@@ -2,9 +2,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.core.config import get_settings
+from app.core.observability import HTTP_METRICS
 from app.db.mysql import mysql_connection
 from app.services.avatar_storage import resolve_avatar_upload_dir
 from app.services.resume_parser import resolve_upload_dir
@@ -18,6 +19,15 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/metrics", response_class=PlainTextResponse)
+def metrics() -> PlainTextResponse:
+    return PlainTextResponse(
+        HTTP_METRICS.render_prometheus(),
+        media_type="text/plain; version=0.0.4",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/health/ready")
 def readiness_check(request: Request) -> JSONResponse:
     checks: dict[str, dict[str, Any]] = {
@@ -26,9 +36,12 @@ def readiness_check(request: Request) -> JSONResponse:
         "llm": {"status": "ok"},
         "uploads": {"status": "ok"},
         "avatars": {"status": "ok"},
+        "storage": {"status": "ok"},
         "autonomous_evolution": {"status": "ok"},
         "resume_parse_runner": {"status": "ok"},
+        "job_match_analysis_runner": {"status": "ok"},
         "interview_operation_runner": {"status": "ok"},
+        "cache_cleanup_runner": {"status": "ok"},
         "memory_runner": {"status": "ok"},
     }
 
@@ -40,6 +53,7 @@ def readiness_check(request: Request) -> JSONResponse:
 
     if not settings.deepseek_api_key:
         checks["llm"] = {"status": "degraded", "reason": "DEEPSEEK_API_KEY is not configured"}
+    checks["storage"] = _storage_topology_check(settings)
 
     try:
         with mysql_connection(settings.database_url) as connection:
@@ -73,10 +87,16 @@ def readiness_check(request: Request) -> JSONResponse:
     for check_name, state_name, app_state_name in (
         ("resume_parse_runner", "resume_parse", "resume_parse_task_runner"),
         (
+            "job_match_analysis_runner",
+            "job_match_analysis",
+            "job_match_analysis_task_runner",
+        ),
+        (
             "interview_operation_runner",
             "interview_operation",
             "interview_operation_task_runner",
         ),
+        ("cache_cleanup_runner", "cache_cleanup", "cache_cleanup_task_runner"),
         ("memory_runner", "memory", "memory_task_runner"),
     ):
         task = getattr(request.app.state, app_state_name, None)
@@ -124,6 +144,15 @@ def _directory_check(path: Path) -> dict[str, Any]:
     if target.exists() and target.is_dir():
         return {"status": "ok"}
     return {"status": "failed", "reason": "directory is not available"}
+
+
+def _storage_topology_check(settings: Any) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "backend": settings.storage_backend,
+        "replica_count": settings.deployment_replica_count,
+        "chroma_enabled": settings.chroma_enabled,
+    }
 
 
 def _failed_check(exc: Exception) -> dict[str, str]:
@@ -220,16 +249,29 @@ def _background_queue_checks(
             ),
             settings.usage_limit_active_timeout_seconds,
         ),
-        "interview_operation_runner": (
+        "cache_cleanup_runner": (
             (
                 (
-                    "interview_operation_tasks",
+                    "cache_cleanup_tasks",
                     (
                         "status = 'pending' OR (status = 'retry_wait' "
                         "AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP()))"
                     ),
                 ),
             ),
+            settings.usage_limit_active_timeout_seconds,
+        ),
+        "interview_operation_runner": (
+            (
+                (
+                    "interview_operation_tasks",
+                    "status = 'pending'",
+                ),
+            ),
+            settings.interview_task_processing_timeout_seconds,
+        ),
+        "job_match_analysis_runner": (
+            (("job_match_analysis_tasks", "status = 'pending'"),),
             settings.interview_task_processing_timeout_seconds,
         ),
         "memory_runner": (

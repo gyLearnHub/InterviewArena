@@ -1,5 +1,7 @@
+import contextlib
 from datetime import datetime
 
+import app.services.history as history_module
 import pytest
 from app.core.errors import AppError, ErrorCode
 from app.repositories.history import (
@@ -624,7 +626,7 @@ def test_delete_history_item_clears_short_term_memory() -> None:
 
     service.delete_history_item(1, _user(1))
 
-    assert store.deleted == [(1, 1)]
+    assert store.batch_deleted == [(1, [1])]
 
 
 def test_clear_history_clears_all_short_term_memory_keys_for_user() -> None:
@@ -650,8 +652,55 @@ def test_history_delete_commits_under_interview_mutation_lock() -> None:
     source = __import__("inspect").getsource(HistoryService.delete_history_item)
 
     assert "_lock_interviews" in source
+    assert "_enqueue_cache_cleanup" in source
     assert "_commit_repository" in source
-    assert source.index("_commit_repository") < source.index("short_term_memory_store.delete")
+    assert source.index("_enqueue_cache_cleanup") < source.index("_commit_repository")
+    assert source.index("_commit_repository") < source.index("_try_cache_cleanup")
+
+
+def test_clear_history_uses_batch_delete_for_database_repository() -> None:
+    source = __import__("inspect").getsource(HistoryService.clear_history)
+
+    assert "user_history_mutation_lock" in source
+    assert "delete_all_by_user" in source
+    assert source.index("delete_all_by_user") < source.index("_commit_repository")
+
+
+def test_clear_history_executes_one_batch_delete_in_database_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DatabaseRepository(FakeHistoryRepository):
+        connection = object()
+
+        def __init__(self) -> None:
+            super().__init__([_record(index, 1) for index in range(1, 101)])
+            self.batch_delete_calls = 0
+            self.id_delete_calls = 0
+
+        def delete_all_by_user(self, user_id: int) -> int:
+            self.batch_delete_calls += 1
+            return super().delete_all_by_user(user_id)
+
+        def delete_ids_by_user(self, interview_ids: list[int], user_id: int) -> int:
+            self.id_delete_calls += 1
+            return super().delete_ids_by_user(interview_ids, user_id)
+
+    repository = DatabaseRepository()
+    monkeypatch.setattr(
+        history_module,
+        "user_history_mutation_lock",
+        lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr(
+        history_module,
+        "_lock_interviews",
+        lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+
+    HistoryService(repository).clear_history(_user(1))
+
+    assert repository.batch_delete_calls == 1
+    assert repository.id_delete_calls == 0
 
 
 def _fake_repository(records: list[HistoryInterviewRecord]) -> FakeHistoryRepository:

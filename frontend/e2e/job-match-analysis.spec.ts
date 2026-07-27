@@ -1,4 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+import { expect, test } from "./fixtures";
 
 const initialJobDescription = "负责 Agent 产品开发，要求熟悉 Vue、TypeScript 与 RAG。";
 
@@ -23,20 +25,41 @@ test("requires a parsed resume and invalidates results when inputs change", asyn
   await seedDraft(page, "parsed");
   const requestPayloads: Array<Record<string, unknown>> = [];
   let analysisCallCount = 0;
+  const taskResults = new Map<number, ReturnType<typeof completeAnalysis>>();
 
   await page.route("**/api/resumes/301/job-match-analysis", async (route) => {
     analysisCallCount += 1;
+    const taskId = 8000 + analysisCallCount;
     requestPayloads.push(JSON.parse(route.request().postData() || "{}"));
     if (analysisCallCount === 2) {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    const result =
+      analysisCallCount === 3
+        ? emptyAnalysis("新 JD 暂未发现明确的匹配或缺口。")
+        : completeAnalysis(analysisCallCount === 2 ? "这是一条已过期的分析。" : "岗位匹配度较高。");
+    taskResults.set(taskId, result);
     await route.fulfill({
-      json:
-        analysisCallCount === 3
-          ? emptyAnalysis("新 JD 暂未发现明确的匹配或缺口。")
-          : completeAnalysis(
-              analysisCallCount === 2 ? "这是一条已过期的分析。" : "岗位匹配度较高。"
-            )
+      status: 202,
+      json: {
+        task_id: taskId,
+        status: "pending",
+        result: null,
+        error_code: null,
+        error_message: null
+      }
+    });
+  });
+  await page.route("**/api/resumes/job-match-tasks/*", async (route) => {
+    const taskId = Number(new URL(route.request().url()).pathname.split("/").pop());
+    await route.fulfill({
+      json: {
+        task_id: taskId,
+        status: "completed",
+        result: taskResults.get(taskId),
+        error_code: null,
+        error_message: null
+      }
     });
   });
   await page.route("**/api/resumes", async (route) => {

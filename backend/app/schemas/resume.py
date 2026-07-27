@@ -117,3 +117,11 @@ class JobMatchAnalysisResponse(JobMatchAnalysisResult):
     resume_id: int
     target_position: JobMatchPosition
     analysis_basis: str
+
+
+class JobMatchAnalysisTaskResponse(BaseModel):
+    task_id: int
+    status: str
+    result: JobMatchAnalysisResponse | None = None
+    error_code: str | None = None
+    error_message: str | None = None

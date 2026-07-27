@@ -1,10 +1,9 @@
-from collections.abc import Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
 from starlette.status import HTTP_204_NO_CONTENT
 
-from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
 from app.repositories.evaluations import EvaluationRepository
 from app.repositories.history import HistoryRepository
 from app.repositories.interviews import InterviewRepository
@@ -36,26 +35,26 @@ CurrentUserDep = Depends(get_current_user)
 
 def get_review_bookmark_service(
     llm_client: LLMClient = LLMClientDep,
-) -> Iterator[ReviewBookmarkService]:
-    with mysql_connection() as connection:
-        interview_repository = InterviewRepository(connection)
-        preferences = PreferencesRepository(connection)
-        interview_service = InterviewService(
-            interview_repository,
-            llm_client,
-            EvaluationSchedulerService(EvaluationRepository(connection), llm_client),
-            MemoryTaskService(MemoryTaskRepository(connection), preferences),
-            MemoryRetrievalService(
-                memory_repository=MemoryRepository(connection),
-                audit_repository=RagAuditRepository(connection),
-            ),
-            preferences,
-        )
-        yield ReviewBookmarkService(
-            ReviewBookmarkRepository(connection),
-            interview_service,
-            HistoryService(HistoryRepository(connection)),
-        )
+    connection: Any = DatabaseConnectionDep,
+) -> ReviewBookmarkService:
+    interview_repository = InterviewRepository(connection)
+    preferences = PreferencesRepository(connection)
+    interview_service = InterviewService(
+        interview_repository,
+        llm_client,
+        EvaluationSchedulerService(EvaluationRepository(connection), llm_client),
+        MemoryTaskService(MemoryTaskRepository(connection), preferences),
+        MemoryRetrievalService(
+            memory_repository=MemoryRepository(connection),
+            audit_repository=RagAuditRepository(connection),
+        ),
+        preferences,
+    )
+    return ReviewBookmarkService(
+        ReviewBookmarkRepository(connection),
+        interview_service,
+        HistoryService(HistoryRepository(connection)),
+    )
 
 
 ReviewBookmarkServiceDep = Depends(get_review_bookmark_service)

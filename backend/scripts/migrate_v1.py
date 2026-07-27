@@ -14,6 +14,8 @@ from app.db.mysql import mysql_connection
 INIT_SQL_TABLES_TO_CREATE = [
     "usage_limits",
     "resume_parse_tasks",
+    "job_match_analysis_tasks",
+    "cache_cleanup_tasks",
     "interview_operation_tasks",
     "interview_answer_drafts",
     "answer_reanswer_attempts",
@@ -100,6 +102,16 @@ AUTH_RATE_LIMIT_MIGRATION_VERSION = "2026_07_24_auth_rate_limit"
 AUTH_RATE_LIMIT_MIGRATION_DESCRIPTION = "Add shared registration rate limiting"
 FILE_CLEANUP_TASK_MIGRATION_VERSION = "2026_07_24_file_cleanup_tasks"
 FILE_CLEANUP_TASK_MIGRATION_DESCRIPTION = "Add retryable uploaded file cleanup"
+JOB_MATCH_TASK_MIGRATION_VERSION = "2026_07_26_job_match_analysis_tasks"
+JOB_MATCH_TASK_MIGRATION_DESCRIPTION = "Add persistent job match analysis tasks"
+PRIVACY_CONSENT_MIGRATION_VERSION = "2026_07_26_external_model_consent"
+PRIVACY_CONSENT_MIGRATION_DESCRIPTION = "Add versioned external model consent"
+CACHE_CLEANUP_TASK_MIGRATION_VERSION = "2026_07_26_cache_cleanup_tasks"
+CACHE_CLEANUP_TASK_MIGRATION_DESCRIPTION = "Add durable short-term cache cleanup tasks"
+MEMORY_USER_SCOPE_HARDENING_MIGRATION_VERSION = "2026_07_26_memory_user_scope_hardening"
+MEMORY_USER_SCOPE_HARDENING_MIGRATION_DESCRIPTION = (
+    "Enforce memory ownership and rebuild user-scoped vector metadata"
+)
 MIGRATION_LOCK_NAME = "interview_arena_schema_migrations"
 
 
@@ -393,6 +405,54 @@ def migrate(connection: Any) -> None:
             FILE_CLEANUP_TASK_MIGRATION_DESCRIPTION,
         )
 
+    if not _migration_applied(connection, JOB_MATCH_TASK_MIGRATION_VERSION):
+        _create_tables_from_init_sql(connection, ["job_match_analysis_tasks"])
+        _record_migration(
+            connection,
+            JOB_MATCH_TASK_MIGRATION_VERSION,
+            JOB_MATCH_TASK_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, PRIVACY_CONSENT_MIGRATION_VERSION):
+        _add_column(
+            connection,
+            database,
+            "users",
+            "external_model_consent_at",
+            "DATETIME NULL",
+        )
+        _add_column(
+            connection,
+            database,
+            "users",
+            "external_model_consent_version",
+            "VARCHAR(32) NULL",
+        )
+        _record_migration(
+            connection,
+            PRIVACY_CONSENT_MIGRATION_VERSION,
+            PRIVACY_CONSENT_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(connection, CACHE_CLEANUP_TASK_MIGRATION_VERSION):
+        _create_tables_from_init_sql(connection, ["cache_cleanup_tasks"])
+        _record_migration(
+            connection,
+            CACHE_CLEANUP_TASK_MIGRATION_VERSION,
+            CACHE_CLEANUP_TASK_MIGRATION_DESCRIPTION,
+        )
+
+    if not _migration_applied(
+        connection,
+        MEMORY_USER_SCOPE_HARDENING_MIGRATION_VERSION,
+    ):
+        _apply_memory_user_scope_hardening(connection)
+        _record_migration(
+            connection,
+            MEMORY_USER_SCOPE_HARDENING_MIGRATION_VERSION,
+            MEMORY_USER_SCOPE_HARDENING_MIGRATION_DESCRIPTION,
+        )
+
 
 def _apply_interview_resume_snapshot(connection: Any, database: str) -> None:
     _add_column(
@@ -507,7 +567,6 @@ def _apply_memory_user_scope(connection: Any, database: str) -> None:
             "REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE"
         ),
     )
-
     _drop_index(
         connection,
         database,
@@ -568,6 +627,87 @@ def _apply_memory_user_scope(connection: Any, database: str) -> None:
             "REFERENCES users (id) ON DELETE RESTRICT ON UPDATE CASCADE"
         ),
     )
+
+
+def _apply_memory_user_scope_hardening(connection: Any) -> None:
+    with connection.cursor() as cursor:
+        for table_name in ("interviewer_memories", "agent_memories"):
+            cursor.execute(
+                f"""
+                UPDATE {table_name} memory
+                JOIN interviews interview ON interview.id = memory.source_interview_id
+                SET memory.user_id = interview.user_id
+                WHERE memory.user_id IS NULL
+                """
+            )
+            cursor.execute(
+                f"""
+                UPDATE {table_name} memory
+                JOIN interview_rounds round_record ON round_record.id = memory.source_round_id
+                JOIN interviews interview ON interview.id = round_record.interview_id
+                SET memory.user_id = interview.user_id
+                WHERE memory.user_id IS NULL
+                """
+            )
+            # Unowned legacy memories cannot be exposed safely to any tenant.
+            cursor.execute(f"DELETE FROM {table_name} WHERE user_id IS NULL")
+            cursor.execute(
+                f"""
+                UPDATE {table_name}
+                SET index_status = 'pending_index'
+                WHERE status = 'active'
+                """
+            )
+            cursor.execute(
+                f"""
+                ALTER TABLE {table_name}
+                MODIFY COLUMN user_id BIGINT UNSIGNED NOT NULL
+                """
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO memory_tasks (
+                task_type, status, max_retries, dedupe_key
+            )
+            VALUES (
+                'memory_vector_scope_cleanup',
+                'pending',
+                10,
+                'memory-vector-scope-cleanup:v1'
+            )
+            ON DUPLICATE KEY UPDATE id = id
+            """
+        )
+        for table_name in ("interviewer_memories", "agent_memories"):
+            cursor.execute(
+                f"""
+                INSERT INTO memory_tasks (
+                    task_type,
+                    user_id,
+                    memory_collection,
+                    memory_id,
+                    status,
+                    max_retries,
+                    dedupe_key
+                )
+                SELECT
+                    'memory_reindex',
+                    memory_to_reindex.user_id,
+                    %s,
+                    memory_to_reindex.id,
+                    'pending',
+                    10,
+                    CONCAT(
+                        'memory-reindex:v1:{table_name}:',
+                        memory_to_reindex.id
+                    )
+                FROM {table_name} AS memory_to_reindex
+                WHERE memory_to_reindex.status = 'active'
+                ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key
+                """,
+                (table_name,),
+            )
 
 
 def _apply_harness_evolution_user_scope(connection: Any, database: str) -> None:

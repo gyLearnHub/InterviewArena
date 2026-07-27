@@ -124,6 +124,14 @@
           <small v-else-if="capsLockOn" class="warning">Caps Lock 已开启</small>
         </label>
 
+        <label v-if="mode === 'register'" class="model-consent-option">
+          <input v-model="modelConsent" type="checkbox" />
+          <span>
+            我同意将<strong>脱敏后的</strong>简历、岗位描述和面试内容发送给第三方模型服务，
+            用于生成解析、提问和反馈；可随时在设置中撤回。
+          </span>
+        </label>
+
         <div class="form-options">
           <label class="remember-option">
             <input v-model="rememberMe" type="checkbox" />
@@ -177,6 +185,7 @@ const mode = ref<"login" | "register">("login");
 const username = ref("");
 const password = ref("");
 const rememberMe = ref(false);
+const modelConsent = ref(false);
 const showPassword = ref(false);
 const loading = ref(false);
 const message = ref("");
@@ -221,7 +230,7 @@ async function submit() {
   loading.value = true;
   try {
     if (mode.value === "register") {
-      await register(username.value, password.value);
+      await register(username.value, password.value, modelConsent.value);
     }
 
     await login(username.value, password.value);
@@ -273,6 +282,7 @@ function switchMode() {
   hasError.value = false;
   fieldErrors.value = { username: "", password: "" };
   password.value = "";
+  modelConsent.value = false;
 }
 
 async function playWelcomeOnce() {
@@ -570,6 +580,20 @@ function getRedirectTarget(): string {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+}
+
+.model-consent-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #526174;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.model-consent-option input {
+  margin-top: 3px;
+  accent-color: #5865f2;
 }
 
 .remember-option input {

@@ -50,6 +50,7 @@ DEFAULT_USAGE_LIMITS: dict[str, UsageLimitRule] = {
     "resume_upload": UsageLimitRule(daily_limit=20, cooldown_seconds=10),
     "resume_upload_enqueue": UsageLimitRule(daily_limit=120, cooldown_seconds=2),
     "job_match_analysis": UsageLimitRule(daily_limit=40, cooldown_seconds=3),
+    "job_match_analysis_enqueue": UsageLimitRule(daily_limit=120, cooldown_seconds=3),
     "interview_question": UsageLimitRule(daily_limit=120, cooldown_seconds=2),
     "interview_question_enqueue": UsageLimitRule(daily_limit=120),
     "interview_answer": UsageLimitRule(daily_limit=200, cooldown_seconds=1),

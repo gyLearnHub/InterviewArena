@@ -36,7 +36,9 @@ from app.api.resumes import (
     router as resumes_router,
 )
 from app.api.resumes import (
+    start_job_match_analysis_task_runner,
     start_resume_parse_task_runner,
+    stop_job_match_analysis_task_runner,
     stop_resume_parse_task_runner,
 )
 from app.api.review_bookmarks import router as review_bookmarks_router
@@ -47,9 +49,14 @@ from app.autonomous_evolution import (
 )
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
+from app.core.observability import RequestObservabilityMiddleware
 from app.core.origins import configured_origins
-from app.db.mysql import mysql_connection
+from app.db.mysql import close_connection_pool, mysql_connection
 from app.services.avatar_storage import resolve_avatar_upload_dir
+from app.services.cache_cleanup_tasks import (
+    start_cache_cleanup_task_runner,
+    stop_cache_cleanup_task_runner,
+)
 from app.services.memory_tasks import start_memory_task_runner, stop_memory_task_runner
 from app.services.short_term_memory_store import close_short_term_memory_store
 from scripts.migrate_v1 import migrate_with_lock
@@ -60,20 +67,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     run_startup_migrations()
     task = start_memory_task_runner()
     resume_parse_task_runner = start_resume_parse_task_runner()
+    job_match_analysis_task_runner = start_job_match_analysis_task_runner()
     interview_operation_task_runner = start_interview_operation_task_runner()
+    cache_cleanup_task_runner = start_cache_cleanup_task_runner()
     evolution_task_runner = start_evolution_task_runner()
     app.state.memory_task_runner = task
     app.state.resume_parse_task_runner = resume_parse_task_runner
+    app.state.job_match_analysis_task_runner = job_match_analysis_task_runner
     app.state.interview_operation_task_runner = interview_operation_task_runner
+    app.state.cache_cleanup_task_runner = cache_cleanup_task_runner
     app.state.evolution_task_runner = evolution_task_runner
     try:
         yield
     finally:
         await stop_evolution_task_runner(evolution_task_runner)
+        await stop_cache_cleanup_task_runner(cache_cleanup_task_runner)
         await stop_interview_operation_task_runner(interview_operation_task_runner)
+        await stop_job_match_analysis_task_runner(job_match_analysis_task_runner)
         await stop_resume_parse_task_runner(resume_parse_task_runner)
         await stop_memory_task_runner(task)
         close_short_term_memory_store()
+        close_connection_pool()
 
 
 def create_app() -> FastAPI:
@@ -93,7 +107,9 @@ def create_app() -> FastAPI:
                 "Content-Type",
                 settings.csrf_header_name,
             ],
+            expose_headers=["X-Request-ID"],
         )
+    app.add_middleware(RequestObservabilityMiddleware)
     register_exception_handlers(app)
     avatar_upload_dir = resolve_avatar_upload_dir()
     avatar_upload_dir.mkdir(parents=True, exist_ok=True)

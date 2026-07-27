@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("root route renders login instead of a white screen when the backend is unavailable", async ({
   page

@@ -1,10 +1,9 @@
-from collections.abc import Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from starlette.status import HTTP_204_NO_CONTENT
 
-from app.db.mysql import mysql_connection
-from app.deps import get_current_user
+from app.deps import DatabaseConnectionDep, get_current_user
 from app.repositories.notifications import NotificationRepository
 from app.repositories.users import UserRecord
 from app.schemas.notification import (
@@ -17,9 +16,10 @@ from app.services.notifications import NotificationService
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-def get_notification_repository() -> Iterator[NotificationRepository]:
-    with mysql_connection() as connection:
-        yield NotificationRepository(connection)
+def get_notification_repository(
+    connection: Any = DatabaseConnectionDep,
+) -> NotificationRepository:
+    return NotificationRepository(connection)
 
 
 NotificationRepositoryDep = Depends(get_notification_repository)

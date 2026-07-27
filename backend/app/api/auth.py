@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from threading import Lock
 from time import monotonic
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
 
@@ -16,9 +16,17 @@ from app.core.http_status import (
     HTTP_422_UNPROCESSABLE_CONTENT,
 )
 from app.core.security import create_access_token, hash_password, verify_password
-from app.deps import get_current_user, get_user_repository
+from app.deps import DatabaseConnectionDep, get_current_user, get_user_repository
 from app.repositories.users import DuplicateUsernameError, UserRecord, UserRepository
-from app.schemas.auth import AuthRequest, LoginResponse, UserProfileUpdate, UserPublic
+from app.schemas.auth import (
+    AccountDeleteRequest,
+    AuthRequest,
+    LoginResponse,
+    RegisterRequest,
+    UserProfileUpdate,
+    UserPublic,
+)
+from app.services.account_data import delete_account_data, export_account_data
 from app.services.avatar_storage import (
     MAX_AVATAR_BYTES,
     avatar_public_url,
@@ -53,7 +61,7 @@ _login_failures_lock = Lock()
 
 @router.post("/register", response_model=UserPublic)
 def register(
-    request: AuthRequest,
+    request: RegisterRequest,
     http_request: Request = None,  # type: ignore[assignment]
     users: UserRepository = UserRepositoryDep,
 ) -> UserPublic:
@@ -77,6 +85,10 @@ def register(
             status.HTTP_409_CONFLICT,
             message="用户名已存在。",
         ) from exc
+    if getattr(request, "external_model_consent", False):
+        update_consent = getattr(users, "update_external_model_consent", None)
+        if callable(update_consent):
+            user = update_consent(user.id, True) or user
     return _to_user_public(user)
 
 
@@ -90,10 +102,9 @@ def login(
     username = request.username.strip()
     password = request.password
     source_ip = _source_ip_from_request(http_request)
-    _ensure_login_not_limited(username, source_ip, users)
+    _reserve_login_attempt(username, source_ip, users)
     user = users.get_by_username(username)
     if user is None or not verify_password(password, user.password_hash):
-        _record_login_failure(username, source_ip, users)
         raise AppError(
             ErrorCode.UNAUTHORIZED,
             status.HTTP_401_UNAUTHORIZED,
@@ -110,6 +121,7 @@ def login(
         username=user.username,
         display_name=user.display_name or user.username,
         avatar_url=user.avatar_url,
+        external_model_consent=user.external_model_consent,
     )
 
 
@@ -187,12 +199,40 @@ async def upload_current_user_avatar(
     return _to_user_public(user)
 
 
+@router.get("/me/data-export", response_model=dict[str, Any])
+def export_current_user_data(
+    current_user: UserRecord = CurrentUserDep,
+    connection: Any = DatabaseConnectionDep,
+) -> dict[str, Any]:
+    return export_account_data(connection, current_user.id)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_current_user_account(
+    request: AccountDeleteRequest,
+    response: Response,
+    current_user: UserRecord = CurrentUserDep,
+    connection: Any = DatabaseConnectionDep,
+) -> None:
+    if not verify_password(request.password, current_user.password_hash):
+        raise AppError(
+            ErrorCode.UNAUTHORIZED,
+            status.HTTP_401_UNAUTHORIZED,
+            message="密码不正确，无法注销账户。",
+        )
+    _resume_paths, avatar_url = delete_account_data(connection, current_user.id)
+    connection.commit()
+    delete_avatar_by_public_url(avatar_url, resolve_avatar_upload_dir())
+    logout(response)
+
+
 def _to_user_public(user: UserRecord) -> UserPublic:
     return UserPublic(
         id=user.id,
         username=user.username,
         display_name=user.display_name or user.username,
         avatar_url=user.avatar_url,
+        external_model_consent=user.external_model_consent,
     )
 
 
@@ -273,64 +313,28 @@ def _now() -> float:
     return monotonic()
 
 
-def _ensure_login_not_limited(
+def _reserve_login_attempt(
     username: str,
     source_ip: str,
     users: UserRepository,
 ) -> None:
     if not username.strip():
         return
-    get_count = getattr(users, "get_auth_rate_limit_count", None)
-    if callable(get_count):
-        if (
-            get_count(
-                scope="login_failure",
-                identifier_hash=_login_failure_hash(username, source_ip),
-                window_started_at=_login_failure_window(),
-            )
-            >= LOGIN_FAILURE_LIMIT
-        ):
-            raise AppError(
-                ErrorCode.TOO_MANY_REQUESTS,
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                message="登录失败次数过多，请稍后再试。",
-            )
-        return
-    key = _login_failure_key(username, source_ip)
-    now = _now()
-    with _login_failures_lock:
-        state = _login_failures.get(key)
-        if state is None:
-            return
-        if state.locked_until is not None:
-            if state.locked_until > now:
-                raise AppError(
-                    ErrorCode.TOO_MANY_REQUESTS,
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    message="登录失败次数过多，请稍后再试。",
-                )
-            _login_failures.pop(key, None)
-            return
-        if now - state.first_failed_at > LOGIN_FAILURE_WINDOW_SECONDS:
-            _login_failures.pop(key, None)
-
-
-def _record_login_failure(
-    username: str,
-    source_ip: str,
-    users: UserRepository | None = None,
-) -> None:
-    if not username.strip():
-        return
     consume = getattr(users, "consume_auth_rate_limit", None)
-    if users is not None and callable(consume):
-        consume(
+    if callable(consume):
+        allowed = consume(
             scope="login_failure",
             identifier_hash=_login_failure_hash(username, source_ip),
             window_started_at=_login_failure_window(),
             limit=LOGIN_FAILURE_LIMIT,
         )
         users.commit()
+        if not allowed:
+            raise AppError(
+                ErrorCode.TOO_MANY_REQUESTS,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                message="登录失败次数过多，请稍后再试。",
+            )
         return
     key = _login_failure_key(username, source_ip)
     now = _now()
@@ -341,9 +345,23 @@ def _record_login_failure(
             _login_failures[key] = LoginFailureState(count=1, first_failed_at=now)
             _enforce_login_failure_capacity()
             return
-        state.count += 1
+        if state.locked_until is not None:
+            if state.locked_until > now:
+                raise AppError(
+                    ErrorCode.TOO_MANY_REQUESTS,
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    message="登录失败次数过多，请稍后再试。",
+                )
+            _login_failures.pop(key, None)
+            return
         if state.count >= LOGIN_FAILURE_LIMIT:
             state.locked_until = now + LOGIN_LOCK_SECONDS
+            raise AppError(
+                ErrorCode.TOO_MANY_REQUESTS,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                message="登录失败次数过多，请稍后再试。",
+            )
+        state.count += 1
 
 
 def _clear_login_failures(

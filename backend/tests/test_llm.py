@@ -146,6 +146,53 @@ def test_generate_feedback_returns_valid_feedback() -> None:
     }
 
 
+def test_model_requests_redact_direct_identifiers_before_network_send() -> None:
+    captured_bodies: list[dict[str, Any]] = []
+    client = DeepSeekLLMClient(
+        settings=make_settings(),
+        http_client=make_client('{"ok": true}', captured_bodies=captured_bodies),
+    )
+
+    client.generate_json(
+        "只返回 JSON",
+        {
+            "resume": {
+                "basic_info": {
+                    "name": "张三",
+                    "email": "zhangsan@example.com",
+                    "phone": "13800138000",
+                }
+            },
+            "answer": "联系邮箱 zhangsan@example.com，身份证 110105199001011234。",
+        },
+    )
+
+    user_content = captured_bodies[0]["messages"][1]["content"]
+    assert "张三" not in user_content
+    assert "zhangsan@example.com" not in user_content
+    assert "13800138000" not in user_content
+    assert "110105199001011234" not in user_content
+    assert "[已脱敏]" in user_content
+
+
+def test_resume_text_is_redacted_before_network_send() -> None:
+    captured_bodies: list[dict[str, Any]] = []
+    client = DeepSeekLLMClient(
+        settings=make_settings(),
+        http_client=make_client(valid_resume_payload(), captured_bodies=captured_bodies),
+    )
+
+    client.parse_resume(
+        "姓名：张三\n邮箱：zhangsan@example.com\n手机：13800138000\n项目：订单平台"
+    )
+
+    user_content = captured_bodies[0]["messages"][1]["content"]
+    assert "张三" not in user_content
+    assert "zhangsan@example.com" not in user_content
+    assert "13800138000" not in user_content
+    assert "项目：订单平台" in user_content
+
+
 def test_timeout_is_converted_after_retries() -> None:
     attempts: list[str] = []
 

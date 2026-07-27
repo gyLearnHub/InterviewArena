@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+CURRENT_PRIVACY_VERSION = "2026-07-26"
+
 
 @dataclass(frozen=True)
 class UserRecord:
@@ -12,6 +14,8 @@ class UserRecord:
     avatar_url: str | None = None
     memory_enabled: bool = True
     memory_updated_at: datetime | None = None
+    external_model_consent: bool = False
+    external_model_consent_at: datetime | None = None
 
 
 class DuplicateUsernameError(Exception):
@@ -30,7 +34,8 @@ class UserRepository:
             cursor.execute(
                 """
                 SELECT id, username, display_name, avatar_url, password_hash,
-                       memory_enabled, memory_updated_at
+                       memory_enabled, memory_updated_at,
+                       external_model_consent_at, external_model_consent_version
                 FROM users
                 WHERE id = %s
                 """,
@@ -44,7 +49,8 @@ class UserRepository:
             cursor.execute(
                 """
                 SELECT id, username, display_name, avatar_url, password_hash,
-                       memory_enabled, memory_updated_at
+                       memory_enabled, memory_updated_at,
+                       external_model_consent_at, external_model_consent_version
                 FROM users
                 WHERE username = %s
                 """,
@@ -70,6 +76,7 @@ class UserRepository:
             username=username,
             display_name=username,
             password_hash=password_hash,
+            external_model_consent=False,
         )
 
     def consume_auth_rate_limit(
@@ -173,6 +180,29 @@ class UserRepository:
             )
         return self.get_by_id(user_id)
 
+    def update_external_model_consent(
+        self,
+        user_id: int,
+        consent: bool,
+    ) -> UserRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE users
+                SET external_model_consent_at = CASE
+                        WHEN %s = 1 THEN UTC_TIMESTAMP()
+                        ELSE NULL
+                    END,
+                    external_model_consent_version = CASE
+                        WHEN %s = 1 THEN %s
+                        ELSE NULL
+                    END
+                WHERE id = %s
+                """,
+                (consent, consent, CURRENT_PRIVACY_VERSION, user_id),
+            )
+        return self.get_by_id(user_id)
+
 
 def _to_user_record(row: dict[str, Any] | None) -> UserRecord | None:
     if row is None:
@@ -185,6 +215,11 @@ def _to_user_record(row: dict[str, Any] | None) -> UserRecord | None:
         password_hash=str(row["password_hash"]),
         memory_enabled=bool(row.get("memory_enabled", True)),
         memory_updated_at=row.get("memory_updated_at"),
+        external_model_consent=(
+            row.get("external_model_consent_at") is not None
+            and row.get("external_model_consent_version") == CURRENT_PRIVACY_VERSION
+        ),
+        external_model_consent_at=row.get("external_model_consent_at"),
     )
 
 

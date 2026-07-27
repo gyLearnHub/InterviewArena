@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("restores an authenticated cookie session without a local user cache", async ({ page }) => {
   await page.addInitScript(() => {

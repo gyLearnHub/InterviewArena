@@ -306,7 +306,17 @@ class ResumeRepository:
                     *ACTIVE_INTERVIEW_DEPENDENCY_STATUSES,
                 ),
             )
-            return int(cursor.rowcount) > 0
+            deleted = int(cursor.rowcount) > 0
+            if deleted:
+                cursor.execute(
+                    """
+                    UPDATE interviews
+                    SET resume_snapshot = JSON_OBJECT()
+                    WHERE resume_id = %s AND user_id = %s
+                    """,
+                    (resume_id, user_id),
+                )
+            return deleted
 
     def get_original_file_path_for_user(self, resume_id: int, user_id: int) -> str | None:
         with self.connection.cursor() as cursor:

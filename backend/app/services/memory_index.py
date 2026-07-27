@@ -89,6 +89,21 @@ class ChromaMemoryIndex:
     def delete_user_candidate_memories(self, user_id: int) -> str | None:
         return self.delete_user_memories(user_id, collections=("candidate_memories",))
 
+    def delete_unscoped_memories(self) -> str | None:
+        if not self.enabled:
+            return self.fallback_reason
+        errors: list[str] = []
+        for collection_name in COLLECTIONS:
+            try:
+                self.collections[collection_name].delete(where={"user_id": 0})
+            except Exception as exc:
+                errors.append(f"{collection_name}:{exc.__class__.__name__}")
+        return (
+            f"chroma_delete_unscoped_failed:{';'.join(errors)}"
+            if errors
+            else None
+        )
+
     def delete_user_memories(
         self,
         user_id: int,

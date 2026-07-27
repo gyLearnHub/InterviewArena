@@ -94,3 +94,17 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=app_error.status_code,
             content=build_error_response(app_error),
         )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, _exc: Exception) -> JSONResponse:
+        app_error = AppError(
+            ErrorCode.INTERNAL_ERROR,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        request_id = getattr(request.state, "request_id", None)
+        headers = {"X-Request-ID": request_id} if request_id else None
+        return JSONResponse(
+            status_code=app_error.status_code,
+            content=build_error_response(app_error),
+            headers=headers,
+        )
